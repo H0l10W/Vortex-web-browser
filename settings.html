@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Settings</title>
+  <script>
+    // Apply theme immediately to prevent FOUC (Flash of Unstyled Content)
+    (function() {
+      const themeClassName = localStorage.getItem('theme') || 'theme-light';
+      // The CSS expects the class on the body, so we'll apply it there.
+      // We can't access body directly in the head, so we'll set an attribute on html
+      // and have a script right after body opens to move it.
+      document.documentElement.setAttribute('data-theme', themeClassName);
+    })();
+  </script>
+  <link rel="stylesheet" href="settings.css">
+</head>
+<body>
+  <script>
+    // Move the theme class from <html> to <body> as soon as body exists.
+    (function() {
+      const themeClassName = document.documentElement.getAttribute('data-theme');
+      if (themeClassName) {
+        document.body.className = themeClassName;
+        document.documentElement.removeAttribute('data-theme');
+      }
+    })();
+  </script>
+  <div id="full-settings-page">
+    <header id="full-settings-header">
+      <h2>Settings</h2>
+    </header>
+    <div id="full-settings-content">
+      <aside id="full-settings-sidebar">
+        <button class="settings-tab-button active" data-tab="appearance">Appearance</button>
+        <!-- Add other tab buttons here if needed -->
+      </aside>
+      <main id="full-settings-main">
+        <div id="appearance-settings" class="settings-tab-content active">
+          <h3>Themes</h3>
+          <p>Choose a theme to personalize your browser's appearance.</p>
+          
+          <div class="theme-selector">
+            <h4>Light Themes</h4>
+            <div class="theme-options">
+              <div class="theme-option" data-theme="light">
+                <div class="theme-preview" style="background: #fff;"></div>
+                <span>Default Light</span>
+              </div>
+              <div class="theme-option" data-theme="light-mint">
+                <div class="theme-preview" style="background: radial-gradient(circle, #c1fdd1 0%, #a8eec1 100%);"></div>
+                <span>Mint</span>
+              </div>
+              <div class="theme-option" data-theme="light-sakura">
+                <div class="theme-preview" style="background: radial-gradient(circle, #ffc0cb 0%, #ffb6c1 100%);"></div>
+                <span>Sakura</span>
+              </div>
+              <div class="theme-option" data-theme="light-sunny">
+                <div class="theme-preview" style="background: radial-gradient(circle, #fff176 0%, #ffeb3b 100%);"></div>
+                <span>Sunny</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="theme-selector">
+            <h4>Dark Themes</h4>
+            <div class="theme-options">
+              <div class="theme-option" data-theme="dark">
+                <div class="theme-preview" style="background: #1a1a1a;"></div>
+                <span>Default Dark</span>
+              </div>
+              <div class="theme-option" data-theme="dark-purple">
+                <div class="theme-preview" style="background: radial-gradient(circle, #6a1b9a 0%, #ab47bc 100%);"></div>
+                <span>Purple</span>
+              </div>
+              <div class="theme-option" data-theme="dark-nord">
+                <div class="theme-preview" style="background: radial-gradient(circle, #4c566a 0%, #3b4252 100%);"></div>
+                <span>Nord</span>
+              </div>
+              <div class="theme-option" data-theme="dark-forest">
+                <div class="theme-preview" style="background: radial-gradient(circle, #5a6d5a 0%, #4a5d4a 100%);"></div>
+                <span>Forest</span>
+              </div>
+              <div class="theme-option" data-theme="dark-rose">
+                <div class="theme-preview" style="background: radial-gradient(circle, #7a5a77 0%, #664b63 100%);"></div>
+                <span>Rose</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <!-- Add other tab content here if needed -->
+      </main>
+    </div>
+  </div>
+  <script src="settings.js"></script>
+</body>
+</html>

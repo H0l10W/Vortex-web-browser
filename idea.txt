@@ -1,0 +1,10 @@
+profiles
+widgets e.g weather, news, stocks
+themes
+plugins
+incognito mode
+sync across devices
+customizable shortcuts
+dark mode
+auto-update
+privacy settings

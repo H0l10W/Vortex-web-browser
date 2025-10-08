@@ -1,0 +1,43 @@
+{
+  "name": "vortexwebbrowser",
+  "version": "1.0.0",
+  "description": "",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "electron": "^31.0.1",
+    "electron-builder": "^24.13.3",
+    "eslint": "^9.37.0"
+  },
+  "build": {
+    "appId": "com.example.vortexwebbrowser",
+    "productName": "vortexwebbrowser",
+    "files": [
+      "main.js",
+      "renderer.js",
+      "preload.js",
+      "settings.js",
+      "index.html",
+      "settings.html",
+      "style.css",
+      "settings.css",
+      "icons/**/*",
+      "node_modules/**/*"
+    ],
+    "nsis": {
+      "oneClick": true,
+      "allowToChangeInstallationDirectory": false
+    },
+    "win": {
+      "target": "nsis",
+      "icon": "icons/icon.png",
+      "forceCodeSigning": false
+    }
+  }
+}

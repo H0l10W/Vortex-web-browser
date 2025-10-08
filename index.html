@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Vortex</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="tabs"></div>
+  <div id="bookmark-bar"></div>
+  <div id="controls">
+    <button id="back" class="icon-btn"><img src="icons/back.png" alt="Back"></button>
+    <button id="forward" class="icon-btn"><img src="icons/forward.png" alt="Forward"></button>
+    <button id="reload" class="icon-btn"><img src="icons/reload.png" alt="Reload"></button>
+    <input id="url" type="text" placeholder="Enter URL and press Enter" />
+    <button id="bookmark-add" class="icon-btn"><img src="icons/bookmark.png" alt="Bookmark"></button>
+    <button id="set-home" class="icon-btn"><img src="icons/home.png" alt="Set Home"></button>
+    <button id="settings" class="icon-btn"><img src="icons/settings.png" alt="Settings"></button>
+  </div>
+  <div id="main-content">
+    <div id="newtab">
+      <h2>Quick Links</h2>
+      <div id="quick-links"></div>
+    </div>
+  </div>
+
+  <!-- Add Quick Link Modal -->
+  <div id="add-quick-link-modal" class="modal">
+    <div class="modal-content">
+      <span class="close-button">&times;</span>
+      <h2>Add Quick Link</h2>
+      <input id="new-quick-link-url" type="text" placeholder="Enter URL" required>
+      <input id="new-quick-link-label" type="text" placeholder="Enter a short name">
+      <button id="save-quick-link-btn">Save</button>
+    </div>
+  </div>
+
+  <!-- Settings Panel (Right Side) -->
+  <div id="settings-panel" class="side-panel">
+    <div class="settings-header">
+      <h2>Settings</h2>
+      <button id="close-settings" class="close-panel">&times;</button>
+    </div>
+    <div class="settings-content">
+      <div class="settings-section">
+        <h3>All Settings</h3>
+        <button id="all-settings-btn" class="settings-button">Show All Settings</button>
+      </div>
+      <div class="settings-section">
+        <h3>Homepage</h3>
+        <div class="settings-row">
+          <input id="homepage-input" type="text" placeholder="Enter homepage URL">
+          <button id="save-homepage-btn" class="settings-button">Save</button>
+        </div>
+      </div>
+      <div class="settings-section">
+        <h3>Default Search Engine</h3>
+        <select id="search-engine-select">
+          <option value="google">Google</option>
+          <option value="bing">Bing</option>
+          <option value="duckduckgo">DuckDuckGo</option>
+        </select>
+      </div>
+      <div class="settings-section">
+        <h3>Theme</h3>
+        <select id="theme-select">
+          <option value="light">Light</option>
+          <option value="dark">Dark</option>
+        </select>
+      </div>
+      <div class="settings-section">
+        <h3>Font Size</h3>
+        <input id="font-size-input" type="number" min="12" max="32" value="16"> px
+      </div>
+      <div class="settings-section">
+        <h3>Bookmarks Bar</h3>
+        <label><input type="checkbox" id="show-bookmarks-bar"> Show Bookmarks Bar</label>
+      </div>
+      <div class="settings-section">
+        <h3>Clear Browsing Data</h3>
+        <button id="clear-data-btn">Clear Data</button>
+      </div>
+      <div class="settings-section">
+        <h3>Start Page</h3>
+        <select id="start-page-select">
+          <option value="homepage">Homepage</option>
+          <option value="newtab">New Tab</option>
+          <option value="lastsession">Last Session</option>
+        </select>
+      </div>
+      <div class="settings-section">
+        <h3>Incognito Mode</h3>
+        <button id="incognito-btn">Open Incognito Window</button>
+      </div>
+      <div class="settings-section">
+        <h3>Tab Management</h3>
+        <button id="pin-tab-btn">Pin Tab</button>
+        <button id="duplicate-tab-btn">Duplicate Tab</button>
+        <button id="reopen-tab-btn">Reopen Closed Tab</button>
+      </div>
+      <div class="settings-section">
+        <h3>Bookmark Folders</h3>
+        <button id="manage-bookmark-folders-btn">Manage Folders</button>
+      </div>
+      <div class="settings-section">
+        <h3>Download Manager</h3>
+        <button id="show-downloads-btn">Show Downloads</button>
+      </div>
+      <div class="settings-section">
+        <h3>Custom User Agent</h3>
+        <input id="user-agent-input" type="text" placeholder="Enter custom user agent">
+        <button id="set-user-agent-btn">Set User Agent</button>
+      </div>
+      <div class="settings-section">
+        <h3>Keyboard Shortcuts</h3>
+        <p>Ctrl+T: New Tab, Ctrl+W: Close Tab, Ctrl+Shift+T: Reopen Tab, Ctrl+Tab: Next Tab</p>
+      </div>
+      <div class="settings-section">
+        <h3>Ad Blocker</h3>
+        <label><input type="checkbox" id="adblock-toggle"> Enable Simple Ad Blocker</label>
+      </div>
+      <div class="settings-section">
+        <h3>Session Restore</h3>
+        <button id="restore-session-btn">Restore Last Session</button>
+      </div>
+      <div class="settings-section">
+        <h3>About</h3>
+        <p>Vortex Browser</p>
+        <p><em>All settings are now available!</em></p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Overlay for when settings panel is open -->
+  <div id="overlay"></div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>

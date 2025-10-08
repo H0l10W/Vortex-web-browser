@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Settings</title>
+  <link rel="stylesheet" href="settings.css">
+</head>
+<body>
+  <div id="full-settings-page">
+    <div id="full-settings-header">
+      <h2>Settings</h2>
+    </div>
+    <div id="full-settings-content">
+      <div id="full-settings-sidebar">
+        <button class="settings-tab-button active" data-tab="themes">Themes</button>
+        <button class="settings-tab-button" data-tab="appearance">Appearance</button>
+      </div>
+      <div id="full-settings-main">
+        <div id="themes-settings" class="settings-tab-content active">
+          <h3>Themes</h3>
+          <div class="theme-selector">
+            <h4>Light Themes</h4>
+            <div class="theme-options">
+              <button class="theme-option" data-theme="light">
+                <div class="theme-preview" style="background: #fff; border-color: #ddd;"></div>
+                <span>Default Light</span>
+              </button>
+              <button class="theme-option" data-theme="light-mint">
+                <div class="theme-preview" style="background: #f0fff4; border-color: #98fb98;"></div>
+                <span>Mint Light</span>
+              </button>
+              <button class="theme-option" data-theme="light-sakura">
+                <div class="theme-preview" style="background: #fff0f5; border-color: #ffb6c1;"></div>
+                <span>Sakura Light</span>
+              </button>
+               <button class="theme-option" data-theme="light-sunny">
+                <div class="theme-preview" style="background: #fffaf0; border-color: #ffd700;"></div>
+                <span>Sunny Light</span>
+              </button>
+            </div>
+            <h4>Dark Themes</h4>
+            <div class="theme-options">
+              <button class="theme-option" data-theme="dark">
+                <div class="theme-preview" style="background: #1a1a1a; border-color: #404040;"></div>
+                <span>Default Dark</span>
+              </button>
+              <button class="theme-option" data-theme="dark-purple">
+                <div class="theme-preview" style="background: #2c1f3e; border-color: #8e24aa;"></div>
+                <span>Purple Dark</span>
+              </button>
+              <button class="theme-option" data-theme="dark-nord">
+                <div class="theme-preview" style="background: #2e3440; border-color: #88c0d0;"></div>
+                <span>Nord Dark</span>
+              </button>
+              <button class="theme-option" data-theme="dark-forest">
+                <div class="theme-preview" style="background: #2a3d2a; border-color: #a3be8c;"></div>
+                <span>Forest Dark</span>
+              </button>
+              <button class="theme-option" data-theme="dark-rose">
+                <div class="theme-preview" style="background: #3e2d3b; border-color: #b48ead;"></div>
+                <span>Rosé Dark</span>
+              </button>
+            </div>
+          </div>
+        </div>
+        <div id="appearance-settings" class="settings-tab-content">
+          <h3>Appearance</h3>
+          <p>More appearance settings will be here.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script src="settings.js"></script>
+</body>
+</html>
