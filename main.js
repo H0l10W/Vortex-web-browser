@@ -258,6 +258,10 @@ ipcMain.on('broadcast-theme-change', (event, theme) => {
   });
 });
 
+ipcMain.handle('get-app-version', () => {
+  return app.getVersion();
+});
+
 // Create incognito window (no session persistence)
 function createIncognitoWindow() {
   const incognitoWin = new BrowserWindow({

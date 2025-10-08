@@ -23,10 +23,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onOpenInNewTab: (callback) => ipcRenderer.on('open-in-new-tab', (event, url) => callback(url)),
   onNewWindow: (callback) => ipcRenderer.on('new-window', (event, url) => callback(url)),
   onPageTitleUpdated: (callback) => ipcRenderer.on('page-title-updated', (event, args) => callback(args)),
-  onThemeChanged: (callback) => ipcRenderer.on('theme-changed', (event, theme) => callback(theme)),
-
-  // --- Download Events ---
-  onDownloadStarted: (callback) => ipcRenderer.on('download-started', (event, data) => callback(data)),
-  onDownloadProgress: (callback) => ipcRenderer.on('download-progress', (event, data) => callback(data)),
-  onDownloadCompleted: (callback) => ipcRenderer.on('download-completed', (event, data) => callback(data)),
+  onThemeChanged: (callback) => ipcRenderer.on('theme-changed', (_event, theme) => callback(theme)),
+  broadcastThemeChange: (theme) => ipcRenderer.send('broadcast-theme-change', theme),
+  getAppVersion: () => ipcRenderer.invoke('get-app-version')
 });

@@ -33,7 +33,7 @@
     <div id="full-settings-content">
       <aside id="full-settings-sidebar">
         <button class="settings-tab-button active" data-tab="appearance">Appearance</button>
-        <!-- Add other tab buttons here if needed -->
+        <button class="settings-tab-button" data-tab="about">About</button>
       </aside>
       <main id="full-settings-main">
         <div id="appearance-settings" class="settings-tab-content active">
@@ -88,7 +88,10 @@
             </div>
           </div>
         </div>
-        <!-- Add other tab content here if needed -->
+        <div id="about-settings" class="settings-tab-content">
+          <h3>About Nodewebbrowser</h3>
+          <p>Version: <span id="app-version"></span></p>
+        </div>
       </main>
     </div>
   </div>

@@ -2,6 +2,15 @@ window.addEventListener('DOMContentLoaded', () => {
   const settingsTabButtons = document.querySelectorAll('.settings-tab-button');
   const settingsTabContents = document.querySelectorAll('.settings-tab-content');
   const themeOptions = document.querySelectorAll('.theme-option');
+  const appVersionSpan = document.getElementById('app-version');
+
+  if (window.electronAPI && typeof window.electronAPI.getAppVersion === 'function') {
+    window.electronAPI.getAppVersion().then(version => {
+      if (appVersionSpan) {
+        appVersionSpan.textContent = version;
+      }
+    });
+  }
 
   function applyTheme(themeClassName) {
     const themeClasses = [
