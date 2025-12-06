@@ -864,6 +864,13 @@ autoUpdater.on('update-downloaded', (info) => {
 });
 
 app.whenReady().then(() => {
+  console.log('=== AUTO-UPDATER DEBUG INFO ===');
+  console.log('App version:', app.getVersion());
+  console.log('Repository configured: H0l10W/Vortex-web-browser');
+  console.log('Expected API URL: https://api.github.com/repos/H0l10W/Vortex-web-browser/releases/latest');
+  console.log('Auto-updater provider:', autoUpdater.getFeedURL());
+  console.log('================================');
+  
   // Initialize non-critical components after window creation
   setImmediate(() => {
     initAdBlocker();
@@ -896,6 +903,7 @@ app.whenReady().then(() => {
 
   // Handle IPC messages for updates
   ipcMain.handle('check-for-updates', async () => {
+    console.log('=== MANUAL UPDATE CHECK TRIGGERED ===');
     try {
       if (process.env.NODE_ENV === 'development') {
         throw new Error('Update checking is disabled in development mode');
