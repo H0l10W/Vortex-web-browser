@@ -916,6 +916,45 @@ app.whenReady().then(() => {
       console.log('Manual update check initiated...');
       console.log('Current app version:', app.getVersion());
       
+      // Test direct GitHub API access first
+      console.log('Testing direct GitHub API access...');
+      try {
+        const https = require('https');
+        const apiTest = new Promise((resolve, reject) => {
+          const req = https.get('https://api.github.com/repos/H0l10W/Vortex-web-browser/releases/latest', (res) => {
+            let data = '';
+            res.on('data', chunk => data += chunk);
+            res.on('end', () => {
+              console.log('Direct API test - Status:', res.statusCode);
+              console.log('Direct API test - Headers:', res.headers);
+              if (res.statusCode === 200) {
+                const parsed = JSON.parse(data);
+                console.log('Direct API test - Latest version:', parsed.tag_name);
+                resolve(parsed);
+              } else {
+                console.log('Direct API test - Error response:', data);
+                reject(new Error(`API returned ${res.statusCode}: ${data}`));
+              }
+            });
+          });
+          req.on('error', err => {
+            console.log('Direct API test - Network error:', err.message);
+            reject(err);
+          });
+          req.setTimeout(10000, () => {
+            console.log('Direct API test - Timeout after 10 seconds');
+            req.destroy();
+            reject(new Error('API request timeout'));
+          });
+        });
+        
+        const apiResult = await apiTest;
+        console.log('Direct API test successful, proceeding with auto-updater...');
+      } catch (apiError) {
+        console.error('Direct API test failed:', apiError.message);
+        console.error('This suggests a network/firewall issue blocking GitHub API access');
+      }
+      
       // Force a fresh check by clearing any cached data
       const result = await autoUpdater.checkForUpdates();
       
