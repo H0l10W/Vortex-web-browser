@@ -21,7 +21,7 @@ window.addEventListener('DOMContentLoaded', () => {
 
     window.electronAPI.onUpdateAvailable((info) => {
       console.log('Update available:', info);
-      showUpdateNotification(`Update available: v${info.version}. Downloading...`, 'success');
+      showUpdateNotification(`Update v${info.version} found. Downloading...`, 'info');
     });
 
     window.electronAPI.onUpdateNotAvailable(() => {

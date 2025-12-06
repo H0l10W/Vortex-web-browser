@@ -550,6 +550,9 @@ autoUpdater.on('update-available', (info) => {
   BrowserWindow.getAllWindows().forEach(win => {
     win.webContents.send('update-available', info);
   });
+  // Explicitly start download
+  console.log('Starting download...');
+  autoUpdater.downloadUpdate();
 });
 
 autoUpdater.on('update-not-available', (info) => {
