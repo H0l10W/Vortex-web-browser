@@ -12,41 +12,72 @@ window.addEventListener('DOMContentLoaded', () => {
   console.log('State loaded - tabs:', tabs.length, 'bookmarks:', bookmarks.length);
   
   // --- Auto-Updater Communication ---
+  let updateState = {
+    checking: false,
+    downloading: false,
+    available: false,
+    downloaded: false
+  };
+
   if (window.electronAPI) {
     // Listen for update events
     window.electronAPI.onUpdateChecking(() => {
-      console.log('Checking for updates...');
-      showUpdateNotification('Checking for updates...', 'info');
+      if (!updateState.checking) {
+        console.log('Checking for updates...');
+        showUpdateNotification('Checking for updates...', 'info', 3000);
+        updateState.checking = true;
+        updateState.downloading = false;
+        updateState.available = false;
+        updateState.downloaded = false;
+      }
     });
 
     window.electronAPI.onUpdateAvailable((info) => {
-      console.log('Update available:', info);
-      showUpdateNotification(`Update v${info.version} found. Downloading...`, 'info');
+      if (!updateState.available) {
+        console.log('Update available:', info);
+        showUpdateNotification(`Update v${info.version} found. Downloading...`, 'info');
+        updateState.available = true;
+        updateState.checking = false;
+        updateState.downloading = true;
+      }
     });
 
     window.electronAPI.onUpdateNotAvailable(() => {
-      console.log('No updates available');
-      showUpdateNotification('You have the latest version!', 'info', 3000);
+      if (updateState.checking) {
+        console.log('No updates available');
+        showUpdateNotification('You have the latest version!', 'info', 3000);
+        updateState = { checking: false, downloading: false, available: false, downloaded: false };
+      }
     });
 
     window.electronAPI.onUpdateError((message) => {
       console.error('Update error:', message);
       showUpdateNotification(`Update error: ${message}`, 'error');
+      updateState = { checking: false, downloading: false, available: false, downloaded: false };
     });
 
     window.electronAPI.onUpdateDownloadProgress((progress) => {
-      const percent = Math.round(progress.percent);
-      showUpdateNotification(`Downloading update: ${percent}%`, 'info');
+      if (updateState.downloading) {
+        const percent = Math.round(progress.percent);
+        // Only update progress every 10% to reduce notification spam
+        if (percent % 10 === 0 || percent === 100) {
+          showUpdateNotification(`Downloading update: ${percent}%`, 'info');
+        }
+      }
     });
 
     window.electronAPI.onUpdateDownloaded((info) => {
-      console.log('Update downloaded:', info);
-      showUpdateNotification(
-        `Update v${info.version} ready to install. Click to restart and install.`,
-        'success',
-        0,
-        () => window.electronAPI.installUpdate()
-      );
+      if (!updateState.downloaded) {
+        console.log('Update downloaded:', info);
+        showUpdateNotification(
+          `Update v${info.version} ready to install. Click to restart and install.`,
+          'success',
+          0,
+          () => window.electronAPI.installUpdate()
+        );
+        updateState.downloaded = true;
+        updateState.downloading = false;
+      }
     });
   }
   
