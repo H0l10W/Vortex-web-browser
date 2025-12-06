@@ -41,20 +41,11 @@
       "output": "dist"
     },
     "files": [
-      "main.js",
-      "renderer.js",
-      "preload.js",
-      "settings.js",
-      "index.html",
-      "settings.html",
-      "style.css",
-      "settings.css",
-      "icons/**/*",
-      "!node_modules/**/*",
-      "node_modules/electron-updater/**/*",
+      "**/*",
       "!**/.git/**/*",
       "!dist/**/*",
-      "!*.log"
+      "!*.log",
+      "!obj/**/*"
     ],
     "compression": "store",
     "removePackageScripts": true,
