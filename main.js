@@ -788,6 +788,9 @@ function createSettingsWindow() {
 // Auto-updater event handlers
 autoUpdater.on('checking-for-update', () => {
   console.log('Checking for update...');
+  console.log('Repository: H0l10W/Vortex-web-browser');
+  console.log('API URL: https://api.github.com/repos/H0l10W/Vortex-web-browser/releases');
+  console.log('Current app version:', app.getVersion());
   // Notify all windows about update check
   BrowserWindow.getAllWindows().forEach(win => {
     win.webContents.send('update-checking');
