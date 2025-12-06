@@ -281,9 +281,17 @@ FakesAssemblies/
 # GhostDoc plugin setting file
 *.GhostDoc.xml
 
+# Certificate files (NEVER commit these!)
+cert.p12
+*.pfx
+*.p12
+
 # Node.js Tools for Visual Studio
 .ntvs_analysis.dat
 node_modules/
+
+# Electron build output
+dist/
 
 # Visual Studio 6 build log
 *.plg

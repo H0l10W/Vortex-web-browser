@@ -1,10 +1,11 @@
 profiles
-widgets e.g weather, news, stocks
-themes
+add an option to close last tab which will close the browser
+widgets e.g weather, news, stocks ----------------- weather is done
+themes ------------------ This one is done to a basic standard.
 plugins
-incognito mode
-sync across devices
+incognito mode --------------- done in the settings page but still need to add a button to the quick bar.
 customizable shortcuts
-dark mode
+dark mode ------------ done
 auto-update
 privacy settings
+clear cookies and history options --------- done

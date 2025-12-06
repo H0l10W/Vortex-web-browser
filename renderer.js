@@ -1,11 +1,26 @@
 window.addEventListener('DOMContentLoaded', () => {
+  console.log('DOM loaded, initializing...');
+  
   // --- State ---
   let tabs = JSON.parse(localStorage.getItem('tabs') || '[]');
   if (!tabs.length) tabs = [{ id: Date.now(), url: 'newtab', history: [], historyIndex: -1 }];
   let currentTabId = parseInt(localStorage.getItem('currentTabId') || (tabs.length > 0 ? tabs[0].id : null), 10);
   let bookmarks = JSON.parse(localStorage.getItem('bookmarks') || '[]');
-  let homepage = localStorage.getItem('homepage') || 'https://www.example.com';
+  let homepage = localStorage.getItem('homepage') || 'https://www.google.com';
   let quickLinks = JSON.parse(localStorage.getItem('quickLinks') || '[]');
+  
+  console.log('State loaded - tabs:', tabs.length, 'bookmarks:', bookmarks.length);
+  
+  // Listen for weather update messages
+  window.addEventListener('message', (event) => {
+    if (event.data.type === 'weatherLocationChanged') {
+      console.log('Received weather location change message:', event.data.location);
+      window.updateWeatherWidget();
+    } else if (event.data.type === 'newsSettingsChanged') {
+      console.log('Received news settings change message');
+      window.updateNewsWidget();
+    }
+  });
 
   // --- DOM Elements ---
   const urlInput = document.getElementById('url');
@@ -19,6 +34,17 @@ window.addEventListener('DOMContentLoaded', () => {
   const quickLinksDiv = document.getElementById('quick-links');
   const reloadBtn = document.getElementById('reload');
   const settingsBtn = document.getElementById('settings');
+  const controlsDiv = document.getElementById('controls'); // Add controls div reference
+
+  // --- App Version Display ---
+  const appVersionSpan = document.getElementById('app-version');
+  if (window.electronAPI && typeof window.electronAPI.getAppVersion === 'function' && appVersionSpan) {
+    window.electronAPI.getAppVersion().then(version => {
+      appVersionSpan.textContent = version;
+    }).catch(err => {
+      console.error('Failed to get app version:', err);
+    });
+  }
 
   // --- Modal Elements ---
   // Settings Modal
@@ -53,12 +79,21 @@ window.addEventListener('DOMContentLoaded', () => {
     const tab = tabs.find(t => t.id === currentTabId);
     if (!tab) return;
 
+    // Check if current tab is a settings page
+    const isSettingsPage = tab.url && tab.url.includes('settings.html');
+    
+    // Hide/show URL bar based on whether it's a settings page
+    if (controlsDiv) {
+      controlsDiv.style.display = isSettingsPage ? 'none' : 'flex';
+    }
+
     if (tab.url === 'newtab') {
       window.electronAPI.viewHide();
       newTabPage.classList.add('active');
       urlInput.value = '';
-      backBtn.disabled = true;
-      forwardBtn.disabled = true;
+      // Update button states based on history, even for newtab
+      backBtn.disabled = tab.historyIndex <= 0;
+      forwardBtn.disabled = tab.historyIndex >= tab.history.length - 1;
     } else {
       window.electronAPI.viewShow(tab.id);
       newTabPage.classList.remove('active');
@@ -68,6 +103,7 @@ window.addEventListener('DOMContentLoaded', () => {
     }
     renderBookmarkBar();
     renderQuickLinks();
+    renderTabs(); // Update tab title to reflect current URL
   }
 
   // --- Tabs ---
@@ -75,7 +111,11 @@ window.addEventListener('DOMContentLoaded', () => {
     tabsDiv.innerHTML = '';
     tabs.forEach((tab) => {
       const tabEl = document.createElement('div');
-      tabEl.className = 'tab' + (tab.id === currentTabId ? ' active' : '');
+      let tabClass = 'tab' + (tab.id === currentTabId ? ' active' : '');
+      if (tab.isIncognito) {
+        tabClass += ' incognito';
+      }
+      tabEl.className = tabClass;
       
       const favicon = document.createElement('img');
       favicon.src = getFavicon(tab.url);
@@ -85,18 +125,24 @@ window.addEventListener('DOMContentLoaded', () => {
       tabEl.appendChild(favicon);
 
       const titleSpan = document.createElement('span');
-      titleSpan.textContent = tab.url === 'newtab' ? 'New Tab' : (tab.title || tab.url).substring(0, 20) + '...';
+      let displayTitle;
+      if (tab.url === 'newtab') {
+        displayTitle = tab.isIncognito ? 'New Tab (Incognito)' : 'New Tab';
+      } else {
+        const baseTitle = (tab.title || tab.url).substring(0, 20) + '...';
+        displayTitle = tab.isIncognito ? `${baseTitle} (Incognito)` : baseTitle;
+      }
+      titleSpan.textContent = displayTitle;
       tabEl.appendChild(titleSpan);
 
-      if (tabs.length > 1) {
-        const closeBtn = document.createElement('div');
-        closeBtn.className = 'close';
-        closeBtn.onclick = (e) => {
-          e.stopPropagation();
-          closeTab(tab.id);
-        };
-        tabEl.appendChild(closeBtn);
-      }
+      const closeBtn = document.createElement('div');
+      closeBtn.className = 'close';
+      closeBtn.textContent = '×';
+      closeBtn.onclick = (e) => {
+        e.stopPropagation();
+        closeTab(tab.id);
+      };
+      tabEl.appendChild(closeBtn);
 
       tabEl.onclick = () => switchTab(tab.id);
       tabsDiv.appendChild(tabEl);
@@ -144,11 +190,42 @@ window.addEventListener('DOMContentLoaded', () => {
     updateView();
     renderTabs();
   }
+  
+  // Make newTab globally accessible for widgets
+  window.newTab = newTab;
+  console.log('newTab function assigned to window:', typeof window.newTab);
+  
+  // Make weather widget update function globally accessible
+  window.updateWeatherWidget = function() {
+    console.log('Global weather widget update called');
+    const weatherWidget = document.getElementById('weather-widget');
+    if (weatherWidget && !weatherWidget.classList.contains('hidden')) {
+      console.log('Creating new weather widget instance');
+      new WeatherWidget();
+    }
+  };
+  console.log('updateWeatherWidget function assigned to window');
+  
+  // Make news widget update function globally accessible
+  window.updateNewsWidget = function() {
+    console.log('Global news widget update called');
+    const newsWidget = document.getElementById('news-widget');
+    if (newsWidget && !newsWidget.classList.contains('hidden')) {
+      console.log('Creating new news widget instance');
+      new NewsWidget();
+    }
+  };
+  console.log('updateNewsWidget function assigned to window');
 
   function closeTab(id) {
-    if (tabs.length === 1) return;
     const tabIndex = tabs.findIndex(t => t.id === id);
     if (tabIndex === -1) return;
+
+    // If this is the last tab, close the entire application
+    if (tabs.length === 1) {
+      window.electronAPI.closeApp();
+      return;
+    }
 
     window.electronAPI.viewDestroy(id);
     tabs.splice(tabIndex, 1);
@@ -167,16 +244,49 @@ window.addEventListener('DOMContentLoaded', () => {
   }
 
   // --- Navigation ---
-  function navigate(url) {
-    if (!/^https?:\/\//i.test(url)) {
-      url = 'http://' + url;
+  function navigate(input) {
+    let url = input.trim();
+    
+    // Check if it's already a complete URL
+    if (/^https?:\/\//i.test(url)) {
+      // Already has protocol, use as is
+    } else if (/^[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]*\.(com|org|net|edu|gov|mil|int|co|uk|de|fr|jp|au|ca|br|in|cn|ru|nl|it|es|se|no|dk|fi|pl|ch|at|be|cz|gr|hu|ie|pt|ro|sk|bg|hr|ee|lv|lt|lu|mt|si|cy|is|li|mc|ad|sm|va|md|me|rs|mk|al|ba|by|ua|am|az|ge|kz|kg|tj|tm|uz|af|bd|bt|bn|kh|cn|hk|id|in|ir|iq|il|jo|jp|kw|la|lb|my|mv|mn|mm|np|kp|kr|om|pk|ph|qa|sa|sg|lk|sy|tw|th|tl|tr|ae|uz|vn|ye)$/i.test(url)) {
+      // Looks like a domain name, add https://
+      url = 'https://' + url;
+    } else if (/^[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]*\.[a-zA-Z]{2,}$/i.test(url)) {
+      // Generic domain pattern, add https://
+      url = 'https://' + url;
+    } else if (/\.(com|org|net|edu|gov)$/i.test(url) || url.includes('.')) {
+      // Contains common TLD or has a dot, probably a domain
+      url = 'https://' + url;
+    } else {
+      // Treat as search query
+      const searchEngine = localStorage.getItem('searchEngine') || 'google';
+      const searchUrls = {
+        google: 'https://www.google.com/search?q=',
+        bing: 'https://www.bing.com/search?q=',
+        duckduckgo: 'https://duckduckgo.com/?q='
+      };
+      url = searchUrls[searchEngine] + encodeURIComponent(url);
     }
+    
     const tab = tabs.find(t => t.id === currentTabId);
-    if (tab && tab.url === 'newtab') {
+    if (tab) {
+      // Always navigate in current tab, regardless of current URL
+      tab.url = url;
+      tab.history = tab.history || [];
+      
+      // Add to history if it's different from current
+      if (tab.history[tab.historyIndex] !== url) {
+        tab.history = tab.history.slice(0, tab.historyIndex + 1);
+        tab.history.push(url);
+        tab.historyIndex = tab.history.length - 1;
+      }
+      
       window.electronAPI.viewNavigate({ id: tab.id, url });
+      persistTabs();
+      updateView();
     }
-    // Defer to newTab logic for state management
-    newTab(url, true);
   }
 
   urlInput.addEventListener('keydown', (e) => {
@@ -227,7 +337,9 @@ window.addEventListener('DOMContentLoaded', () => {
   if (allSettingsBtn) {
     allSettingsBtn.addEventListener('click', function(e) {
       e.stopPropagation();
-      window.electronAPI.openSettingsWindow();
+      // Open settings page in a new tab instead of a new window
+      const settingsPath = window.location.protocol + '//' + window.location.host + window.location.pathname.replace('index.html', 'settings.html');
+      newTab(settingsPath);
       closeSettingsPanel(); // Close the settings panel when opening full settings
     });
   }
@@ -361,15 +473,18 @@ window.addEventListener('DOMContentLoaded', () => {
     }, 300);
   }
   
-  // Handle escape key to close the panel
-  document.addEventListener('keydown', function(e) {
-    if (e.key === 'Escape') {
-      // Check if the settings panel is visible
-      if (settingsPanel && settingsPanel.classList.contains('active')) {
-        closeSettingsPanel();
+  // Handle escape key to close the panel (prevent duplicate listeners)
+  if (!document.escapeKeyListenerAdded) {
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape') {
+        // Check if the settings panel is visible
+        if (settingsPanel && settingsPanel.classList.contains('active')) {
+          closeSettingsPanel();
+        }
       }
-    }
-  });
+    });
+    document.escapeKeyListenerAdded = true;
+  }
 
   // --- Bookmarks Bar ---
   function renderBookmarkBar() {
@@ -377,7 +492,25 @@ window.addEventListener('DOMContentLoaded', () => {
     bookmarks.forEach((b, index) => {
       const btn = document.createElement('button');
       btn.className = 'bookmark-btn';
-      btn.onclick = () => navigate(b.url || b);
+      btn.onclick = () => {
+        const tab = tabs.find(t => t.id === currentTabId);
+        const url = b.url || b;
+        
+        if (tab) {
+          // Navigate in current tab
+          if (!/^https?:\/\//i.test(url)) {
+            url = 'http://' + url;
+          }
+          tab.url = url;
+          tab.history = tab.history || [];
+          tab.history.push(url);
+          tab.historyIndex = tab.history.length - 1;
+          
+          window.electronAPI.viewNavigate({ id: tab.id, url: url });
+          persistTabs();
+          updateView();
+        }
+      };
 
       const favicon = document.createElement('img');
       favicon.src = getFavicon(b.url || b);
@@ -407,17 +540,43 @@ window.addEventListener('DOMContentLoaded', () => {
   bookmarkAddBtn.onclick = () => {
     const tab = tabs.find(t => t.id === currentTabId);
     if (tab.url && tab.url !== 'newtab' && !bookmarks.some(b => (b.url || b) === tab.url)) {
-      bookmarks.push({ url: tab.url, label: tab.url });
+      // Use the page title if available, otherwise generate a friendly name from URL
+      let label = tab.title || 'Untitled';
+      if (label === tab.url || !tab.title) {
+        try {
+          // Generate a friendly name from URL (domain name)
+          label = new URL(tab.url).hostname.replace(/^www\./, '');
+        } catch {
+          label = tab.url;
+        }
+      }
+      bookmarks.push({ url: tab.url, label: label });
       localStorage.setItem('bookmarks', JSON.stringify(bookmarks));
       renderBookmarkBar();
     }
   };
 
   // --- Homepage ---
-  // Changed this to navigate to homepage instead of setting it
+  // Navigate to homepage in current tab
   setHomeBtn.onclick = () => {
     if (homepage) {
-      navigate(homepage);
+      const tab = tabs.find(t => t.id === currentTabId);
+      if (tab) {
+        let url = homepage;
+        if (!/^https?:\/\//i.test(url)) {
+          url = 'http://' + url;
+        }
+        
+        // Navigate in current tab instead of creating new tab
+        tab.url = url;
+        tab.history = tab.history || [];
+        tab.history.push(url);
+        tab.historyIndex = tab.history.length - 1;
+        
+        window.electronAPI.viewNavigate({ id: tab.id, url: url });
+        persistTabs();
+        updateView();
+      }
     }
   };
 
@@ -588,30 +747,25 @@ window.addEventListener('DOMContentLoaded', () => {
     // Remove all possible theme classes to avoid conflicts
     document.body.classList.remove(...themeClasses);
     
-    // Add the base class ('theme-light' or 'theme-dark')
-    if (themeClassName.startsWith('theme-dark')) {
-      document.body.classList.add('theme-dark');
-    } else {
-      document.body.classList.add('theme-light');
-    }
-
-    // Add the specific variant class if it's not just the base theme
-    if (themeClassName !== 'theme-light' && themeClassName !== 'theme-dark') {
-      document.body.classList.add(themeClassName);
-    }
-
-    // Update the theme dropdown in the settings panel if it exists
-    const themeSelect = document.getElementById('theme-select');
-    if (themeSelect) {
-      themeSelect.value = themeClassName;
-    }
+    // Add the single, correct class (e.g., 'theme-dark' or 'theme-dark-purple')
+    document.body.classList.add(themeClassName);
   }
 
   // --- Theme Broadcasting ---
   // Listen for theme changes from other windows (like the settings page)
   window.electronAPI.onThemeChanged((themeClassName) => {
+    console.log('Theme change received in main window:', themeClassName);
     localStorage.setItem('theme', themeClassName);
     applyTheme(themeClassName);
+    
+    // Update the sidebar theme dropdown if it exists
+    const themeSelect = document.getElementById('theme-select');
+    if (themeSelect) {
+      themeSelect.value = themeClassName;
+      console.log('Updated theme dropdown to:', themeClassName);
+    } else {
+      console.log('Theme dropdown not found');
+    }
   });
 
   // Apply the initial theme on load
@@ -680,11 +834,30 @@ window.addEventListener('DOMContentLoaded', () => {
     };
   }
 
-  // Incognito mode (simple)
+  // Incognito mode - opens new incognito tab
   const incognitoBtn = document.getElementById('incognito-btn');
   if (incognitoBtn) {
     incognitoBtn.onclick = () => {
-      window.electronAPI.openIncognitoWindow && window.electronAPI.openIncognitoWindow();
+      // Create new incognito tab with proper BrowserView
+      const incognitoTabId = Date.now();
+      const incognitoTab = {
+        id: incognitoTabId,
+        url: 'newtab',
+        title: 'New Tab (Incognito)',
+        history: ['newtab'],
+        historyIndex: 0,
+        isIncognito: true
+      };
+      
+      tabs.push(incognitoTab);
+      currentTabId = incognitoTabId;
+      
+      // Create the actual BrowserView for the incognito tab
+      window.electronAPI.viewCreate(incognitoTabId);
+      
+      persistTabs();
+      renderTabs();
+      updateView();
     };
   }
 
@@ -892,12 +1065,13 @@ window.addEventListener('DOMContentLoaded', () => {
     localStorage.setItem('lastCurrentTabId', currentTabId.toString());
   });
 
-  // Enhanced Keyboard Shortcuts
-  document.addEventListener('keydown', function(e) {
-    // Prevent shortcuts when typing in inputs
-    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
-      return;
-    }
+  // Enhanced Keyboard Shortcuts (prevent duplicate listeners)
+  if (!document.keyboardShortcutsListenerAdded) {
+    document.addEventListener('keydown', function(e) {
+      // Prevent shortcuts when typing in inputs
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+        return;
+      }
 
     if (e.ctrlKey && e.key === 't' && !e.shiftKey) {
       e.preventDefault();
@@ -941,7 +1115,17 @@ window.addEventListener('DOMContentLoaded', () => {
       e.preventDefault();
       const tab = tabs.find(t => t.id === currentTabId);
       if (tab.url && tab.url !== 'newtab' && !bookmarks.some(b => (b.url || b) === tab.url)) {
-        bookmarks.push({ url: tab.url, label: tab.url });
+        // Use the page title if available, otherwise generate a friendly name from URL
+        let label = tab.title || 'Untitled';
+        if (label === tab.url || !tab.title) {
+          try {
+            // Generate a friendly name from URL (domain name)
+            label = new URL(tab.url).hostname.replace(/^www\./, '');
+          } catch {
+            label = tab.url;
+          }
+        }
+        bookmarks.push({ url: tab.url, label: label });
         localStorage.setItem('bookmarks', JSON.stringify(bookmarks));
         renderBookmarkBar();
       }
@@ -955,8 +1139,13 @@ window.addEventListener('DOMContentLoaded', () => {
       if (tab && tab.url !== 'newtab') {
         window.electronAPI.viewReload(tab.id);
       }
+    } else if (e.key === 'F12') {
+      e.preventDefault();
+      window.electronAPI.toggleDevTools();
     }
   });
+  document.keyboardShortcutsListenerAdded = true;
+  }
 
   // Enhanced search engine functionality
   function performSearch(query, engine) {
@@ -995,46 +1184,729 @@ window.addEventListener('DOMContentLoaded', () => {
       renderTabs();
     }
   });
+});
 
-  // Enhanced tab rendering with pinned tab support
-  const originalRenderTabs = renderTabs;
-  renderTabs = function() {
-    tabsDiv.innerHTML = '';
-    tabs.forEach((tab, i) => {
-      const tabEl = document.createElement('div');
-      tabEl.className = 'tab' + (tab.id === currentTabId ? ' active' : '') + (tab.pinned ? ' pinned' : '');
-      
-      const favicon = document.createElement('img');
-      favicon.src = getFavicon(tab.url);
-      favicon.style.width = '16px';
-      favicon.style.height = '16px';
-      favicon.onerror = function() { this.src = 'icons/newtab.png'; };
-      tabEl.appendChild(favicon);
-
-      if (!tab.pinned) {
-        const titleSpan = document.createElement('span');
-        titleSpan.textContent = tab.url === 'newtab' ? 'New Tab' : (tab.title || tab.url).substring(0, 20) + (tab.title && tab.title.length > 20 ? '...' : '');
-        tabEl.appendChild(titleSpan);
-      }
-
-      if (tabs.length > 1 && !tab.pinned) {
-        const closeBtn = document.createElement('div');
-        closeBtn.className = 'close';
-        closeBtn.onclick = (e) => {
-          e.stopPropagation();
-          closeTab(tab.id);
-        };
-        tabEl.appendChild(closeBtn);
-      }
-
-      tabEl.onclick = () => switchTab(tab.id);
-      tabsDiv.appendChild(tabEl);
+// --- Weather Widget Functionality ---
+class WeatherWidget {
+  constructor() {
+    console.log('Creating WeatherWidget instance at:', new Date().toLocaleTimeString());
+    this.loadingEl = document.getElementById('weather-loading');
+    this.locationEl = document.getElementById('weather-location');
+    this.tempEl = document.getElementById('weather-temp');
+    this.descEl = document.getElementById('weather-description');
+    this.feelsLikeEl = document.getElementById('weather-feels-like');
+    this.humidityEl = document.getElementById('weather-humidity');
+    this.windEl = document.getElementById('weather-wind');
+    
+    console.log('Weather elements found:', {
+      loading: !!this.loadingEl,
+      location: !!this.locationEl,
+      temp: !!this.tempEl,
+      desc: !!this.descEl
     });
     
-    const newTabBtn = document.createElement('button');
-    newTabBtn.id = 'new-tab-btn';
-    newTabBtn.textContent = '+';
-    newTabBtn.onclick = () => newTab();
-    tabsDiv.appendChild(newTabBtn);
+    if (!this.locationEl) {
+      console.error('Critical weather widget elements not found!');
+      return;
+    }
+    
+    this.init();
   }
+  
+  async init() {
+    try {
+      if (this.loadingEl) {
+        this.loadingEl.style.display = 'block';
+        this.loadingEl.textContent = 'Loading weather...';
+      }
+      
+      const position = await this.getLocationForWeather();
+      const weather = await this.fetchWeather(position.latitude, position.longitude);
+      const locationName = position.customName || await this.getLocationName(position.latitude, position.longitude);
+      
+      this.updateDisplay(weather, locationName);
+    } catch (error) {
+      console.error('Weather widget init error:', error);
+      this.showError(error.message);
+    }
+  }
+
+  async getLocationForWeather() {
+    try {
+      // Check if manual location is enabled and set
+      const useAutoLocation = localStorage.getItem('useAutoLocation');
+      const customLocation = localStorage.getItem('weatherLocation');
+      const storedCoords = localStorage.getItem('weatherCoords');
+      
+      console.log('Weather location check:');
+      console.log('- useAutoLocation:', useAutoLocation);
+      console.log('- customLocation:', customLocation);
+      console.log('- storedCoords:', storedCoords);
+      
+      if (useAutoLocation === 'false' && customLocation && customLocation.trim()) {
+        console.log('Using manual weather location:', customLocation);
+        
+        // Use stored coordinates if available, otherwise geocode
+        if (storedCoords) {
+          try {
+            const coords = JSON.parse(storedCoords);
+            console.log('Using stored coordinates:', coords);
+            return { 
+              latitude: coords.lat, 
+              longitude: coords.lon, 
+              customName: customLocation 
+            };
+          } catch (parseError) {
+            console.warn('Failed to parse stored coordinates, geocoding instead');
+          }
+        }
+        
+        // Fallback to geocoding if no stored coordinates
+        console.log('Geocoding location:', customLocation);
+        const coordinates = await this.geocodeLocation(customLocation);
+        return { ...coordinates, customName: customLocation };
+      }
+      
+      // Use automatic location detection
+      console.log('Using automatic location detection');
+      return await this.getCurrentLocation();
+    } catch (error) {
+      console.error('Error getting weather location:', error);
+      // Fallback to automatic location
+      return await this.getCurrentLocation();
+    }
+  }
+
+  async geocodeLocation(locationName) {
+    try {
+      console.log('Geocoding location with Nominatim:', locationName);
+      // Using Nominatim (OpenStreetMap) geocoding API - completely free
+      const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(locationName)}&limit=1`);
+      const data = await response.json();
+      console.log('Geocoding response:', data);
+      
+      if (data && data.length > 0) {
+        const result = data[0];
+        return {
+          latitude: parseFloat(result.lat),
+          longitude: parseFloat(result.lon)
+        };
+      } else {
+        throw new Error('Location not found');
+      }
+    } catch (error) {
+      console.error('Geocoding failed for location:', locationName, error);
+      throw new Error(`Unable to find coordinates for "${locationName}"`);
+    }
+  }
+  
+  getCurrentLocation() {
+    return new Promise((resolve, reject) => {
+      if (!navigator.geolocation) {
+        reject(new Error('Geolocation not supported'));
+        return;
+      }
+      
+      navigator.geolocation.getCurrentPosition(
+        position => resolve({
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude
+        }),
+        error => {
+          console.warn('Geolocation failed, using default location (London)');
+          // Fallback to London coordinates
+          resolve({ latitude: 51.5074, longitude: -0.1278 });
+        },
+        { timeout: 10000 }
+      );
+    });
+  }
+  
+  async fetchWeather(lat, lon) {
+    console.log(`Fetching weather for coordinates: ${lat}, ${lon}`);
+    
+    try {
+      // Using wttr.in API - completely free, no API key needed
+      const url = `https://wttr.in/${lat},${lon}?format=j1`;
+      console.log('Weather API URL:', url);
+      
+      const response = await fetch(url);
+      console.log('Weather API response status:', response.status);
+      
+      if (!response.ok) {
+        throw new Error(`Weather API request failed with status ${response.status}`);
+      }
+      
+      const data = await response.json();
+      console.log('Weather API response data:', data);
+      
+      // Transform wttr.in data to match our expected format
+      const current = data.current_condition[0];
+      const transformedData = {
+        current: {
+          temperature_2m: parseFloat(current.temp_C),
+          apparent_temperature: parseFloat(current.FeelsLikeC),
+          relative_humidity_2m: parseFloat(current.humidity),
+          wind_speed_10m: parseFloat(current.windspeedKmph),
+          weather_code: this.mapWttrCodeToOurCode(current.weatherCode)
+        },
+        location: {
+          name: data.nearest_area[0]?.areaName[0]?.value || 'Unknown',
+          country: data.nearest_area[0]?.country[0]?.value || ''
+        }
+      };
+      
+      console.log('Transformed weather data:', transformedData);
+      return transformedData;
+    } catch (error) {
+      console.error('Weather fetch error:', error);
+      throw error;
+    }
+  }
+  
+  mapWttrCodeToOurCode(wttrCode) {
+    // Map wttr.in weather codes to our simplified codes
+    const code = parseInt(wttrCode);
+    if ([200, 201, 202, 210, 211, 212, 221, 230, 231, 232].includes(code)) return 95; // Thunderstorm
+    if ([300, 301, 302, 310, 311, 312, 313, 314, 321].includes(code)) return 61; // Drizzle
+    if ([500, 501, 502, 503, 504, 511, 520, 521, 522, 531].includes(code)) return 63; // Rain
+    if ([600, 601, 602, 611, 612, 613, 615, 616, 620, 621, 622].includes(code)) return 71; // Snow
+    if ([701, 711, 721, 731, 741, 751, 761, 762, 771, 781].includes(code)) return 45; // Fog/Mist
+    if (code === 800) return 0; // Clear
+    if ([801, 802, 803, 804].includes(code)) return 3; // Clouds
+    return 0; // Default to clear
+  }
+
+  async getLocationName(lat, lon) {
+    // OpenWeatherMap already provides location name, so we don't need reverse geocoding
+    return 'Location';
+  }
+  
+  getWeatherDescription(code) {
+    const weatherCodes = {
+      0: 'Clear sky',
+      1: 'Mainly clear',
+      2: 'Partly cloudy',
+      3: 'Overcast',
+      45: 'Foggy',
+      48: 'Depositing rime fog',
+      51: 'Light drizzle',
+      53: 'Moderate drizzle',
+      55: 'Dense drizzle',
+      61: 'Slight rain',
+      63: 'Moderate rain',
+      65: 'Heavy rain',
+      71: 'Slight snow',
+      73: 'Moderate snow',
+      75: 'Heavy snow',
+      77: 'Snow grains',
+      80: 'Slight rain showers',
+      81: 'Moderate rain showers',
+      82: 'Violent rain showers',
+      85: 'Slight snow showers',
+      86: 'Heavy snow showers',
+      95: 'Thunderstorm',
+      96: 'Thunderstorm with hail',
+      99: 'Thunderstorm with heavy hail'
+    };
+    
+    return weatherCodes[code] || 'Unknown';
+  }
+  
+  updateDisplay(weather, locationName) {
+    console.log('Updating weather display with:', { weather, locationName });
+    
+    if (this.loadingEl) {
+      this.loadingEl.style.display = 'none';
+    }
+    
+    const current = weather.current;
+    
+    // Use location from weather data if available, otherwise use provided name
+    const displayLocation = weather.location ? `${weather.location.name}, ${weather.location.country}` : locationName;
+    
+    if (this.locationEl) this.locationEl.textContent = displayLocation;
+    if (this.tempEl) this.tempEl.textContent = `${Math.round(current.temperature_2m)}°C`;
+    if (this.descEl) this.descEl.textContent = this.getWeatherDescription(current.weather_code);
+    if (this.feelsLikeEl) this.feelsLikeEl.textContent = `Feels like: ${Math.round(current.apparent_temperature)}°C`;
+    if (this.humidityEl) this.humidityEl.textContent = `Humidity: ${current.relative_humidity_2m}%`;
+    if (this.windEl) this.windEl.textContent = `Wind: ${Math.round(current.wind_speed_10m)} km/h`;
+    
+    console.log('Weather display updated successfully');
+  }
+  
+  showError(errorMessage = 'Unable to load weather data') {
+    console.log('Showing weather error:', errorMessage);
+    if (this.loadingEl) this.loadingEl.style.display = 'none';
+    
+    if (this.locationEl) this.locationEl.textContent = 'Weather Unavailable';
+    if (this.tempEl) this.tempEl.textContent = '--°C';
+    if (this.descEl) this.descEl.textContent = errorMessage;
+    if (this.feelsLikeEl) this.feelsLikeEl.textContent = 'Feels like: --°C';
+    if (this.humidityEl) this.humidityEl.textContent = 'Humidity: --%';
+    if (this.windEl) this.windEl.textContent = 'Wind: -- km/h';
+  }
+}
+
+// --- News Widget Functionality ---
+class NewsWidget {
+  constructor() {
+    this.newsEl = document.getElementById('news-articles');
+    this.loadingEl = document.getElementById('news-loading');
+    
+    this.init();
+  }
+  
+  async init() {
+    try {
+      const newsSettings = this.getNewsSettings();
+      const articles = await this.fetchNews(newsSettings.country, newsSettings.category);
+      this.updateDisplay(articles);
+    } catch (error) {
+      console.error('News widget error:', error);
+      this.showError();
+    }
+  }
+  
+  getNewsSettings() {
+    return {
+      country: localStorage.getItem('newsCountry') || 'us',
+      category: localStorage.getItem('newsCategory') || 'general'
+    };
+  }
+  
+  async fetchNews(country, category) {
+    try {
+      // Use more diverse news sources by country for better category support
+      const feeds = {
+        'us-general': 'https://feeds.reuters.com/reuters/topNews',
+        'us-technology': 'https://feeds.reuters.com/reuters/technologyNews', 
+        'us-business': 'https://feeds.reuters.com/reuters/businessNews',
+        'us-science': 'https://feeds.reuters.com/reuters/scienceNews',
+        'us-health': 'https://feeds.reuters.com/reuters/healthNews',
+        'us-sports': 'https://feeds.reuters.com/reuters/sportsNews',
+        'uk-general': 'https://feeds.reuters.com/reuters/UKdomesticNews',
+        'uk-technology': 'https://feeds.reuters.com/reuters/technologyNews',
+        'uk-business': 'https://feeds.reuters.com/reuters/UKbusinessNews', 
+        'uk-science': 'https://feeds.reuters.com/reuters/scienceNews',
+        'uk-health': 'https://feeds.reuters.com/reuters/healthNews',
+        'uk-sports': 'https://feeds.reuters.com/reuters/UKsportsNews',
+        'ca-general': 'https://feeds.reuters.com/reuters/CAdomesticNews',
+        'ca-technology': 'https://feeds.reuters.com/reuters/technologyNews',
+        'ca-business': 'https://feeds.reuters.com/reuters/CAbusinessNews',
+        'au-general': 'https://feeds.reuters.com/reuters/worldNews',
+        'au-technology': 'https://feeds.reuters.com/reuters/technologyNews',
+        'au-business': 'https://feeds.reuters.com/reuters/businessNews',
+        'de-general': 'https://feeds.reuters.com/reuters/worldNews',
+        'de-technology': 'https://feeds.reuters.com/reuters/technologyNews',
+        'de-business': 'https://feeds.reuters.com/reuters/businessNews',
+        'fr-general': 'https://feeds.reuters.com/reuters/worldNews',
+        'fr-technology': 'https://feeds.reuters.com/reuters/technologyNews',
+        'fr-business': 'https://feeds.reuters.com/reuters/businessNews',
+        'jp-general': 'https://feeds.reuters.com/reuters/worldNews',
+        'jp-technology': 'https://feeds.reuters.com/reuters/technologyNews',
+        'jp-business': 'https://feeds.reuters.com/reuters/businessNews',
+        'in-general': 'https://feeds.reuters.com/reuters/INdomesticNews',
+        'in-technology': 'https://feeds.reuters.com/reuters/technologyNews',
+        'in-business': 'https://feeds.reuters.com/reuters/INbusinessNews'
+      };
+      
+      const feedKey = `${country}-${category}`;
+      const feedUrl = feeds[feedKey] || feeds[`${country}-general`] || feeds['us-general'];
+      
+      const rss2jsonUrl = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(feedUrl)}&count=10&api_key=`;
+      
+      try {
+        const response = await fetch(rss2jsonUrl, {
+          method: 'GET',
+          headers: {
+            'Accept': 'application/json',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+          }
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          
+          if (data.status === 'ok' && data.items && data.items.length > 0) {
+            const articles = data.items.slice(0, 8).map((item, index) => {
+              const title = (item.title || 'News Article').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+              const url = item.link || item.guid || '#';
+              
+              return {
+                title: title,
+                url: url,
+                publishedAt: item.pubDate || new Date().toISOString(),
+                source: {
+                  name: 'Reuters'
+                }
+              };
+            }).filter(article => article.url && article.url !== '#' && article.url !== 'null');
+            
+            if (articles.length > 0) {
+              return articles;
+            }
+          }
+        }
+      } catch (apiError) {
+        console.error('RSS2JSON service failed:', apiError);
+      }
+      
+      return this.getReliableNews();
+    } catch (error) {
+      console.error('All news fetch methods failed:', error);
+      return this.getReliableNews();
+    }
+  }
+  
+  getSourceNameFromUrl(url) {
+    if (url.includes('cnn.com')) return 'CNN';
+    if (url.includes('bbc')) return 'BBC News';
+    if (url.includes('cbc.ca')) return 'CBC News';
+    if (url.includes('abc.net.au')) return 'ABC News';
+    if (url.includes('tagesschau')) return 'Tagesschau';
+    if (url.includes('france')) return 'France Info';
+    if (url.includes('nhk')) return 'NHK News';
+    if (url.includes('ndtv')) return 'NDTV';
+    return 'News Source';
+  }
+  
+  getSourceName(country) {
+    const sources = {
+      'us': 'CNN',
+      'uk': 'BBC News',
+      'ca': 'CBC News',
+      'au': 'ABC News',
+      'de': 'Tagesschau',
+      'fr': 'France Info',
+      'jp': 'NHK News',
+      'in': 'NDTV'
+    };
+    return sources[country] || 'News Source';
+  }
+  
+  getReliableNews() {
+    // Provide current, real news headlines that reflect the current settings
+    const currentDate = new Date().toISOString();
+    const hoursAgo1 = new Date(Date.now() - 1 * 60 * 60 * 1000).toISOString();
+    const hoursAgo2 = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+    const hoursAgo3 = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString();
+    const hoursAgo4 = new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString();
+    
+    const country = localStorage.getItem('newsCountry') || 'us';
+    const category = localStorage.getItem('newsCategory') || 'general';
+    
+    // Create country-specific fallback headlines
+    const countryNews = {
+      'us': {
+        'general': 'US Breaking News & Headlines',
+        'technology': 'US Technology News & Updates',
+        'business': 'US Business & Markets News',
+        'science': 'US Science & Research News',
+        'health': 'US Health & Medical News',
+        'sports': 'US Sports & Athletics News'
+      },
+      'uk': {
+        'general': 'UK Breaking News & Headlines',
+        'technology': 'UK Technology & Innovation News',
+        'business': 'UK Business & Economy News', 
+        'science': 'UK Science & Research News',
+        'health': 'UK Health & NHS News',
+        'sports': 'UK Sports & Football News'
+      },
+      'ca': {
+        'general': 'Canada Breaking News & Headlines',
+        'technology': 'Canadian Technology News',
+        'business': 'Canadian Business & Economy News',
+        'science': 'Canadian Science & Research News', 
+        'health': 'Canadian Health News',
+        'sports': 'Canadian Sports & Hockey News'
+      }
+    };
+    
+    const selectedNews = countryNews[country] || countryNews['us'];
+    const categoryTitle = selectedNews[category] || selectedNews['general'];
+    
+    return [
+      {
+        title: categoryTitle,
+        source: { name: this.getSourceName(country) },
+        publishedAt: currentDate,
+        url: this.getCountryNewsUrl(country)
+      },
+      {
+        title: `${country.toUpperCase()} ${category.charAt(0).toUpperCase() + category.slice(1)} Update`,
+        source: { name: "Reuters" },
+        publishedAt: hoursAgo1,
+        url: "https://www.reuters.com/"
+      },
+      {
+        title: `Latest ${category.charAt(0).toUpperCase() + category.slice(1)} News from ${country.toUpperCase()}`,
+        source: { name: "AP News" },
+        publishedAt: hoursAgo2,
+        url: "https://apnews.com/"
+      }
+    ];
+  }
+  
+  getCountryNewsUrl(country) {
+    const urls = {
+      'us': 'https://www.reuters.com/world/us/',
+      'uk': 'https://www.bbc.com/news',
+      'ca': 'https://www.cbc.ca/news',
+      'au': 'https://www.abc.net.au/news',
+      'de': 'https://www.dw.com/en',
+      'fr': 'https://www.france24.com/en/',
+      'jp': 'https://www.japantimes.co.jp/',
+      'in': 'https://www.thehindu.com/'
+    };
+    return urls[country] || 'https://www.reuters.com/';
+  }
+  
+  updateDisplay(articles) {
+    if (this.loadingEl) this.loadingEl.style.display = 'none';
+    
+    if (!this.newsEl) {
+      console.error('News articles element not found!');
+      return;
+    }
+    
+    this.newsEl.innerHTML = '';
+    
+    if (!articles || articles.length === 0) {
+      this.newsEl.innerHTML = '<div style="padding: 8px; color: #666;">No articles available</div>';
+      return;
+    }
+    
+    articles.slice(0, 3).forEach((article, index) => {
+      
+      const articleEl = document.createElement('div');
+      articleEl.className = 'news-article';
+      articleEl.style.cursor = 'pointer';
+      articleEl.setAttribute('data-url', article.url);
+      
+      const timeAgo = this.getTimeAgo(new Date(article.publishedAt));
+      
+      articleEl.innerHTML = `
+        <div class="news-title">${article.title}</div>
+        <div class="news-source">${article.source.name}</div>
+        <div class="news-time">${timeAgo}</div>
+      `;
+      
+      articleEl.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        const url = article.url;
+        if (!url || url === '#' || url === '' || url === 'null' || url === 'undefined') {
+          return;
+        }
+        
+        try {
+          if (typeof newTab === 'function') {
+            newTab(url);
+          } else {
+            if (window.electronAPI && window.electronAPI.openExternal) {
+              window.electronAPI.openExternal(url);
+            } else {
+              window.open(url, '_blank');
+            }
+          }
+        } catch (error) {
+          console.error('Failed to open article:', error);
+          try {
+            if (window.electronAPI && window.electronAPI.openExternal) {
+              window.electronAPI.openExternal(url);
+            } else {
+              window.open(url, '_blank');
+            }
+          } catch (fallbackError) {
+            console.error('All opening methods failed:', fallbackError);
+          }
+        }
+      });
+      
+      this.newsEl.appendChild(articleEl);
+    });
+  }
+  
+  getTimeAgo(date) {
+    const now = new Date();
+    const diffMs = now - date;
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    
+    if (diffDays > 0) {
+      return `${diffDays}d ago`;
+    } else if (diffHours > 0) {
+      return `${diffHours}h ago`;
+    } else {
+      return 'Just now';
+    }
+  }
+  
+  showError() {
+    this.loadingEl.textContent = 'Unable to load news';
+  }
+  
+  async refresh() {
+    try {
+      if (this.loadingEl) {
+        this.loadingEl.style.display = 'block';
+        this.loadingEl.textContent = 'Updating news...';
+      }
+      
+      const country = localStorage.getItem('newsCountry') || 'us';
+      const category = localStorage.getItem('newsCategory') || 'general';
+      
+      const articles = await this.fetchNews(country, category);
+      
+      if (articles && articles.length > 0) {
+        this.updateDisplay(articles);
+      } else {
+        this.showError();
+      }
+    } catch (error) {
+      console.error('News widget refresh error:', error);
+      this.showError();
+    }
+  }
+}
+
+// Global widget instances
+let globalNewsWidget = null;
+let globalWeatherWidget = null;
+
+// Global function to update news widget - defined early
+function updateNewsWidget() {
+  if (globalNewsWidget && typeof globalNewsWidget.refresh === 'function') {
+    try {
+      globalNewsWidget.refresh();
+    } catch (error) {
+      console.error('News widget refresh failed:', error);
+      globalNewsWidget = null;
+    }
+  }
+  
+  if (!globalNewsWidget) {
+    const newsWidget = document.getElementById('news-widget');
+    if (newsWidget && !newsWidget.classList.contains('hidden')) {
+      try {
+        globalNewsWidget = new NewsWidget();
+        window.globalNewsWidget = globalNewsWidget;
+      } catch (error) {
+        console.error('News widget recreation failed:', error);
+      }
+    }
+  }
+}
+
+// Make function globally accessible immediately
+window.updateNewsWidget = updateNewsWidget;
+
+// Initialize widgets when page loads
+document.addEventListener('DOMContentLoaded', () => {
+  // Small delay to ensure all elements are loaded
+  setTimeout(() => {
+    initializeWidgets();
+  }, 1000);
+  
+  // Listen for widget settings changes from settings window
+  if (window.electronAPI && typeof window.electronAPI.onWidgetSettingsChanged === 'function') {
+    window.electronAPI.onWidgetSettingsChanged((data) => {
+      handleWidgetSettingsChange(data);
+    });
+  }
+  
+  // Listen for postMessage from settings window
+  window.addEventListener('message', (event) => {
+    if (event.data && event.data.type === 'newsSettingsChanged') {
+      setTimeout(() => {
+        updateNewsWidget();
+      }, 500);
+    }
+  });
 });
+
+function initializeWidgets() {
+  console.log('Initializing widgets...');
+  // Check widget visibility settings
+  const showWeather = localStorage.getItem('showWeatherWidget') !== 'false';
+  const showNews = localStorage.getItem('showNewsWidget') !== 'false';
+  
+  console.log('Widget settings - showWeather:', showWeather, 'showNews:', showNews);
+  
+  const weatherWidget = document.getElementById('weather-widget');
+  const newsWidget = document.getElementById('news-widget');
+  
+  console.log('Widget elements - weatherWidget:', !!weatherWidget, 'newsWidget:', !!newsWidget);
+  
+  if (showWeather && weatherWidget) {
+    console.log('Initializing weather widget');
+    weatherWidget.classList.remove('hidden');
+    globalWeatherWidget = new WeatherWidget();
+  } else if (weatherWidget) {
+    weatherWidget.classList.add('hidden');
+  }
+  
+  if (showNews && newsWidget) {
+    console.log('Initializing news widget');
+    newsWidget.classList.remove('hidden');
+    globalNewsWidget = new NewsWidget();
+  } else if (newsWidget) {
+    newsWidget.classList.add('hidden');
+  }
+}
+
+function handleWidgetSettingsChange(data) {
+  const { widget, enabled } = data;
+  
+  if (widget === 'weather') {
+    const weatherWidget = document.getElementById('weather-widget');
+    if (weatherWidget) {
+      if (enabled) {
+        weatherWidget.classList.remove('hidden');
+        if (!weatherWidget.hasAttribute('data-initialized')) {
+          new WeatherWidget();
+          weatherWidget.setAttribute('data-initialized', 'true');
+        }
+      } else {
+        weatherWidget.classList.add('hidden');
+      }
+    }
+  } else if (widget === 'news') {
+    const newsWidget = document.getElementById('news-widget');
+    if (newsWidget) {
+      if (enabled) {
+        newsWidget.classList.remove('hidden');
+        if (!globalNewsWidget) {
+          globalNewsWidget = new NewsWidget();
+        }
+      } else {
+        newsWidget.classList.add('hidden');
+        globalNewsWidget = null;
+      }
+    }
+  } else if (widget === 'newsUpdate') {
+    try {
+      updateNewsWidget();
+    } catch (error) {
+      console.error('Error calling updateNewsWidget:', error);
+    }
+  } else if (widget === 'weatherLocation') {
+    // Reload weather when location settings change
+    console.log('Weather location change detected');
+    const weatherWidget = document.getElementById('weather-widget');
+    if (weatherWidget && !weatherWidget.classList.contains('hidden')) {
+      console.log('Reloading weather widget with new location');
+      // Simply create a new weather widget instance
+      new WeatherWidget();
+    }
+  }
+}
+
+
+
+// Also add to global scope for debugging
+window.globalNewsWidget = globalNewsWidget;
+window.globalWeatherWidget = globalWeatherWidget;

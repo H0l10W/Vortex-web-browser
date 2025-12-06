@@ -2,6 +2,7 @@
 <html>
 <head>
   <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' https://wttr.in https://nominatim.openstreetmap.org https://api.rss2json.com https://feeds.reuters.com https://newsapi.org; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data: https:; object-src 'none'; base-uri 'self'; form-action 'self' https:; frame-ancestors 'none'; upgrade-insecure-requests;">
   <title>Vortex</title>
   <link rel="stylesheet" href="style.css">
 </head>
@@ -9,16 +10,44 @@
   <div id="tabs"></div>
   <div id="bookmark-bar"></div>
   <div id="controls">
-    <button id="back" class="icon-btn"><img src="icons/back.png" alt="Back"></button>
-    <button id="forward" class="icon-btn"><img src="icons/forward.png" alt="Forward"></button>
-    <button id="reload" class="icon-btn"><img src="icons/reload.png" alt="Reload"></button>
+    <div class="button-group-left">
+      <button id="back" class="icon-btn"><img src="icons/back.png" alt="Back"></button>
+      <button id="forward" class="icon-btn"><img src="icons/forward.png" alt="Forward"></button>
+      <button id="reload" class="icon-btn"><img src="icons/reload.png" alt="Reload"></button>
+    </div>
     <input id="url" type="text" placeholder="Enter URL and press Enter" />
-    <button id="bookmark-add" class="icon-btn"><img src="icons/bookmark.png" alt="Bookmark"></button>
-    <button id="set-home" class="icon-btn"><img src="icons/home.png" alt="Set Home"></button>
-    <button id="settings" class="icon-btn"><img src="icons/settings.png" alt="Settings"></button>
+    <div class="button-group-right">
+      <button id="bookmark-add" class="icon-btn"><img src="icons/bookmark.png" alt="Bookmark"></button>
+      <button id="incognito-btn" class="icon-btn"><img src="icons/incognito.png" alt="Add Quick Link"></button>
+      <button id="set-home" class="icon-btn"><img src="icons/home.png" alt="Set Home"></button>
+      <button id="settings" class="icon-btn"><img src="icons/settings.png" alt="Settings"></button>
+    </div>
   </div>
   <div id="main-content">
     <div id="newtab">
+      <div id="widgets-container">
+        <div id="weather-widget">
+          <div class="widget-content">
+            <div class="widget-header">Weather</div>
+            <div id="weather-loading" class="loading">Loading weather...</div>
+            <div id="weather-location" class="weather-location"></div>
+            <div id="weather-temp" class="weather-temp"></div>
+            <div id="weather-description" class="weather-description"></div>
+            <div id="weather-details" class="weather-details">
+              <div id="weather-feels-like"></div>
+              <div id="weather-humidity"></div>
+              <div id="weather-wind"></div>
+            </div>
+          </div>
+        </div>
+        <div id="news-widget">
+          <div class="widget-content">
+            <div class="widget-header">Latest News</div>
+            <div id="news-loading" class="loading">Loading news...</div>
+            <div id="news-articles"></div>
+          </div>
+        </div>
+      </div>
       <h2>Quick Links</h2>
       <div id="quick-links"></div>
     </div>
@@ -61,13 +90,7 @@
           <option value="duckduckgo">DuckDuckGo</option>
         </select>
       </div>
-      <div class="settings-section">
-        <h3>Theme</h3>
-        <select id="theme-select">
-          <option value="light">Light</option>
-          <option value="dark">Dark</option>
-        </select>
-      </div>
+
       <div class="settings-section">
         <h3>Font Size</h3>
         <input id="font-size-input" type="number" min="12" max="32" value="16"> px
@@ -88,16 +111,8 @@
           <option value="lastsession">Last Session</option>
         </select>
       </div>
-      <div class="settings-section">
-        <h3>Incognito Mode</h3>
-        <button id="incognito-btn">Open Incognito Window</button>
-      </div>
-      <div class="settings-section">
-        <h3>Tab Management</h3>
-        <button id="pin-tab-btn">Pin Tab</button>
-        <button id="duplicate-tab-btn">Duplicate Tab</button>
-        <button id="reopen-tab-btn">Reopen Closed Tab</button>
-      </div>
+
+
       <div class="settings-section">
         <h3>Bookmark Folders</h3>
         <button id="manage-bookmark-folders-btn">Manage Folders</button>
@@ -106,11 +121,7 @@
         <h3>Download Manager</h3>
         <button id="show-downloads-btn">Show Downloads</button>
       </div>
-      <div class="settings-section">
-        <h3>Custom User Agent</h3>
-        <input id="user-agent-input" type="text" placeholder="Enter custom user agent">
-        <button id="set-user-agent-btn">Set User Agent</button>
-      </div>
+
       <div class="settings-section">
         <h3>Keyboard Shortcuts</h3>
         <p>Ctrl+T: New Tab, Ctrl+W: Close Tab, Ctrl+Shift+T: Reopen Tab, Ctrl+Tab: Next Tab</p>
@@ -119,10 +130,7 @@
         <h3>Ad Blocker</h3>
         <label><input type="checkbox" id="adblock-toggle"> Enable Simple Ad Blocker</label>
       </div>
-      <div class="settings-section">
-        <h3>Session Restore</h3>
-        <button id="restore-session-btn">Restore Last Session</button>
-      </div>
+
       <div class="settings-section">
         <h3>About</h3>
         <p>Vortex Browser</p>

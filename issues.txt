@@ -1,2 +1,1 @@
-back button going to far back
-need to be able to search in search bar straight away there a issue with it
+go through code and check for deprecated

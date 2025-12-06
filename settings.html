@@ -2,6 +2,7 @@
 <html>
 <head>
   <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; img-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests;">
   <title>Settings</title>
   <script>
     // Apply theme immediately to prevent FOUC (Flash of Unstyled Content)
@@ -33,64 +34,246 @@
     <div id="full-settings-content">
       <aside id="full-settings-sidebar">
         <button class="settings-tab-button active" data-tab="appearance">Appearance</button>
+        <button class="settings-tab-button" data-tab="widgets">Widgets</button>
+        <button class="settings-tab-button" data-tab="privacy">Privacy</button>
         <button class="settings-tab-button" data-tab="about">About</button>
       </aside>
       <main id="full-settings-main">
         <div id="appearance-settings" class="settings-tab-content active">
-          <h3>Themes</h3>
-          <p>Choose a theme to personalize your browser's appearance.</p>
+          <div class="settings-tab-header">
+            <h3>Appearance</h3>
+            <p>Customize the look and feel of your browser.</p>
+          </div>
           
-          <div class="theme-selector">
-            <h4>Light Themes</h4>
-            <div class="theme-options">
-              <div class="theme-option" data-theme="light">
-                <div class="theme-preview" style="background: #fff;"></div>
-                <span>Default Light</span>
+          <div class="settings-card">
+            <div class="card-header">
+              <h4>Themes</h4>
+              <p>Choose a theme to personalize your browser's appearance</p>
+            </div>
+            
+            <div class="theme-selector">
+              <h5>Light Themes</h5>
+              <div class="theme-options">
+                <div class="theme-option" data-theme="light">
+                  <div class="theme-preview" style="background: #fff;"></div>
+                  <span>Default Light</span>
+                </div>
+                <div class="theme-option" data-theme="light-mint">
+                  <div class="theme-preview" style="background: radial-gradient(circle, #c1fdd1 0%, #a8eec1 100%);"></div>
+                  <span>Mint</span>
+                </div>
+                <div class="theme-option" data-theme="light-sakura">
+                  <div class="theme-preview" style="background: radial-gradient(circle, #ffc0cb 0%, #ffb6c1 100%);"></div>
+                  <span>Sakura</span>
+                </div>
+                <div class="theme-option" data-theme="light-sunny">
+                  <div class="theme-preview" style="background: radial-gradient(circle, #fff176 0%, #ffeb3b 100%);"></div>
+                  <span>Sunny</span>
+                </div>
               </div>
-              <div class="theme-option" data-theme="light-mint">
-                <div class="theme-preview" style="background: radial-gradient(circle, #c1fdd1 0%, #a8eec1 100%);"></div>
-                <span>Mint</span>
+            </div>
+
+            <div class="theme-selector">
+              <h5>Dark Themes</h5>
+              <div class="theme-options">
+                <div class="theme-option" data-theme="dark">
+                  <div class="theme-preview" style="background: #1a1a1a;"></div>
+                  <span>Default Dark</span>
+                </div>
+                <div class="theme-option" data-theme="dark-purple">
+                  <div class="theme-preview" style="background: radial-gradient(circle, #6a1b9a 0%, #ab47bc 100%);"></div>
+                  <span>Purple</span>
+                </div>
+                <div class="theme-option" data-theme="dark-nord">
+                  <div class="theme-preview" style="background: radial-gradient(circle, #4c566a 0%, #3b4252 100%);"></div>
+                  <span>Nord</span>
+                </div>
+                <div class="theme-option" data-theme="dark-forest">
+                  <div class="theme-preview" style="background: radial-gradient(circle, #5a6d5a 0%, #4a5d4a 100%);"></div>
+                  <span>Forest</span>
+                </div>
+                <div class="theme-option" data-theme="dark-rose">
+                  <div class="theme-preview" style="background: radial-gradient(circle, #7a5a77 0%, #664b63 100%);"></div>
+                  <span>Rose</span>
+                </div>
               </div>
-              <div class="theme-option" data-theme="light-sakura">
-                <div class="theme-preview" style="background: radial-gradient(circle, #ffc0cb 0%, #ffb6c1 100%);"></div>
-                <span>Sakura</span>
+            </div>
+          </div>
+        </div>
+        <div id="widgets-settings" class="settings-tab-content">
+          <div class="settings-tab-header">
+            <h3>Widgets</h3>
+            <p>Customize which widgets appear on your new tab page.</p>
+          </div>
+          
+          <div class="widgets-grid">
+            <div class="widget-card">
+              <div class="widget-header">
+                <div class="widget-info">
+                  <h4>Weather Widget</h4>
+                  <p>Display current weather conditions</p>
+                </div>
+                <label class="toggle-switch">
+                  <input type="checkbox" id="weather-widget-toggle" checked>
+                  <span class="slider"></span>
+                </label>
               </div>
-              <div class="theme-option" data-theme="light-sunny">
-                <div class="theme-preview" style="background: radial-gradient(circle, #fff176 0%, #ffeb3b 100%);"></div>
-                <span>Sunny</span>
+              
+              <div class="widget-settings" id="weather-settings-options">
+                <div class="setting-group">
+                  <label for="weather-location" class="setting-label">Location</label>
+                  <div class="input-group">
+                    <input 
+                      type="text" 
+                      id="weather-location" 
+                      placeholder="Enter city name (e.g., London, New York)" 
+                      list="weather-suggestions" 
+                      class="setting-input"
+                    />
+                    <datalist id="weather-suggestions">
+                      <option value="New York, USA">
+                      <option value="London, UK">
+                      <option value="Paris, France">
+                      <option value="Tokyo, Japan">
+                      <option value="Sydney, Australia">
+                      <option value="Berlin, Germany">
+                      <option value="Toronto, Canada">
+                      <option value="Mumbai, India">
+                      <option value="Dubai, UAE">
+                      <option value="Los Angeles, USA">
+                    </datalist>
+                  </div>
+                  <div class="button-group">
+                    <button id="update-weather-location" class="btn-primary">Update Location</button>
+                    <button id="reset-weather-location" class="btn-secondary">Use Auto Location</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="widget-card">
+              <div class="widget-header">
+                <div class="widget-info">
+                  <h4>News Widget</h4>
+                  <p>Display latest news articles</p>
+                </div>
+                <label class="toggle-switch">
+                  <input type="checkbox" id="news-widget-toggle" checked>
+                  <span class="slider"></span>
+                </label>
+              </div>
+              
+              <div class="widget-settings" id="news-settings-options">
+                <div class="setting-group">
+                  <label for="news-country" class="setting-label">News Region</label>
+                  <select id="news-country" class="setting-select">
+                    <option value="us">United States</option>
+                    <option value="gb">United Kingdom</option>
+                    <option value="ca">Canada</option>
+                    <option value="au">Australia</option>
+                    <option value="de">Germany</option>
+                    <option value="fr">France</option>
+                    <option value="jp">Japan</option>
+                    <option value="in">India</option>
+                  </select>
+                </div>
+                
+                <div class="setting-group">
+                  <label for="news-category" class="setting-label">Category</label>
+                  <select id="news-category" class="setting-select">
+                    <option value="general">General</option>
+                    <option value="business">Business</option>
+                    <option value="technology">Technology</option>
+                    <option value="science">Science</option>
+                    <option value="health">Health</option>
+                    <option value="sports">Sports</option>
+                    <option value="entertainment">Entertainment</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div id="privacy-settings" class="settings-tab-content">
+          <div class="settings-tab-header">
+            <h3>Privacy & Data</h3>
+            <p>Manage your browsing history and stored data.</p>
+          </div>
+          
+          <div class="settings-grid">
+            <div class="settings-card">
+              <div class="card-header">
+                <h4>Browsing History</h4>
+                <p>Manage your browsing history and saved data</p>
+              </div>
+              <div class="card-actions">
+                <button id="clear-history-btn" class="btn-secondary danger">Clear Browsing History</button>
+              </div>
+            </div>
+
+            <div class="settings-card">
+              <div class="card-header">
+                <h4>Cookies & Site Data</h4>
+                <p>View and manage cookies stored by websites</p>
+              </div>
+              <div class="card-actions">
+                <div class="button-group">
+                  <button id="view-cookies-btn" class="btn-primary">View All Cookies</button>
+                  <button id="clear-cookies-btn" class="btn-secondary danger">Clear All Cookies</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="settings-card">
+              <div class="card-header">
+                <h4>Clear All Data</h4>
+                <p>Remove all browsing data including history, cookies, and stored site data</p>
+              </div>
+              <div class="card-actions">
+                <button id="clear-all-data-btn" class="btn-secondary danger">Clear All Browsing Data</button>
               </div>
             </div>
           </div>
 
-          <div class="theme-selector">
-            <h4>Dark Themes</h4>
-            <div class="theme-options">
-              <div class="theme-option" data-theme="dark">
-                <div class="theme-preview" style="background: #1a1a1a;"></div>
-                <span>Default Dark</span>
+          <!-- Cookie Viewer Modal -->
+          <div id="cookie-modal" class="modal">
+            <div class="modal-content">
+              <div class="modal-header">
+                <h3>Cookies & Site Data</h3>
+                <button id="close-cookie-modal" class="close-btn">&times;</button>
               </div>
-              <div class="theme-option" data-theme="dark-purple">
-                <div class="theme-preview" style="background: radial-gradient(circle, #6a1b9a 0%, #ab47bc 100%);"></div>
-                <span>Purple</span>
-              </div>
-              <div class="theme-option" data-theme="dark-nord">
-                <div class="theme-preview" style="background: radial-gradient(circle, #4c566a 0%, #3b4252 100%);"></div>
-                <span>Nord</span>
-              </div>
-              <div class="theme-option" data-theme="dark-forest">
-                <div class="theme-preview" style="background: radial-gradient(circle, #5a6d5a 0%, #4a5d4a 100%);"></div>
-                <span>Forest</span>
-              </div>
-              <div class="theme-option" data-theme="dark-rose">
-                <div class="theme-preview" style="background: radial-gradient(circle, #7a5a77 0%, #664b63 100%);"></div>
-                <span>Rose</span>
+              <div class="modal-body">
+                <div id="cookies-list"></div>
               </div>
             </div>
           </div>
         </div>
         <div id="about-settings" class="settings-tab-content">
-          <h3>About Nodewebbrowser</h3>
-          <p>Version: <span id="app-version"></span></p>
+          <div class="settings-tab-header">
+            <h3>About Vortex</h3>
+            <p>Information about your browser and version.</p>
+          </div>
+          
+          <div class="settings-card">
+            <div class="card-header">
+              <h4>Browser Information</h4>
+              <p>Current version and build details</p>
+            </div>
+            <div class="card-content">
+              <div class="info-item">
+                <span class="info-label">Application:</span>
+                <span class="info-value">Vortex Web Browser</span>
+              </div>
+              <div class="info-item">
+                <span class="info-label">Version:</span>
+                <span class="info-value" id="app-version">Loading...</span>
+              </div>
+              <div class="info-item">
+                <span class="info-label">Build Date:</span>
+                <span class="info-value">December 2025</span>
+              </div>
+            </div>
+          </div>
         </div>
       </main>
     </div>

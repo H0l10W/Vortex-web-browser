@@ -1,11 +1,15 @@
 {
   "name": "vortexwebbrowser",
-  "version": "0.0.1",
-  "description": "",
+  "version": "0.0.7",
+  "description": "A fast, lightweight web browser built with Electron",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "build": "electron-builder"
+    "build": "electron-builder --win --publish=never",
+    "build:portable": "electron-builder --win portable --publish=never",
+    "build:dir": "electron-builder --win --dir",
+    "build:zip": "electron-builder --win zip",
+    "dist": "electron-builder --publish=never"
   },
   "keywords": [],
   "author": "",
@@ -17,7 +21,10 @@
   },
   "build": {
     "appId": "com.example.vortexwebbrowser",
-    "productName": "vortexwebbrowser",
+    "productName": "VortexBrowser",
+    "directories": {
+      "output": "dist"
+    },
     "files": [
       "main.js",
       "renderer.js",
@@ -28,16 +35,51 @@
       "style.css",
       "settings.css",
       "icons/**/*",
-      "node_modules/**/*"
+      "!node_modules/**/*",
+      "!**/.git/**/*",
+      "!dist/**/*",
+      "!*.log"
     ],
+    "compression": "store",
+    "removePackageScripts": true,
+    "removePackageKeywords": true,
     "nsis": {
-      "oneClick": true,
-      "allowToChangeInstallationDirectory": false
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "allowElevation": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "artifactName": "${productName}-Setup-${version}.${ext}",
+      "deleteAppDataOnUninstall": false,
+      "warningsAsErrors": false
     },
     "win": {
-      "target": "nsis",
-      "icon": "icons/icon.png",
-      "forceCodeSigning": false
-    }
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        },
+        {
+          "target": "portable",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "icons/app-icon.png",
+      "publisherName": "VortexBrowser",
+      "verifyUpdateCodeSignature": false,
+      "forceCodeSigning": false,
+      "asar": false,
+      "requestedExecutionLevel": "asInvoker"
+    },
+    "portable": {
+      "artifactName": "VortexBrowser-Portable-${version}.${ext}",
+      "unpackDirName": "VortexBrowser"
+    },
+    "extraResources": [
+      {
+        "from": "icons/",
+        "to": "icons/"
+      }
+    ]
   }
 }
