@@ -55,6 +55,13 @@ if (process.env.NODE_ENV !== 'development') {
     owner: 'H0l10W',
     repo: 'web-browser-with-js'
   });
+  
+  // Force clear any cached update info
+  autoUpdater.allowPrerelease = false;
+  autoUpdater.allowDowngrade = false;
+  
+  console.log('Auto-updater configured for GitHub releases');
+  console.log('Current version:', app.getVersion());
 }
 
 // Memory Management Functions
@@ -799,11 +806,18 @@ autoUpdater.on('update-available', (info) => {
 });
 
 autoUpdater.on('update-not-available', (info) => {
-  console.log('Update not available');
+  console.log('Update not available - Current version:', app.getVersion(), 'Latest:', info?.version || 'unknown');
+  console.log('Full update info:', JSON.stringify(info, null, 2));
   updateInProgress = false;
   // Notify all windows
   BrowserWindow.getAllWindows().forEach(win => {
-    win.webContents.send('update-not-available', info);
+    try {
+      if (!win.isDestroyed()) {
+        win.webContents.send('update-not-available', info);
+      }
+    } catch (err) {
+      console.log('Error sending update notification:', err.message);
+    }
   });
 });
 
@@ -896,9 +910,20 @@ app.whenReady().then(() => {
       updateInProgress = true;
       lastUpdateCheck = now;
       
+      console.log('Manual update check initiated...');
+      console.log('Current app version:', app.getVersion());
+      
+      // Force a fresh check by clearing any cached data
       const result = await autoUpdater.checkForUpdates();
+      
       if (!result) {
         updateInProgress = false;
+        console.log('No update result returned');
+        return null;
+      }
+      
+      console.log('Update check result:', JSON.stringify(result, null, 2));
+      return result;
       }
       return result;
     } catch (error) {
