@@ -5,6 +5,22 @@ const { autoUpdater } = require('electron-updater');
 let updateInProgress = false;
 let lastUpdateCheck = 0;
 const UPDATE_CHECK_COOLDOWN = 30000; // 30 seconds cooldown between checks
+
+// Memory management configuration
+const MEMORY_CONFIG = {
+  maxInactiveTabs: 10, // Maximum inactive tabs before hibernation
+  memoryThresholdMB: 1024, // Memory threshold for tab discarding (1GB)
+  gcIntervalMs: 300000, // Garbage collection interval (5 minutes)
+  hibernationDelayMs: 600000, // Hibernate tabs after 10 minutes of inactivity
+};
+
+// Memory tracking
+let memoryMonitoring = {
+  lastGC: Date.now(),
+  tabLastActivity: new Map(), // Track last activity per tab
+  hibernatedTabs: new Set(), // Track hibernated tabs
+};
+
 const path = require('path');
 
 // Increase max listeners to prevent memory leak warnings
@@ -38,6 +54,91 @@ if (process.env.NODE_ENV !== 'development') {
     owner: 'H0l10W',
     repo: 'web-browser-with-js'
   });
+}
+
+// Memory Management Functions
+// ===========================
+
+function triggerGarbageCollectionIfNeeded() {
+  const now = Date.now();
+  if (now - memoryMonitoring.lastGC > MEMORY_CONFIG.gcIntervalMs) {
+    console.log('Triggering garbage collection...');
+    if (global.gc) {
+      global.gc();
+      memoryMonitoring.lastGC = now;
+      console.log('Garbage collection completed');
+    }
+  }
+}
+
+function getMemoryUsage() {
+  const usage = process.memoryUsage();
+  return {
+    rss: Math.round(usage.rss / 1024 / 1024), // MB
+    heapUsed: Math.round(usage.heapUsed / 1024 / 1024), // MB
+    heapTotal: Math.round(usage.heapTotal / 1024 / 1024), // MB
+    external: Math.round(usage.external / 1024 / 1024) // MB
+  };
+}
+
+function hibernateTab(tabId, view) {
+  if (memoryMonitoring.hibernatedTabs.has(tabId)) return;
+  
+  console.log(`Hibernating tab ${tabId} to save memory`);
+  
+  // Mark as hibernated
+  memoryMonitoring.hibernatedTabs.add(tabId);
+  
+  // Clear cache and temporary data
+  if (!view.webContents.isDestroyed()) {
+    const session = view.webContents.session;
+    session.clearStorageData({
+      storages: ['shadercache', 'webrtc', 'appcache']
+    }).catch(err => console.log('Hibernation cleanup error:', err));
+  }
+}
+
+function wakeUpTab(tabId) {
+  if (!memoryMonitoring.hibernatedTabs.has(tabId)) return;
+  
+  console.log(`Waking up tab ${tabId}`);
+  memoryMonitoring.hibernatedTabs.delete(tabId);
+  memoryMonitoring.tabLastActivity.set(tabId, Date.now());
+}
+
+function checkMemoryPressure() {
+  const memUsage = getMemoryUsage();
+  console.log(`Memory usage: ${memUsage.rss}MB RSS, ${memUsage.heapUsed}MB Heap`);
+  
+  // If memory usage is high, hibernate inactive tabs
+  if (memUsage.rss > MEMORY_CONFIG.memoryThresholdMB) {
+    console.log('Memory pressure detected, hibernating inactive tabs...');
+    hibernateInactiveTabs();
+  }
+}
+
+function hibernateInactiveTabs() {
+  const now = Date.now();
+  
+  // Find tabs that haven't been active recently
+  for (const [winId, state] of windows) {
+    for (const [tabId, view] of state.views) {
+      const lastActivity = memoryMonitoring.tabLastActivity.get(tabId) || now;
+      const inactiveTime = now - lastActivity;
+      
+      // Hibernate tabs inactive for more than the threshold (except active tab)
+      if (inactiveTime > MEMORY_CONFIG.hibernationDelayMs && 
+          tabId !== state.activeViewId && 
+          !memoryMonitoring.hibernatedTabs.has(tabId)) {
+        hibernateTab(tabId, view);
+      }
+    }
+  }
+}
+
+function updateTabActivity(tabId) {
+  memoryMonitoring.tabLastActivity.set(tabId, Date.now());
+  wakeUpTab(tabId); // Wake up if hibernated
 }
 
 // Initialize ad blocker after app ready
@@ -85,6 +186,31 @@ function createWindow(initialUrl) {
 
   // Load the main HTML file
   win.loadFile('index.html');
+
+  // --- Keyboard Shortcuts ---
+  win.webContents.on('before-input-event', (event, input) => {
+    // F11 for fullscreen toggle
+    if (input.key === 'F11' && input.type === 'keyDown') {
+      const isFullScreen = win.isFullScreen();
+      win.setFullScreen(!isFullScreen);
+      
+      // Update view bounds when toggling fullscreen
+      const state = windows.get(win.id);
+      if (state && state.activeViewId) {
+        const view = state.views.get(state.activeViewId);
+        if (view) {
+          setTimeout(() => {
+            const bounds = win.getContentBounds();
+            if (!isFullScreen) { // Going to fullscreen
+              view.setBounds({ x: 0, y: 0, width: bounds.width, height: bounds.height });
+            } else { // Exiting fullscreen
+              view.setBounds({ x: 0, y: headerHeight, width: bounds.width, height: bounds.height - headerHeight });
+            }
+          }, 100);
+        }
+      }
+    }
+  });
 
   // --- Ad Blocker Implementation ---
   const session = win.webContents.session;
@@ -156,7 +282,14 @@ function createWindow(initialUrl) {
         // Small delay to ensure window bounds are updated
         setTimeout(() => {
           const bounds = win.getContentBounds();
-          view.setBounds({ x: 0, y: headerHeight, width: bounds.width, height: bounds.height - headerHeight });
+          // Check if we're in fullscreen mode
+          if (win.isFullScreen()) {
+            // In fullscreen, use entire window space
+            view.setBounds({ x: 0, y: 0, width: bounds.width, height: bounds.height });
+          } else {
+            // Normal mode, account for header
+            view.setBounds({ x: 0, y: headerHeight, width: bounds.width, height: bounds.height - headerHeight });
+          }
         }, 10);
       }
     }
@@ -169,7 +302,12 @@ function createWindow(initialUrl) {
       if (view) {
         setTimeout(() => {
           const bounds = win.getContentBounds();
-          view.setBounds({ x: 0, y: headerHeight, width: bounds.width, height: bounds.height - headerHeight });
+          // Check if we're in fullscreen mode
+          if (win.isFullScreen()) {
+            view.setBounds({ x: 0, y: 0, width: bounds.width, height: bounds.height });
+          } else {
+            view.setBounds({ x: 0, y: headerHeight, width: bounds.width, height: bounds.height - headerHeight });
+          }
         }, 10);
       }
     }
@@ -182,7 +320,12 @@ function createWindow(initialUrl) {
       if (view) {
         setTimeout(() => {
           const bounds = win.getContentBounds();
-          view.setBounds({ x: 0, y: headerHeight, width: bounds.width, height: bounds.height - headerHeight });
+          // Check if we're in fullscreen mode
+          if (win.isFullScreen()) {
+            view.setBounds({ x: 0, y: 0, width: bounds.width, height: bounds.height });
+          } else {
+            view.setBounds({ x: 0, y: headerHeight, width: bounds.width, height: bounds.height - headerHeight });
+          }
         }, 10);
       }
     }
@@ -269,11 +412,29 @@ ipcMain.removeAllListeners('toggle-devtools');
 
   // Security: Permission request handling
   view.webContents.session.setPermissionRequestHandler((webContents, permission, callback) => {
-    // Deny sensitive permissions by default
-    const allowedPermissions = ['notifications'];
+    // Allow notifications and fullscreen permissions
+    const allowedPermissions = ['notifications', 'fullscreen'];
     const allowed = allowedPermissions.includes(permission);
     console.log(`Permission request: ${permission} - ${allowed ? 'Allowed' : 'Denied'}`);
     callback(allowed);
+  });
+  
+  // Handle fullscreen requests from web content (e.g., YouTube, videos)
+  view.webContents.on('enter-html-full-screen', () => {
+    console.log('Entering fullscreen mode');
+    win.setFullScreen(true);
+    // Hide the BrowserView temporarily and show it fullscreen
+    view.setBounds({ x: 0, y: 0, width: win.getBounds().width, height: win.getBounds().height });
+  });
+
+  view.webContents.on('leave-html-full-screen', () => {
+    console.log('Leaving fullscreen mode');
+    win.setFullScreen(false);
+    // Restore normal bounds
+    setTimeout(() => {
+      const bounds = win.getContentBounds();
+      view.setBounds({ x: 0, y: headerHeight, width: bounds.width, height: bounds.height - headerHeight });
+    }, 100);
   });
   
   view.webContents.setWindowOpenHandler(({ url }) => {
@@ -290,13 +451,41 @@ ipcMain.on('view:destroy', (event, id) => {
 
   const view = state.views.get(id);
   if (view) {
+    // Enhanced memory cleanup
+    console.log(`Destroying view ${id} - Memory cleanup initiated`);
+    
+    // Remove from hibernated tabs if present
+    memoryMonitoring.hibernatedTabs.delete(id);
+    memoryMonitoring.tabLastActivity.delete(id);
+    
+    // Detach from window first
     if (win.getBrowserView() === view) {
       win.setBrowserView(null);
     }
+    
+    // Clear session data for this view
     if (!view.webContents.isDestroyed()) {
+      const session = view.webContents.session;
+      
+      // Clear cache, cookies, and storage for memory cleanup
+      session.clearStorageData({
+        storages: ['cookies', 'localstorage', 'sessionstorage', 'websql', 'indexdb', 'shadercache']
+      }).catch(err => console.log('Storage cleanup error:', err));
+      
+      // Remove event listeners to prevent memory leaks
+      view.webContents.removeAllListeners();
+      
+      // Destroy web contents
       view.webContents.destroy();
     }
+    
+    // Remove from tracking
     state.views.delete(id);
+    
+    console.log(`View ${id} destroyed. Remaining views: ${state.views.size}`);
+    
+    // Trigger garbage collection if needed
+    triggerGarbageCollectionIfNeeded();
   }
 });
 
@@ -314,6 +503,10 @@ ipcMain.on('view:show', (event, id) => {
     view.setBounds({ x: 0, y: headerHeight, width: bounds.width, height: bounds.height - headerHeight });
     view.setAutoResize({ width: true, height: true });
     state.activeViewId = id;
+    
+    // Track tab activity for memory management
+    updateTabActivity(id);
+    console.log(`Tab ${id} activated - activity tracked`);
   }
 });
 
@@ -666,6 +859,45 @@ app.whenReady().then(() => {
   ipcMain.handle('install-update', () => {
     autoUpdater.quitAndInstall();
   });
+
+  // Memory management IPC handlers
+  ipcMain.handle('get-memory-usage', () => {
+    return {
+      ...getMemoryUsage(),
+      hibernatedTabs: Array.from(memoryMonitoring.hibernatedTabs),
+      totalTabs: Array.from(windows.values()).reduce((sum, state) => sum + state.views.size, 0)
+    };
+  });
+
+  ipcMain.handle('force-garbage-collection', () => {
+    if (global.gc) {
+      global.gc();
+      memoryMonitoring.lastGC = Date.now();
+      return getMemoryUsage();
+    }
+    return null;
+  });
+
+  ipcMain.handle('hibernate-inactive-tabs', () => {
+    hibernateInactiveTabs();
+    return Array.from(memoryMonitoring.hibernatedTabs);
+  });
+
+  // Start memory monitoring and management
+  console.log('Starting memory management system...');
+  
+  // Periodic memory monitoring
+  setInterval(() => {
+    checkMemoryPressure();
+  }, 60000); // Check every minute
+  
+  // Periodic garbage collection
+  setInterval(() => {
+    triggerGarbageCollectionIfNeeded();
+  }, MEMORY_CONFIG.gcIntervalMs);
+  
+  // Initial memory status
+  console.log('Initial memory usage:', getMemoryUsage());
 });
 
 app.on('window-all-closed', () => {

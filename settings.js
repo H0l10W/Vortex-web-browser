@@ -404,6 +404,106 @@ window.addEventListener('DOMContentLoaded', () => {
     }
   }
 
+  // Memory Management Functions
+  // ===========================
+  
+  const refreshMemoryBtn = document.getElementById('refresh-memory-btn');
+  const forceGcBtn = document.getElementById('force-gc-btn');
+  const hibernateTabsBtn = document.getElementById('hibernate-tabs-btn');
+  
+  async function updateMemoryDisplay() {
+    if (window.electronAPI && typeof window.electronAPI.getMemoryUsage === 'function') {
+      try {
+        const memoryInfo = await window.electronAPI.getMemoryUsage();
+        
+        document.getElementById('memory-rss').textContent = `${memoryInfo.rss} MB`;
+        document.getElementById('memory-heap').textContent = `${memoryInfo.heapUsed} / ${memoryInfo.heapTotal} MB`;
+        document.getElementById('memory-tabs').textContent = memoryInfo.totalTabs;
+        document.getElementById('memory-hibernated').textContent = memoryInfo.hibernatedTabs.length;
+        
+        // Color code memory usage
+        const rssElement = document.getElementById('memory-rss');
+        if (memoryInfo.rss > 1024) {
+          rssElement.style.color = '#e74c3c'; // Red for high usage
+        } else if (memoryInfo.rss > 512) {
+          rssElement.style.color = '#f39c12'; // Orange for medium usage
+        } else {
+          rssElement.style.color = '#27ae60'; // Green for low usage
+        }
+        
+      } catch (error) {
+        console.error('Failed to get memory usage:', error);
+        document.getElementById('memory-rss').textContent = 'Error';
+        document.getElementById('memory-heap').textContent = 'Error';
+        document.getElementById('memory-tabs').textContent = 'Error';
+        document.getElementById('memory-hibernated').textContent = 'Error';
+      }
+    }
+  }
+  
+  if (refreshMemoryBtn) {
+    refreshMemoryBtn.addEventListener('click', () => {
+      updateMemoryDisplay();
+    });
+  }
+  
+  if (forceGcBtn) {
+    forceGcBtn.addEventListener('click', async () => {
+      if (window.electronAPI && typeof window.electronAPI.forceGarbageCollection === 'function') {
+        try {
+          forceGcBtn.textContent = 'Running GC...';
+          forceGcBtn.disabled = true;
+          
+          const result = await window.electronAPI.forceGarbageCollection();
+          if (result) {
+            console.log('Garbage collection completed:', result);
+            updateMemoryDisplay();
+          }
+          
+          forceGcBtn.textContent = 'Force Garbage Collection';
+          forceGcBtn.disabled = false;
+        } catch (error) {
+          console.error('Failed to run garbage collection:', error);
+          forceGcBtn.textContent = 'Force Garbage Collection';
+          forceGcBtn.disabled = false;
+        }
+      }
+    });
+  }
+  
+  if (hibernateTabsBtn) {
+    hibernateTabsBtn.addEventListener('click', async () => {
+      if (window.electronAPI && typeof window.electronAPI.hibernateInactiveTabs === 'function') {
+        try {
+          hibernateTabsBtn.textContent = 'Hibernating...';
+          hibernateTabsBtn.disabled = true;
+          
+          const hibernatedTabs = await window.electronAPI.hibernateInactiveTabs();
+          console.log('Hibernated tabs:', hibernatedTabs);
+          updateMemoryDisplay();
+          
+          hibernateTabsBtn.textContent = 'Hibernate Inactive Tabs';
+          hibernateTabsBtn.disabled = false;
+        } catch (error) {
+          console.error('Failed to hibernate tabs:', error);
+          hibernateTabsBtn.textContent = 'Hibernate Inactive Tabs';
+          hibernateTabsBtn.disabled = false;
+        }
+      }
+    });
+  }
+  
+  // Update memory display when Performance tab is first opened
+  settingsTabButtons.forEach(button => {
+    button.addEventListener('click', () => {
+      if (button.dataset.tab === 'performance') {
+        setTimeout(() => {
+          updateMemoryDisplay();
+        }, 100);
+      }
+    });
+  });
+
   // Close modal when clicking outside
   window.addEventListener('click', (e) => {
     if (e.target === cookieModal) {

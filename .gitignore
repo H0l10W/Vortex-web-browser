@@ -369,3 +369,32 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+
+# Security and sensitive files
+cert.p12
+security-test.js
+security-test.ps1
+security-test-results.txt
+SECURITY_TEST_RESULTS_*.txt
+
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.npm
+
+# Electron
+dist/
+build/
+*.exe
+*.msi
+*.dmg
+*.pkg
+*.deb
+*.rpm
+*.zip
+
+# IDE and editor files
+.vscode/settings.json
+.idea/

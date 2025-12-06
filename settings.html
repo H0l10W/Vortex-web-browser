@@ -36,6 +36,7 @@
         <button class="settings-tab-button active" data-tab="appearance">Appearance</button>
         <button class="settings-tab-button" data-tab="widgets">Widgets</button>
         <button class="settings-tab-button" data-tab="privacy">Privacy</button>
+        <button class="settings-tab-button" data-tab="performance">Performance</button>
         <button class="settings-tab-button" data-tab="about">About</button>
       </aside>
       <main id="full-settings-main">
@@ -244,6 +245,44 @@
               </div>
               <div class="modal-body">
                 <div id="cookies-list"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div id="performance-settings" class="settings-tab-content">
+          <div class="settings-tab-header">
+            <h3>Performance & Memory</h3>
+            <p>Monitor and optimize browser performance and memory usage.</p>
+          </div>
+          
+          <div class="settings-card">
+            <div class="card-header">
+              <h4>Memory Usage</h4>
+              <p>Current memory consumption and optimization controls</p>
+            </div>
+            <div class="card-content">
+              <div class="info-item">
+                <span class="info-label">RAM Usage:</span>
+                <span class="info-value" id="memory-rss">Loading...</span>
+              </div>
+              <div class="info-item">
+                <span class="info-label">Heap Memory:</span>
+                <span class="info-value" id="memory-heap">Loading...</span>
+              </div>
+              <div class="info-item">
+                <span class="info-label">Total Tabs:</span>
+                <span class="info-value" id="memory-tabs">Loading...</span>
+              </div>
+              <div class="info-item">
+                <span class="info-label">Hibernated Tabs:</span>
+                <span class="info-value" id="memory-hibernated">Loading...</span>
+              </div>
+            </div>
+            <div class="card-actions">
+              <div class="button-group">
+                <button id="refresh-memory-btn" class="btn-primary">Refresh Memory Info</button>
+                <button id="force-gc-btn" class="btn-secondary">Force Garbage Collection</button>
+                <button id="hibernate-tabs-btn" class="btn-secondary">Hibernate Inactive Tabs</button>
               </div>
             </div>
           </div>
