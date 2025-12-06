@@ -1,6 +1,4 @@
 VORTEX BROWSER - CHANGELOG
-Version 0.0.1 to 0.1.5 - Comprehensive Update Log
-=====================================================
 
 VERSION 0.1.0-0.1.5 - AUTO-UPDATER SYSTEM & OPTIMIZATION
 =========================================================
