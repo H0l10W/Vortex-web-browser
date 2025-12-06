@@ -1575,3 +1575,90 @@ body.theme-dark-rose .downloads-list a {
 /* body.theme-dark-forest ... */
 /* body.theme-dark-rose ... */
 /* The base .theme-dark rules are also now handled by the variable system. */
+
+/* --- Update Notifications --- */
+.update-notification {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  min-width: 300px;
+  max-width: 400px;
+  z-index: 10000;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  padding: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 14px;
+  animation: slideInNotification 0.3s ease-out;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+@keyframes slideInNotification {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.update-notification-content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  gap: 10px;
+}
+
+.update-message {
+  flex: 1;
+  line-height: 1.4;
+}
+
+.update-close {
+  background: rgba(255, 255, 255, 0.2);
+  border: none;
+  border-radius: 50%;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 16px;
+  font-weight: bold;
+  color: inherit;
+  transition: background-color 0.2s;
+  flex-shrink: 0;
+}
+
+.update-close:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.update-info {
+  background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+  color: white;
+}
+
+.update-success {
+  background: linear-gradient(135deg, #10b981 0%, #047857 100%);
+  color: white;
+}
+
+.update-error {
+  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+  color: white;
+}
+
+.update-notification:hover {
+  transform: scale(1.02);
+  transition: transform 0.2s ease;
+}
+
+/* Dark theme adjustments for update notifications */
+.theme-dark .update-notification {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}

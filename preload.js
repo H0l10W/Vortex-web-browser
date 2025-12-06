@@ -37,5 +37,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onThemeChanged: (callback) => ipcRenderer.on('theme-changed', (_event, theme) => callback(theme)),
   onWidgetSettingsChanged: (callback) => ipcRenderer.on('widget-settings-changed', (_event, data) => callback(data)),
   broadcastThemeChange: (theme) => ipcRenderer.send('broadcast-theme-change', theme),
-  getAppVersion: () => ipcRenderer.invoke('get-app-version')
+  getAppVersion: () => ipcRenderer.invoke('get-app-version'),
+
+  // --- Auto-Updater APIs ---
+  checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
+  installUpdate: () => ipcRenderer.invoke('install-update'),
+  
+  // Auto-updater event listeners
+  onUpdateChecking: (callback) => ipcRenderer.on('update-checking', callback),
+  onUpdateAvailable: (callback) => ipcRenderer.on('update-available', (_event, info) => callback(info)),
+  onUpdateNotAvailable: (callback) => ipcRenderer.on('update-not-available', (_event, info) => callback(info)),
+  onUpdateError: (callback) => ipcRenderer.on('update-error', (_event, message) => callback(message)),
+  onUpdateDownloadProgress: (callback) => ipcRenderer.on('update-download-progress', (_event, progress) => callback(progress)),
+  onUpdateDownloaded: (callback) => ipcRenderer.on('update-downloaded', (_event, info) => callback(info))
 });

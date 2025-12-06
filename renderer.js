@@ -11,6 +11,45 @@ window.addEventListener('DOMContentLoaded', () => {
   
   console.log('State loaded - tabs:', tabs.length, 'bookmarks:', bookmarks.length);
   
+  // --- Auto-Updater Communication ---
+  if (window.electronAPI) {
+    // Listen for update events
+    window.electronAPI.onUpdateChecking(() => {
+      console.log('Checking for updates...');
+      showUpdateNotification('Checking for updates...', 'info');
+    });
+
+    window.electronAPI.onUpdateAvailable((info) => {
+      console.log('Update available:', info);
+      showUpdateNotification(`Update available: v${info.version}. Downloading...`, 'success');
+    });
+
+    window.electronAPI.onUpdateNotAvailable(() => {
+      console.log('No updates available');
+      showUpdateNotification('You have the latest version!', 'info', 3000);
+    });
+
+    window.electronAPI.onUpdateError((message) => {
+      console.error('Update error:', message);
+      showUpdateNotification(`Update error: ${message}`, 'error');
+    });
+
+    window.electronAPI.onUpdateDownloadProgress((progress) => {
+      const percent = Math.round(progress.percent);
+      showUpdateNotification(`Downloading update: ${percent}%`, 'info');
+    });
+
+    window.electronAPI.onUpdateDownloaded((info) => {
+      console.log('Update downloaded:', info);
+      showUpdateNotification(
+        `Update v${info.version} ready to install. Click to restart and install.`,
+        'success',
+        0,
+        () => window.electronAPI.installUpdate()
+      );
+    });
+  }
+  
   // Listen for weather update messages
   window.addEventListener('message', (event) => {
     if (event.data.type === 'weatherLocationChanged') {
@@ -72,6 +111,47 @@ window.addEventListener('DOMContentLoaded', () => {
       return `https://icons.duckduckgo.com/ip3/${u.hostname}.ico`;
     } catch {
       return 'icons/newtab.png';
+    }
+  }
+
+  function showUpdateNotification(message, type = 'info', duration = 5000, clickHandler = null) {
+    // Remove any existing update notification
+    const existingNotification = document.querySelector('.update-notification');
+    if (existingNotification) {
+      existingNotification.remove();
+    }
+
+    // Create notification element
+    const notification = document.createElement('div');
+    notification.className = `update-notification update-${type}`;
+    notification.innerHTML = `
+      <div class="update-notification-content">
+        <span class="update-message">${message}</span>
+        <button class="update-close" onclick="this.parentElement.parentElement.remove()">×</button>
+      </div>
+    `;
+
+    // Add click handler if provided
+    if (clickHandler) {
+      notification.style.cursor = 'pointer';
+      notification.addEventListener('click', (e) => {
+        if (!e.target.classList.contains('update-close')) {
+          clickHandler();
+          notification.remove();
+        }
+      });
+    }
+
+    // Add to page
+    document.body.appendChild(notification);
+
+    // Auto-remove after duration (unless duration is 0)
+    if (duration > 0) {
+      setTimeout(() => {
+        if (notification.parentNode) {
+          notification.remove();
+        }
+      }, duration);
     }
   }
 
@@ -324,12 +404,27 @@ window.addEventListener('DOMContentLoaded', () => {
   const saveHomepageBtn = document.getElementById('save-homepage-btn');
   const overlay = document.getElementById('overlay');
   const allSettingsBtn = document.getElementById('all-settings-btn');
+  const checkUpdatesBtn = document.getElementById('check-updates');
   
   // Settings button click handler
   if (settingsBtn) {
     settingsBtn.addEventListener('click', function(e) {
       e.stopPropagation();
       openSettingsPanel();
+    });
+  }
+
+  // Check Updates button click handler
+  if (checkUpdatesBtn) {
+    checkUpdatesBtn.addEventListener('click', async function(e) {
+      e.stopPropagation();
+      try {
+        showUpdateNotification('Checking for updates...', 'info');
+        await window.electronAPI.checkForUpdates();
+      } catch (error) {
+        console.error('Manual update check failed:', error);
+        showUpdateNotification('Failed to check for updates. Please try again later.', 'error');
+      }
     });
   }
 

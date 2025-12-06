@@ -1,4 +1,5 @@
 const { app, BrowserWindow, BrowserView, ipcMain } = require('electron');
+const { autoUpdater } = require('electron-updater');
 const path = require('path');
 
 // Increase max listeners to prevent memory leak warnings
@@ -19,6 +20,20 @@ let settingsWindow = null;
 // Defer ad blocker initialization
 let adDomains = [];
 let adBlockEnabled = false;
+
+// Auto-updater configuration
+autoUpdater.checkForUpdatesAndNotify();
+autoUpdater.autoDownload = false; // Don't auto-download, let user choose
+autoUpdater.autoInstallOnAppQuit = true;
+
+// Configure auto-updater for GitHub releases
+if (process.env.NODE_ENV !== 'development') {
+  autoUpdater.setFeedURL({
+    provider: 'github',
+    owner: 'H0l10W',
+    repo: 'web-browser-with-js'
+  });
+}
 
 // Initialize ad blocker after app ready
 function initAdBlocker() {
@@ -520,13 +535,89 @@ function createSettingsWindow() {
   });
 }
 
+// Auto-updater event handlers
+autoUpdater.on('checking-for-update', () => {
+  console.log('Checking for update...');
+  // Notify all windows about update check
+  BrowserWindow.getAllWindows().forEach(win => {
+    win.webContents.send('update-checking');
+  });
+});
+
+autoUpdater.on('update-available', (info) => {
+  console.log('Update available:', info.version);
+  // Notify all windows about available update
+  BrowserWindow.getAllWindows().forEach(win => {
+    win.webContents.send('update-available', info);
+  });
+});
+
+autoUpdater.on('update-not-available', (info) => {
+  console.log('Update not available');
+  // Notify all windows
+  BrowserWindow.getAllWindows().forEach(win => {
+    win.webContents.send('update-not-available', info);
+  });
+});
+
+autoUpdater.on('error', (err) => {
+  console.error('Update error:', err);
+  // Notify all windows about error
+  BrowserWindow.getAllWindows().forEach(win => {
+    win.webContents.send('update-error', err.message);
+  });
+});
+
+autoUpdater.on('download-progress', (progressObj) => {
+  console.log('Download progress:', Math.round(progressObj.percent) + '%');
+  // Notify all windows about download progress
+  BrowserWindow.getAllWindows().forEach(win => {
+    win.webContents.send('update-download-progress', progressObj);
+  });
+});
+
+autoUpdater.on('update-downloaded', (info) => {
+  console.log('Update downloaded:', info.version);
+  // Notify all windows that update is ready to install
+  BrowserWindow.getAllWindows().forEach(win => {
+    win.webContents.send('update-downloaded', info);
+  });
+});
+
 app.whenReady().then(() => {
   // Initialize non-critical components after window creation
   setImmediate(() => {
     initAdBlocker();
+    
+    // Initialize auto-updater in production
+    if (process.env.NODE_ENV !== 'development') {
+      setTimeout(() => {
+        autoUpdater.checkForUpdatesAndNotify();
+      }, 5000); // Wait 5 seconds after app start
+    }
   });
   
   createWindow();
+
+  // Check for updates after app is ready (delay to ensure window is loaded)
+  setTimeout(() => {
+    console.log('Checking for updates...');
+    autoUpdater.checkForUpdatesAndNotify();
+  }, 3000);
+
+  // Handle IPC messages for updates
+  ipcMain.handle('check-for-updates', async () => {
+    try {
+      return await autoUpdater.checkForUpdates();
+    } catch (error) {
+      console.error('Manual update check failed:', error);
+      throw error;
+    }
+  });
+
+  ipcMain.handle('install-update', () => {
+    autoUpdater.quitAndInstall();
+  });
 });
 
 app.on('window-all-closed', () => {
