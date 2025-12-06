@@ -1,6 +1,6 @@
 {
   "name": "vortexwebbrowser",
-  "version": "0.0.8",
+  "version": "0.0.9",
   "description": "A fast, lightweight web browser built with Electron",
   "main": "main.js",
   "scripts": {
@@ -51,6 +51,7 @@
       "settings.css",
       "icons/**/*",
       "!node_modules/**/*",
+      "node_modules/electron-updater/**/*",
       "!**/.git/**/*",
       "!dist/**/*",
       "!*.log"
@@ -102,13 +103,6 @@
         "from": "icons/",
         "to": "icons/"
       }
-    ],
-    "files": [
-      "**/*",
-      "node_modules/electron-updater/**/*"
     ]
-  },
-  "dependencies": {
-    "electron-updater": "^6.6.2"
   }
 }
