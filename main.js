@@ -562,10 +562,13 @@ autoUpdater.on('update-not-available', (info) => {
 
 autoUpdater.on('error', (err) => {
   console.error('Update error:', err);
-  // Notify all windows about error
-  BrowserWindow.getAllWindows().forEach(win => {
-    win.webContents.send('update-error', err.message);
-  });
+  // Only show error notification for non-404 errors to avoid spamming users
+  if (!err.message.includes('404')) {
+    // Notify all windows about error
+    BrowserWindow.getAllWindows().forEach(win => {
+      win.webContents.send('update-error', err.message);
+    });
+  }
 });
 
 autoUpdater.on('download-progress', (progressObj) => {
@@ -601,16 +604,27 @@ app.whenReady().then(() => {
 
   // Check for updates after app is ready (delay to ensure window is loaded)
   setTimeout(() => {
-    console.log('Checking for updates...');
-    autoUpdater.checkForUpdatesAndNotify();
+    if (process.env.NODE_ENV !== 'development') {
+      console.log('Checking for updates...');
+      autoUpdater.checkForUpdatesAndNotify().catch(err => {
+        console.log('Update check failed (this is normal if no releases exist yet):', err.message);
+      });
+    }
   }, 3000);
 
   // Handle IPC messages for updates
   ipcMain.handle('check-for-updates', async () => {
     try {
+      if (process.env.NODE_ENV === 'development') {
+        throw new Error('Update checking is disabled in development mode');
+      }
       return await autoUpdater.checkForUpdates();
     } catch (error) {
       console.error('Manual update check failed:', error);
+      // Don't throw 404 errors to the user interface
+      if (error.message.includes('404')) {
+        throw new Error('No releases found. Updates will be available once the first release is published.');
+      }
       throw error;
     }
   });

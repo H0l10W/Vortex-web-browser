@@ -87,7 +87,10 @@
       "publisherName": "VortexBrowser",
       "verifyUpdateCodeSignature": false,
       "forceCodeSigning": false,
-      "asar": false,
+      "asar": true,
+      "asarUnpack": [
+        "icons/**/*"
+      ],
       "requestedExecutionLevel": "asInvoker"
     },
     "portable": {
@@ -99,6 +102,10 @@
         "from": "icons/",
         "to": "icons/"
       }
+    ],
+    "files": [
+      "**/*",
+      "node_modules/electron-updater/**/*"
     ]
   },
   "dependencies": {
