@@ -451,41 +451,58 @@ ipcMain.on('view:destroy', (event, id) => {
 
   const view = state.views.get(id);
   if (view) {
-    // Enhanced memory cleanup
+    // Enhanced memory cleanup with better error handling
     console.log(`Destroying view ${id} - Memory cleanup initiated`);
     
-    // Remove from hibernated tabs if present
-    memoryMonitoring.hibernatedTabs.delete(id);
-    memoryMonitoring.tabLastActivity.delete(id);
-    
-    // Detach from window first
-    if (win.getBrowserView() === view) {
-      win.setBrowserView(null);
+    try {
+      // Remove from hibernated tabs if present
+      memoryMonitoring.hibernatedTabs.delete(id);
+      memoryMonitoring.tabLastActivity.delete(id);
+      
+      // Detach from window first - with error handling
+      try {
+        if (!win.isDestroyed() && win.getBrowserView() === view) {
+          win.setBrowserView(null);
+        }
+      } catch (err) {
+        console.log('Error detaching view from window:', err.message);
+      }
+      
+      // Clear session data for this view - only if webContents still exists
+      if (view.webContents && !view.webContents.isDestroyed()) {
+        try {
+          const session = view.webContents.session;
+          
+          // Clear cache, cookies, and storage for memory cleanup
+          session.clearStorageData({
+            storages: ['cookies', 'localstorage', 'sessionstorage', 'websql', 'indexdb', 'shadercache']
+          }).catch(err => console.log('Storage cleanup error:', err));
+          
+          // Remove event listeners to prevent memory leaks
+          view.webContents.removeAllListeners();
+          
+          // Destroy web contents
+          view.webContents.destroy();
+        } catch (err) {
+          console.log('Error during webContents cleanup:', err.message);
+        }
+      }
+      
+    } catch (err) {
+      console.log('Error during view destruction:', err.message);
+    } finally {
+      // Always remove from tracking, even if cleanup failed
+      state.views.delete(id);
+      
+      console.log(`View ${id} destroyed. Remaining views: ${state.views.size}`);
+      
+      // Trigger garbage collection if needed
+      try {
+        triggerGarbageCollectionIfNeeded();
+      } catch (err) {
+        console.log('Error during garbage collection:', err.message);
+      }
     }
-    
-    // Clear session data for this view
-    if (!view.webContents.isDestroyed()) {
-      const session = view.webContents.session;
-      
-      // Clear cache, cookies, and storage for memory cleanup
-      session.clearStorageData({
-        storages: ['cookies', 'localstorage', 'sessionstorage', 'websql', 'indexdb', 'shadercache']
-      }).catch(err => console.log('Storage cleanup error:', err));
-      
-      // Remove event listeners to prevent memory leaks
-      view.webContents.removeAllListeners();
-      
-      // Destroy web contents
-      view.webContents.destroy();
-    }
-    
-    // Remove from tracking
-    state.views.delete(id);
-    
-    console.log(`View ${id} destroyed. Remaining views: ${state.views.size}`);
-    
-    // Trigger garbage collection if needed
-    triggerGarbageCollectionIfNeeded();
   }
 });
 
@@ -811,10 +828,21 @@ autoUpdater.on('download-progress', (progressObj) => {
 
 autoUpdater.on('update-downloaded', (info) => {
   console.log('Update downloaded:', info.version);
-  // Notify all windows that update is ready to install
-  BrowserWindow.getAllWindows().forEach(win => {
-    win.webContents.send('update-downloaded', info);
-  });
+  
+  try {
+    // Notify all windows that update is ready to install
+    BrowserWindow.getAllWindows().forEach(win => {
+      try {
+        if (!win.isDestroyed()) {
+          win.webContents.send('update-downloaded', info);
+        }
+      } catch (err) {
+        console.log('Error sending update notification to window:', err.message);
+      }
+    });
+  } catch (err) {
+    console.log('Error during update-downloaded notification:', err.message);
+  }
 });
 
 app.whenReady().then(() => {
@@ -884,7 +912,18 @@ app.whenReady().then(() => {
   });
 
   ipcMain.handle('install-update', () => {
-    autoUpdater.quitAndInstall();
+    console.log('Installing update, initiating app restart...');
+    
+    // Give a small delay to ensure any pending operations complete
+    setTimeout(() => {
+      try {
+        autoUpdater.quitAndInstall();
+      } catch (err) {
+        console.error('Error during quitAndInstall:', err);
+        // Fallback: force quit if quitAndInstall fails
+        app.quit();
+      }
+    }, 100);
   });
 
   // Memory management IPC handlers
@@ -940,10 +979,45 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
-  // Final cleanup: remove all listeners from all windows before quitting
-  BrowserWindow.getAllWindows().forEach(window => {
-    if (!window.isDestroyed()) {
-      window.removeAllListeners();
+  console.log('App is quitting, performing final cleanup...');
+  
+  try {
+    // Clean up all BrowserViews first
+    for (const [winId, state] of windows) {
+      try {
+        for (const [viewId, view] of state.views) {
+          try {
+            if (view.webContents && !view.webContents.isDestroyed()) {
+              view.webContents.removeAllListeners();
+              view.webContents.destroy();
+            }
+          } catch (err) {
+            console.log(`Error destroying view ${viewId}:`, err.message);
+          }
+        }
+        state.views.clear();
+      } catch (err) {
+        console.log(`Error cleaning up window ${winId}:`, err.message);
+      }
     }
-  });
+    
+    // Clear the windows map
+    windows.clear();
+    
+    // Final cleanup: remove all listeners from all windows
+    BrowserWindow.getAllWindows().forEach(window => {
+      try {
+        if (!window.isDestroyed()) {
+          window.removeAllListeners();
+        }
+      } catch (err) {
+        console.log('Error removing window listeners:', err.message);
+      }
+    });
+    
+  } catch (err) {
+    console.log('Error during final cleanup:', err.message);
+  }
+  
+  console.log('Final cleanup completed');
 });
