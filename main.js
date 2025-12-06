@@ -45,7 +45,8 @@ let adBlockEnabled = false;
 // Auto-updater configuration
 autoUpdater.checkForUpdatesAndNotify();
 autoUpdater.autoDownload = false; // Don't auto-download, let user choose
-autoUpdater.autoInstallOnAppQuit = true;
+autoUpdater.autoInstallOnAppQuit = false; // We'll handle installation manually
+autoUpdater.allowDowngrade = false; // Prevent downgrade attacks
 
 // Configure auto-updater for GitHub releases
 if (process.env.NODE_ENV !== 'development') {
@@ -914,16 +915,34 @@ app.whenReady().then(() => {
   ipcMain.handle('install-update', () => {
     console.log('Installing update, initiating app restart...');
     
-    // Give a small delay to ensure any pending operations complete
-    setTimeout(() => {
-      try {
-        autoUpdater.quitAndInstall();
-      } catch (err) {
-        console.error('Error during quitAndInstall:', err);
-        // Fallback: force quit if quitAndInstall fails
-        app.quit();
-      }
-    }, 100);
+    // Immediate response to prevent hanging UI
+    return Promise.resolve().then(() => {
+      // Close all windows first
+      const allWindows = BrowserWindow.getAllWindows();
+      console.log(`Closing ${allWindows.length} windows before update...`);
+      
+      allWindows.forEach(window => {
+        try {
+          if (!window.isDestroyed()) {
+            window.close();
+          }
+        } catch (err) {
+          console.log('Error closing window:', err.message);
+        }
+      });
+      
+      // Give windows time to close, then force quit and install
+      setTimeout(() => {
+        try {
+          console.log('Forcing quit and install...');
+          autoUpdater.quitAndInstall(true, true); // Force close and install immediately
+        } catch (err) {
+          console.error('Error during quitAndInstall:', err);
+          // Fallback: force quit if quitAndInstall fails
+          app.exit(0);
+        }
+      }, 500); // 500ms should be enough for windows to close
+    });
   });
 
   // Memory management IPC handlers
