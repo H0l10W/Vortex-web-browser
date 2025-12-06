@@ -364,6 +364,9 @@ window.addEventListener('DOMContentLoaded', () => {
   function navigate(input) {
     let url = input.trim();
     
+    // Handle empty input
+    if (!url) return;
+    
     // Check if it's already a complete URL
     if (/^https?:\/\//i.test(url)) {
       // Already has protocol, use as is
@@ -377,18 +380,25 @@ window.addEventListener('DOMContentLoaded', () => {
       // Contains common TLD or has a dot, probably a domain
       url = 'https://' + url;
     } else {
-      // Treat as search query
+      // Treat as search query - improved encoding and URL construction
       const searchEngine = localStorage.getItem('searchEngine') || 'google';
       const searchUrls = {
         google: 'https://www.google.com/search?q=',
         bing: 'https://www.bing.com/search?q=',
         duckduckgo: 'https://duckduckgo.com/?q='
       };
-      url = searchUrls[searchEngine] + encodeURIComponent(url);
+      
+      // Properly encode the search query and handle special characters
+      const encodedQuery = encodeURIComponent(url.trim());
+      url = searchUrls[searchEngine] + encodedQuery;
+      
+      console.log('Search query:', url.trim(), '-> Encoded URL:', url);
     }
     
     const tab = tabs.find(t => t.id === currentTabId);
     if (tab) {
+      console.log('Navigating to:', url);
+      
       // Always navigate in current tab, regardless of current URL
       tab.url = url;
       tab.history = tab.history || [];

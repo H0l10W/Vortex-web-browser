@@ -540,14 +540,41 @@ ipcMain.on('view:navigate', (event, { id, url }) => {
 
   const view = state.views.get(id);
   if (view && !view.webContents.isDestroyed()) {
-    view.webContents.loadURL(url).catch(err => {
+    console.log(`Navigating tab ${id} to: ${url}`);
+    
+    // Add better error handling and navigation
+    view.webContents.loadURL(url, {
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      extraHeaders: 'Accept-Language: en-US,en;q=0.9\r\n'
+    }).then(() => {
+      console.log(`Successfully loaded: ${url}`);
+    }).catch(err => {
       console.error('Failed to load URL:', url, err);
-      // Try fallback to HTTP if HTTPS fails (for development)
-      if (url.startsWith('https://')) {
+      
+      // Enhanced error handling
+      if (err.code === 'ERR_ABORTED') {
+        console.log('Navigation was aborted, this is usually not an error');
+        return; // Don't try fallback for aborted navigations
+      }
+      
+      // Handle other common errors
+      if (err.code === 'ERR_NETWORK_CHANGED' || err.code === 'ERR_INTERNET_DISCONNECTED') {
+        view.webContents.loadURL('data:text/html,<h1>Network Error</h1><p>Check your internet connection and try again.</p>');
+        return;
+      }
+      
+      // Try fallback to HTTP if HTTPS fails (for development or specific sites)
+      if (url.startsWith('https://') && !url.includes('google.com') && !url.includes('search')) {
         const httpUrl = url.replace('https://', 'http://');
+        console.log(`Trying HTTP fallback: ${httpUrl}`);
         view.webContents.loadURL(httpUrl).catch(fallbackErr => {
-          console.error('Fallback also failed:', fallbackErr);
+          console.error('HTTP fallback also failed:', fallbackErr);
+          // Load an error page or show error message
+          view.webContents.loadURL('data:text/html,<h1>Failed to load page</h1><p>Unable to load ' + url + '</p>');
         });
+      } else {
+        // For search URLs or other critical URLs, show error page
+        view.webContents.loadURL('data:text/html,<h1>Failed to load page</h1><p>Unable to load ' + url + '</p><p>Error: ' + err.message + '</p>');
       }
     });
   }
