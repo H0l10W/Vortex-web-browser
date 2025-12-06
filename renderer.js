@@ -16,19 +16,22 @@ window.addEventListener('DOMContentLoaded', () => {
     checking: false,
     downloading: false,
     available: false,
-    downloaded: false
+    downloaded: false,
+    lastNotification: 0
   };
 
   if (window.electronAPI) {
     // Listen for update events
     window.electronAPI.onUpdateChecking(() => {
-      if (!updateState.checking) {
+      const now = Date.now();
+      if (!updateState.checking && (now - updateState.lastNotification) > 2000) {
         console.log('Checking for updates...');
         showUpdateNotification('Checking for updates...', 'info', 3000);
         updateState.checking = true;
         updateState.downloading = false;
         updateState.available = false;
         updateState.downloaded = false;
+        updateState.lastNotification = now;
       }
     });
 
@@ -39,6 +42,7 @@ window.addEventListener('DOMContentLoaded', () => {
         updateState.available = true;
         updateState.checking = false;
         updateState.downloading = true;
+        updateState.lastNotification = Date.now();
       }
     });
 
@@ -46,14 +50,14 @@ window.addEventListener('DOMContentLoaded', () => {
       if (updateState.checking) {
         console.log('No updates available');
         showUpdateNotification('You have the latest version!', 'info', 3000);
-        updateState = { checking: false, downloading: false, available: false, downloaded: false };
+        updateState = { checking: false, downloading: false, available: false, downloaded: false, lastNotification: Date.now() };
       }
     });
 
     window.electronAPI.onUpdateError((message) => {
       console.error('Update error:', message);
       showUpdateNotification(`Update error: ${message}`, 'error');
-      updateState = { checking: false, downloading: false, available: false, downloaded: false };
+      updateState = { checking: false, downloading: false, available: false, downloaded: false, lastNotification: Date.now() };
     });
 
     window.electronAPI.onUpdateDownloadProgress((progress) => {
@@ -62,6 +66,7 @@ window.addEventListener('DOMContentLoaded', () => {
         // Only update progress every 10% to reduce notification spam
         if (percent % 10 === 0 || percent === 100) {
           showUpdateNotification(`Downloading update: ${percent}%`, 'info');
+          updateState.lastNotification = Date.now();
         }
       }
     });
@@ -77,6 +82,7 @@ window.addEventListener('DOMContentLoaded', () => {
         );
         updateState.downloaded = true;
         updateState.downloading = false;
+        updateState.lastNotification = Date.now();
       }
     });
   }

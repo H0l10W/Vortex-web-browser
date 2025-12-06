@@ -1,5 +1,10 @@
 const { app, BrowserWindow, BrowserView, ipcMain } = require('electron');
 const { autoUpdater } = require('electron-updater');
+
+// Global update state tracking
+let updateInProgress = false;
+let lastUpdateCheck = 0;
+const UPDATE_CHECK_COOLDOWN = 30000; // 30 seconds cooldown between checks
 const path = require('path');
 
 // Increase max listeners to prevent memory leak warnings
@@ -557,6 +562,7 @@ autoUpdater.on('update-available', (info) => {
 
 autoUpdater.on('update-not-available', (info) => {
   console.log('Update not available');
+  updateInProgress = false;
   // Notify all windows
   BrowserWindow.getAllWindows().forEach(win => {
     win.webContents.send('update-not-available', info);
@@ -565,6 +571,7 @@ autoUpdater.on('update-not-available', (info) => {
 
 autoUpdater.on('error', (err) => {
   console.error('Update error:', err);
+  updateInProgress = false;
   // Only show error notification for non-404 errors to avoid spamming users
   if (!err.message.includes('404')) {
     // Notify all windows about error
@@ -608,10 +615,16 @@ app.whenReady().then(() => {
   // Check for updates after app is ready (delay to ensure window is loaded)
   setTimeout(() => {
     if (process.env.NODE_ENV !== 'development') {
-      console.log('Checking for updates...');
-      autoUpdater.checkForUpdatesAndNotify().catch(err => {
-        console.log('Update check failed (this is normal if no releases exist yet):', err.message);
-      });
+      const now = Date.now();
+      if (!updateInProgress && (now - lastUpdateCheck) > UPDATE_CHECK_COOLDOWN) {
+        console.log('Checking for updates...');
+        updateInProgress = true;
+        lastUpdateCheck = now;
+        autoUpdater.checkForUpdatesAndNotify().catch(err => {
+          console.log('Update check failed (this is normal if no releases exist yet):', err.message);
+          updateInProgress = false;
+        });
+      }
     }
   }, 3000);
 
@@ -621,8 +634,26 @@ app.whenReady().then(() => {
       if (process.env.NODE_ENV === 'development') {
         throw new Error('Update checking is disabled in development mode');
       }
-      return await autoUpdater.checkForUpdates();
+      
+      const now = Date.now();
+      if (updateInProgress) {
+        throw new Error('Update check already in progress. Please wait.');
+      }
+      
+      if ((now - lastUpdateCheck) < 5000) { // 5 second cooldown for manual checks
+        throw new Error('Please wait before checking for updates again.');
+      }
+      
+      updateInProgress = true;
+      lastUpdateCheck = now;
+      
+      const result = await autoUpdater.checkForUpdates();
+      if (!result) {
+        updateInProgress = false;
+      }
+      return result;
     } catch (error) {
+      updateInProgress = false;
       console.error('Manual update check failed:', error);
       // Don't throw 404 errors to the user interface
       if (error.message.includes('404')) {
