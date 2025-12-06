@@ -53,7 +53,7 @@ if (process.env.NODE_ENV !== 'development') {
   autoUpdater.setFeedURL({
     provider: 'github',
     owner: 'H0l10W',
-    repo: 'web-browser-with-js'
+    repo: 'Vortex-web-browser'
   });
   
   // Force clear any cached update info
@@ -923,8 +923,6 @@ app.whenReady().then(() => {
       }
       
       console.log('Update check result:', JSON.stringify(result, null, 2));
-      return result;
-      }
       return result;
     } catch (error) {
       updateInProgress = false;
