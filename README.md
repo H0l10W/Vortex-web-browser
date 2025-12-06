@@ -54,6 +54,7 @@ FUTURE ROADMAP:
 ==============
 
 Planned for v0.1.6+:
+
 • Enhanced ad blocking capabilities
 
 • Password manager integration
