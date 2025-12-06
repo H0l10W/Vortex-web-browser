@@ -930,8 +930,13 @@ app.whenReady().then(() => {
     } catch (error) {
       updateInProgress = false;
       console.error('Manual update check failed:', error);
+      console.error('Error details - code:', error.code, 'message:', error.message);
+      console.error('Full error object:', JSON.stringify(error, Object.getOwnPropertyNames(error), 2));
+      
       // Don't throw 404 errors to the user interface
       if (error.message.includes('404')) {
+        console.error('404 error detected - GitHub releases API not accessible');
+        console.error('Expected API URL: https://api.github.com/repos/H0l10W/Vortex-web-browser/releases');
         throw new Error('No releases found. Updates will be available once the first release is published.');
       }
       throw error;
