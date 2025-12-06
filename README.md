@@ -35,3 +35,15 @@ VERSION 0.1.0-0.1.5 - AUTO-UPDATER SYSTEM & OPTIMIZATION
 • GitHub repository configuration for automated releases
 • Build artifact optimization (Setup and Portable versions)
 • Automated publishing pipeline with version tagging
+
+FUTURE ROADMAP:
+==============
+
+Planned for v0.1.6+:
+• Enhanced ad blocking capabilities
+• Password manager integration
+• Advanced privacy controls
+• Performance optimizations
+• Additional theme options
+• Extended widget ecosystem
+
