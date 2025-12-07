@@ -43,18 +43,40 @@ let adDomains = [];
 let adBlockEnabled = false;
 
 // Auto-updater configuration
+console.log('=== AUTO-UPDATER INITIALIZATION ===');
+console.log('NODE_ENV:', process.env.NODE_ENV);
+console.log('process.defaultApp:', process.defaultApp);
+console.log('__dirname:', __dirname);
+console.log('app.isPackaged:', app.isPackaged);
+
+// Use proper detection for production
+const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
+console.log('Auto-updater will be:', isDev ? 'DISABLED' : 'ENABLED');
+
+// FORCE dev config for testing
+autoUpdater.forceDevUpdateConfig = true;
+console.log('Forced dev update config enabled');
+
 autoUpdater.checkForUpdatesAndNotify();
 autoUpdater.autoDownload = false; // Don't auto-download, let user choose
 autoUpdater.autoInstallOnAppQuit = false; // We'll handle installation manually
 autoUpdater.allowDowngrade = false; // Prevent downgrade attacks
 
 // Configure auto-updater for GitHub releases
-if (process.env.NODE_ENV !== 'development') {
+if (!isDev) { // Using forced production mode
+  console.log('=== CONFIGURING AUTO-UPDATER ===');
+  console.log('NODE_ENV:', process.env.NODE_ENV);
+  
+  // FORCE auto-updater to work in development
+  autoUpdater.forceDevUpdateConfig = true;
+  
   autoUpdater.setFeedURL({
     provider: 'github',
     owner: 'H0l10W',
     repo: 'Vortex-web-browser'
   });
+  
+  console.log('Feed URL set to:', autoUpdater.getFeedURL());
   
   // Force clear any cached update info
   autoUpdater.allowPrerelease = false;
@@ -62,6 +84,10 @@ if (process.env.NODE_ENV !== 'development') {
   
   console.log('Auto-updater configured for GitHub releases');
   console.log('Current version:', app.getVersion());
+  console.log('Repository: H0l10W/Vortex-web-browser');
+  console.log('Expected latest API URL: https://api.github.com/repos/H0l10W/Vortex-web-browser/releases/latest');
+} else {
+  console.log('Auto-updater DISABLED - Development mode detected');
 }
 
 // Auto-updater event handlers
@@ -873,8 +899,9 @@ app.whenReady().then(() => {
     initAdBlocker();
     
     // Initialize auto-updater in production (restored from working v0.1.12)
-    if (process.env.NODE_ENV !== 'development') {
+    if (!isDev) { // Using forced production mode
       setTimeout(() => {
+        console.log('=== SETIMMEDIATE AUTO-UPDATE CHECK ===');
         autoUpdater.checkForUpdatesAndNotify();
       }, 5000); // Wait 5 seconds after app start
     }
@@ -900,9 +927,10 @@ app.whenReady().then(() => {
 
   // Check for updates after app is ready (restored working pattern from v0.1.12)
   setTimeout(() => {
-    if (process.env.NODE_ENV !== 'development') {
+    if (!isDev) { // Using forced production mode
       const now = Date.now();
       if (!updateInProgress && (now - lastUpdateCheck) > UPDATE_CHECK_COOLDOWN) {
+        console.log('=== MAIN AUTO-UPDATE CHECK ===');
         console.log('Checking for updates...');
         updateInProgress = true;
         lastUpdateCheck = now;
@@ -910,7 +938,14 @@ app.whenReady().then(() => {
           console.log('Update check failed (this is normal if no releases exist yet):', err.message);
           updateInProgress = false;
         });
+      } else {
+        console.log('Skipping update check - conditions not met');
+        console.log('updateInProgress:', updateInProgress);
+        console.log('time since last check:', (now - lastUpdateCheck), 'ms');
+        console.log('required cooldown:', UPDATE_CHECK_COOLDOWN, 'ms');
       }
+    } else {
+      console.log('Auto-update check skipped - development mode');
     }
   }, 3000);
 
@@ -942,7 +977,17 @@ app.whenReady().then(() => {
       try {
         const https = require('https');
         const apiTest = new Promise((resolve, reject) => {
-          const req = https.get('https://api.github.com/repos/H0l10W/Vortex-web-browser/releases/latest', (res) => {
+          const options = {
+            hostname: 'api.github.com',
+            path: '/repos/H0l10W/Vortex-web-browser/releases/latest',
+            method: 'GET',
+            headers: {
+              'User-Agent': 'VortexBrowser/0.1.31 (https://github.com/H0l10W/Vortex-web-browser)',
+              'Accept': 'application/vnd.github.v3+json'
+            }
+          };
+          
+          const req = https.request(options, (res) => {
             let data = '';
             res.on('data', chunk => data += chunk);
             res.on('end', () => {
@@ -967,6 +1012,7 @@ app.whenReady().then(() => {
             req.destroy();
             reject(new Error('API request timeout'));
           });
+          req.end();
         });
         
         const apiResult = await apiTest;
