@@ -1105,18 +1105,18 @@ app.whenReady().then(() => {
     return Array.from(memoryMonitoring.hibernatedTabs);
   });
 
-  // Start memory monitoring and management (TEMPORARILY DISABLED FOR AUTO-UPDATER TESTING)
-  console.log('Memory management system disabled for auto-updater testing...');
+  // Start memory monitoring and management
+  console.log('Memory management system enabled');
   
-  // Periodic memory monitoring (DISABLED)
-  // setInterval(() => {
-  //   checkMemoryPressure();
-  // }, 60000); // Check every minute
+  // Periodic memory monitoring
+  setInterval(() => {
+    checkMemoryPressure();
+  }, 60000); // Check every minute
   
-  // Periodic garbage collection (DISABLED)
-  // setInterval(() => {
-  //   triggerGarbageCollectionIfNeeded();
-  // }, MEMORY_CONFIG.gcIntervalMs);
+  // Periodic garbage collection
+  setInterval(() => {
+    triggerGarbageCollectionIfNeeded();
+  }, MEMORY_CONFIG.gcIntervalMs);
   
   // Initial memory status
   console.log('Initial memory usage:', getMemoryUsage());
