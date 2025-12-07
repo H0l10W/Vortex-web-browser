@@ -1,6 +1,6 @@
 {
   "name": "vortexwebbrowser",
-  "version": "0.1.30",
+  "version": "0.1.31",
   "description": "A fast, lightweight web browser built with Electron",
   "main": "main.js",
   "scripts": {
