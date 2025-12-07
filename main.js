@@ -869,6 +869,7 @@ function createSettingsWindow() {
       settingsWindow.removeAllListeners();
     }
     settingsWindow = null;
+  });
 }
 
 app.whenReady().then(() => {
