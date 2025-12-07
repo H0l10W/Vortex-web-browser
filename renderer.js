@@ -21,6 +21,16 @@ window.addEventListener('DOMContentLoaded', () => {
   };
 
   if (window.electronAPI) {
+    // Listen for debug info from main process
+    window.electronAPI.onAutoUpdaterDebugInfo((debugInfo) => {
+      console.log('=== AUTO-UPDATER DEBUG INFO ===');
+      console.log('App version:', debugInfo.appVersion);
+      console.log('Repository configured:', debugInfo.repository);
+      console.log('Expected API URL:', debugInfo.apiUrl);
+      console.log('Auto-updater feed URL:', debugInfo.feedUrl);
+      console.log('================================');
+    });
+    
     // Listen for update events
     window.electronAPI.onUpdateChecking(() => {
       const now = Date.now();

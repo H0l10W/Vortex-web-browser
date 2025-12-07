@@ -878,12 +878,34 @@ app.whenReady().then(() => {
     // Initialize auto-updater in production
     if (process.env.NODE_ENV !== 'development') {
       setTimeout(() => {
+  setImmediate(() => {
+    initAdBlocker();
+    
+    // Initialize auto-updater in production
+    if (process.env.NODE_ENV !== 'development') {
+      setTimeout(() => {
         autoUpdater.checkForUpdatesAndNotify();
       }, 5000); // Wait 5 seconds after app start
     }
   });
   
   createWindow();
+
+  // Send debug info to renderer console after window is created
+  setTimeout(() => {
+    const debugInfo = {
+      appVersion: app.getVersion(),
+      repository: 'H0l10W/Vortex-web-browser',
+      apiUrl: 'https://api.github.com/repos/H0l10W/Vortex-web-browser/releases/latest',
+      feedUrl: autoUpdater.getFeedURL()
+    };
+    
+    BrowserWindow.getAllWindows().forEach(win => {
+      if (!win.isDestroyed()) {
+        win.webContents.send('auto-updater-debug-info', debugInfo);
+      }
+    });
+  }, 2000);
 
   // Check for updates after app is ready (delay to ensure window is loaded)
   setTimeout(() => {
