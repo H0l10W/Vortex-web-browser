@@ -124,7 +124,7 @@ VORTEX BROWSER - CHANGELOG
 FUTURE ROADMAP:
 ==============
 
-Planned for v0.1.6+:
+Planned for v0.2.3+:
 
 • Enhanced ad blocking capabilities
 
