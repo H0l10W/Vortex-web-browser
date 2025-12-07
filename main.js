@@ -1,5 +1,7 @@
 const { app, BrowserWindow, BrowserView, ipcMain } = require('electron');
 const { autoUpdater } = require('electron-updater');
+const fs = require('fs');
+const path = require('path');
 
 // Global update state tracking
 let updateInProgress = false;
@@ -21,7 +23,42 @@ let memoryMonitoring = {
   hibernatedTabs: new Set(), // Track hibernated tabs
 };
 
-const path = require('path');
+// Persistent storage implementation
+const userDataPath = app.getPath('userData');
+const storageFilePath = path.join(userDataPath, 'browser-storage.json');
+
+// Load storage data from file
+function loadStorageData() {
+  try {
+    if (fs.existsSync(storageFilePath)) {
+      const data = fs.readFileSync(storageFilePath, 'utf8');
+      return JSON.parse(data);
+    }
+  } catch (error) {
+    console.error('Error loading storage data:', error);
+  }
+  return {};
+}
+
+// Save storage data to file
+function saveStorageData(data) {
+  try {
+    // Ensure the directory exists
+    const dir = path.dirname(storageFilePath);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    
+    fs.writeFileSync(storageFilePath, JSON.stringify(data, null, 2));
+    return true;
+  } catch (error) {
+    console.error('Error saving storage data:', error);
+    return false;
+  }
+}
+
+// Global storage object
+let storageData = loadStorageData();
 
 // Increase max listeners to prevent memory leak warnings
 require('events').EventEmitter.defaultMaxListeners = 30;
@@ -869,6 +906,25 @@ ipcMain.handle('delete-cookie', async (event, { name, domain }) => {
     return true;
   }
   return false;
+});
+
+// Storage API handlers
+ipcMain.handle('storage-get', (event, key) => {
+  return storageData[key] || null;
+});
+
+ipcMain.handle('storage-set', (event, key, value) => {
+  storageData[key] = value;
+  return saveStorageData(storageData);
+});
+
+ipcMain.handle('storage-remove', (event, key) => {
+  delete storageData[key];
+  return saveStorageData(storageData);
+});
+
+ipcMain.handle('storage-get-all-keys', () => {
+  return Object.keys(storageData);
 });
 
 // Create incognito window (no session persistence)

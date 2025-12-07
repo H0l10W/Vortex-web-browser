@@ -1,4 +1,24 @@
 window.addEventListener('DOMContentLoaded', () => {
+  // Persistent storage helper to replace localStorage
+  const storage = {
+    async getItem(key) {
+      try {
+        return await window.electronAPI.getStorageItem(key);
+      } catch (error) {
+        console.error('Error getting storage item:', key, error);
+        return null;
+      }
+    },
+    async setItem(key, value) {
+      try {
+        return await window.electronAPI.setStorageItem(key, value);
+      } catch (error) {
+        console.error('Error setting storage item:', key, error);
+        return false;
+      }
+    }
+  };
+
   const settingsTabButtons = document.querySelectorAll('.settings-tab-button');
   const settingsTabContents = document.querySelectorAll('.settings-tab-content');
   const themeOptions = document.querySelectorAll('.theme-option');
@@ -71,6 +91,7 @@ window.addEventListener('DOMContentLoaded', () => {
         const themeClassName = `theme-${themeName}`; // e.g., 'theme-dark-purple'
         
         localStorage.setItem('theme', themeClassName);
+        storage.setItem('theme', themeClassName);
         applyTheme(themeClassName);
         updateSelectedThemeUI(themeClassName);
       });
@@ -87,9 +108,11 @@ window.addEventListener('DOMContentLoaded', () => {
   }
 
   // Apply saved theme on initial load
-  const currentTheme = localStorage.getItem('theme') || 'theme-light'; // Default to 'theme-light'
-  applyTheme(currentTheme);
-  updateSelectedThemeUI(currentTheme);
+  storage.getItem('theme').then(currentTheme => {
+    const theme = currentTheme || 'theme-light';
+    applyTheme(theme);
+    updateSelectedThemeUI(theme);
+  });
 
   // --- Widget Settings Logic ---
   

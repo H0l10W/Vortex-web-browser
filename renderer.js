@@ -1,15 +1,81 @@
 window.addEventListener('DOMContentLoaded', () => {
   console.log('DOM loaded, initializing...');
   
+  // Persistent storage helper to replace localStorage
+  const storage = {
+    async getItem(key) {
+      try {
+        return await window.electronAPI.getStorageItem(key);
+      } catch (error) {
+        console.error('Error getting storage item:', key, error);
+        return null;
+      }
+    },
+    async setItem(key, value) {
+      try {
+        return await window.electronAPI.setStorageItem(key, value);
+      } catch (error) {
+        console.error('Error setting storage item:', key, error);
+        return false;
+      }
+    },
+    async removeItem(key) {
+      try {
+        return await window.electronAPI.removeStorageItem(key);
+      } catch (error) {
+        console.error('Error removing storage item:', key, error);
+        return false;
+      }
+    }
+  };
+  
+  // Apply theme immediately to prevent flash
+  storage.getItem('theme').then(savedTheme => {
+    const themeToApply = savedTheme || 'theme-light';
+    console.log('Applying theme immediately:', themeToApply);
+    document.body.className = themeToApply; // Set theme class directly
+  });
+  
   // --- State ---
-  let tabs = JSON.parse(localStorage.getItem('tabs') || '[]');
-  if (!tabs.length) tabs = [{ id: Date.now(), url: 'newtab', history: [], historyIndex: -1 }];
-  let currentTabId = parseInt(localStorage.getItem('currentTabId') || (tabs.length > 0 ? tabs[0].id : null), 10);
-  let bookmarks = JSON.parse(localStorage.getItem('bookmarks') || '[]');
-  let homepage = localStorage.getItem('homepage') || 'https://www.google.com';
-  let quickLinks = JSON.parse(localStorage.getItem('quickLinks') || '[]');
+  // Initialize state asynchronously with persistent storage
+  async function initializeState() {
+    let tabs = JSON.parse(await storage.getItem('tabs') || '[]');
+    if (!tabs.length) tabs = [{ id: Date.now(), url: 'newtab', history: [], historyIndex: -1 }];
+    let currentTabId = parseInt(await storage.getItem('currentTabId') || (tabs.length > 0 ? tabs[0].id : null), 10);
+    let bookmarks = JSON.parse(await storage.getItem('bookmarks') || '[]');
+    let homepage = await storage.getItem('homepage') || 'https://www.google.com';
+    let quickLinks = JSON.parse(await storage.getItem('quickLinks') || '[]');
+    
+    console.log('State loaded - tabs:', tabs.length, 'bookmarks:', bookmarks.length);
+    
+    return { tabs, currentTabId, bookmarks, homepage, quickLinks };
+  }
+  
+  // Initialize with temporary values, will be replaced by async loading
+  let tabs = [{ id: Date.now(), url: 'newtab', history: [], historyIndex: -1 }];
+  let currentTabId = tabs[0].id;
+  let bookmarks = [];
+  let homepage = 'https://www.google.com';
+  let quickLinks = [];
   
   console.log('State loaded - tabs:', tabs.length, 'bookmarks:', bookmarks.length);
+  
+  // Load actual state asynchronously
+  initializeState().then(actualState => {
+    tabs = actualState.tabs;
+    currentTabId = actualState.currentTabId;
+    bookmarks = actualState.bookmarks;
+    homepage = actualState.homepage;
+    quickLinks = actualState.quickLinks;
+    
+    // Re-render UI with loaded state
+    renderTabs();
+    renderBookmarkBar();
+    setActiveTab(currentTabId);
+    console.log('UI updated with persistent state');
+  }).catch(error => {
+    console.error('Error loading persistent state:', error);
+  });
   
   // --- Auto-Updater Communication ---
   let updateState = {
@@ -379,8 +445,8 @@ window.addEventListener('DOMContentLoaded', () => {
   }
 
   function persistTabs() {
-    localStorage.setItem('tabs', JSON.stringify(tabs));
-    localStorage.setItem('currentTabId', currentTabId);
+    storage.setItem('tabs', JSON.stringify(tabs));
+    storage.setItem('currentTabId', currentTabId);
   }
 
   // --- Navigation ---
@@ -526,7 +592,7 @@ window.addEventListener('DOMContentLoaded', () => {
         url = 'http://' + url;
       }
       homepage = url;
-      localStorage.setItem('homepage', homepage);
+      storage.setItem('homepage', homepage);
       
       // Visual feedback on save
       saveHomepageBtn.textContent = 'Saved!';
@@ -722,7 +788,7 @@ window.addEventListener('DOMContentLoaded', () => {
 
   function deleteBookmark(index) {
       bookmarks.splice(index, 1);
-      localStorage.setItem('bookmarks', JSON.stringify(bookmarks));
+      storage.setItem('bookmarks', JSON.stringify(bookmarks));
       renderBookmarkBar();
   }
 
@@ -740,7 +806,7 @@ window.addEventListener('DOMContentLoaded', () => {
         }
       }
       bookmarks.push({ url: tab.url, label: label });
-      localStorage.setItem('bookmarks', JSON.stringify(bookmarks));
+      storage.setItem('bookmarks', JSON.stringify(bookmarks));
       renderBookmarkBar();
     }
   };
@@ -944,7 +1010,7 @@ window.addEventListener('DOMContentLoaded', () => {
   // Listen for theme changes from other windows (like the settings page)
   window.electronAPI.onThemeChanged((themeClassName) => {
     console.log('Theme change received in main window:', themeClassName);
-    localStorage.setItem('theme', themeClassName);
+    storage.setItem('theme', themeClassName);
     applyTheme(themeClassName);
     
     // Update the sidebar theme dropdown if it exists
@@ -958,21 +1024,28 @@ window.addEventListener('DOMContentLoaded', () => {
   });
 
   // Apply the initial theme on load
-  const initialTheme = localStorage.getItem('theme') || 'theme-light';
-  applyTheme(initialTheme);
+  storage.getItem('theme').then(initialTheme => {
+    const theme = initialTheme || 'theme-light';
+    console.log('Loading saved theme:', theme);
+    applyTheme(theme);
 
-  // Update theme select handler in the slide-out panel
-  const themeSelect = document.getElementById('theme-select');
-  if (themeSelect) {
-    themeSelect.value = initialTheme;
-    themeSelect.onchange = () => {
-      const themeClassName = themeSelect.value;
-      localStorage.setItem('theme', themeClassName);
-      applyTheme(themeClassName);
-      // Also broadcast this change to other windows
-      window.electronAPI.broadcastThemeChange(themeClassName);
-    };
-  }
+    // Update theme select handler in the slide-out panel
+    const themeSelect = document.getElementById('theme-select');
+    if (themeSelect) {
+      themeSelect.value = theme;
+      console.log('Set theme select to:', theme);
+      themeSelect.onchange = () => {
+        const themeClassName = themeSelect.value;
+        console.log('Theme changed to:', themeClassName);
+        storage.setItem('theme', themeClassName);
+        applyTheme(themeClassName);
+        // Also broadcast this change to other windows
+        window.electronAPI.broadcastThemeChange(themeClassName);
+      };
+    } else {
+      console.log('Theme select element not found');
+    }
+  });
 
   // Search engine selection
   const searchEngineSelect = document.getElementById('search-engine-select');

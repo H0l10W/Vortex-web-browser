@@ -28,6 +28,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Cookie management APIs
   getAllCookies: () => ipcRenderer.invoke('get-all-cookies'),
   clearAllCookies: () => ipcRenderer.invoke('clear-all-cookies'),
+  
+  // Persistent storage APIs (to replace localStorage)
+  getStorageItem: (key) => ipcRenderer.invoke('storage-get', key),
+  setStorageItem: (key, value) => ipcRenderer.invoke('storage-set', key, value),
+  removeStorageItem: (key) => ipcRenderer.invoke('storage-remove', key),
+  getAllStorageKeys: () => ipcRenderer.invoke('storage-get-all-keys'),
   deleteCookie: (name, domain) => ipcRenderer.invoke('delete-cookie', { name, domain }),
 
   // --- Main to Renderer ---

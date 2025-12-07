@@ -22,8 +22,19 @@
     (function() {
       const themeClassName = document.documentElement.getAttribute('data-theme');
       if (themeClassName) {
-        document.body.className = themeClassName;
+        // Remove any existing theme classes first
+        const themeClasses = [
+          'theme-light', 'theme-dark',
+          'theme-light-mint', 'theme-light-sakura', 'theme-light-sunny',
+          'theme-dark-purple', 'theme-dark-nord', 'theme-dark-forest', 'theme-dark-rose'
+        ];
+        document.body.classList.remove(...themeClasses);
+        
+        // Add the correct theme class
+        document.body.classList.add(themeClassName);
         document.documentElement.removeAttribute('data-theme');
+        
+        console.log('Applied theme to settings page:', themeClassName);
       }
     })();
   </script>
