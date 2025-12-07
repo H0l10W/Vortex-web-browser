@@ -43,7 +43,7 @@ let adDomains = [];
 let adBlockEnabled = false;
 
 // Auto-updater configuration
-autoUpdater.checkForUpdatesAndNotify();
+autoUpdater.checkForUpdatesAndNotify(); // This early call is needed for initialization!
 autoUpdater.autoDownload = false; // Don't auto-download, let user choose
 autoUpdater.autoInstallOnAppQuit = false; // We'll handle installation manually
 autoUpdater.allowDowngrade = false; // Prevent downgrade attacks
@@ -63,6 +63,93 @@ if (process.env.NODE_ENV !== 'development') {
   console.log('Auto-updater configured for GitHub releases');
   console.log('Current version:', app.getVersion());
 }
+
+// Auto-updater event handlers - MUST be registered early!
+autoUpdater.on('checking-for-update', () => {
+  console.log('=== AUTO-UPDATER EVENT: checking-for-update ===');
+  console.log('Checking for update...');
+  console.log('Repository: H0l10W/Vortex-web-browser');
+  console.log('API URL: https://api.github.com/repos/H0l10W/Vortex-web-browser/releases');
+  console.log('Current app version:', app.getVersion());
+  console.log('Feed URL:', autoUpdater.getFeedURL());
+  // Notify all windows about update check
+  BrowserWindow.getAllWindows().forEach(win => {
+    win.webContents.send('update-checking');
+  });
+});
+
+autoUpdater.on('update-available', (info) => {
+  console.log('=== AUTO-UPDATER EVENT: update-available ===');
+  console.log('Update available:', info.version);
+  console.log('Update info:', JSON.stringify(info, null, 2));
+  // Notify all windows about available update
+  BrowserWindow.getAllWindows().forEach(win => {
+    win.webContents.send('update-available', info);
+  });
+  // Explicitly start download
+  console.log('Starting download...');
+  autoUpdater.downloadUpdate();
+});
+
+autoUpdater.on('update-not-available', (info) => {
+  console.log('=== AUTO-UPDATER EVENT: update-not-available ===');
+  console.log('Update not available - Current version:', app.getVersion(), 'Latest:', info?.version || 'unknown');
+  console.log('Full update info:', JSON.stringify(info, null, 2));
+  updateInProgress = false;
+  // Notify all windows
+  BrowserWindow.getAllWindows().forEach(win => {
+    try {
+      if (!win.isDestroyed()) {
+        win.webContents.send('update-not-available', info);
+      }
+    } catch (err) {
+      console.log('Error sending update notification:', err.message);
+    }
+  });
+});
+
+autoUpdater.on('error', (err) => {
+  console.log('=== AUTO-UPDATER EVENT: error ===');
+  console.error('Update error:', err);
+  console.error('Error code:', err.code);
+  console.error('Error message:', err.message);
+  console.error('Error stack:', err.stack);
+  updateInProgress = false;
+  // Only show error notification for non-404 errors to avoid spamming users
+  if (!err.message.includes('404')) {
+    // Notify all windows about error
+    BrowserWindow.getAllWindows().forEach(win => {
+      win.webContents.send('update-error', err.message);
+    });
+  }
+});
+
+autoUpdater.on('download-progress', (progressObj) => {
+  console.log('Download progress:', Math.round(progressObj.percent) + '%');
+  // Notify all windows about download progress
+  BrowserWindow.getAllWindows().forEach(win => {
+    win.webContents.send('update-download-progress', progressObj);
+  });
+});
+
+autoUpdater.on('update-downloaded', (info) => {
+  console.log('Update downloaded:', info.version);
+  
+  try {
+    // Notify all windows that update is ready to install
+    BrowserWindow.getAllWindows().forEach(win => {
+      try {
+        if (!win.isDestroyed()) {
+          win.webContents.send('update-downloaded', info);
+        }
+      } catch (err) {
+        console.log('Error sending update notification to window:', err.message);
+      }
+    });
+  } catch (err) {
+    console.log('Error during update-downloaded notification:', err.message);
+  }
+});
 
 // Memory Management Functions
 // ===========================
@@ -782,86 +869,7 @@ function createSettingsWindow() {
       settingsWindow.removeAllListeners();
     }
     settingsWindow = null;
-  });
 }
-
-// Auto-updater event handlers
-autoUpdater.on('checking-for-update', () => {
-  console.log('Checking for update...');
-  console.log('Repository: H0l10W/Vortex-web-browser');
-  console.log('API URL: https://api.github.com/repos/H0l10W/Vortex-web-browser/releases');
-  console.log('Current app version:', app.getVersion());
-  // Notify all windows about update check
-  BrowserWindow.getAllWindows().forEach(win => {
-    win.webContents.send('update-checking');
-  });
-});
-
-autoUpdater.on('update-available', (info) => {
-  console.log('Update available:', info.version);
-  // Notify all windows about available update
-  BrowserWindow.getAllWindows().forEach(win => {
-    win.webContents.send('update-available', info);
-  });
-  // Explicitly start download
-  console.log('Starting download...');
-  autoUpdater.downloadUpdate();
-});
-
-autoUpdater.on('update-not-available', (info) => {
-  console.log('Update not available - Current version:', app.getVersion(), 'Latest:', info?.version || 'unknown');
-  console.log('Full update info:', JSON.stringify(info, null, 2));
-  updateInProgress = false;
-  // Notify all windows
-  BrowserWindow.getAllWindows().forEach(win => {
-    try {
-      if (!win.isDestroyed()) {
-        win.webContents.send('update-not-available', info);
-      }
-    } catch (err) {
-      console.log('Error sending update notification:', err.message);
-    }
-  });
-});
-
-autoUpdater.on('error', (err) => {
-  console.error('Update error:', err);
-  updateInProgress = false;
-  // Only show error notification for non-404 errors to avoid spamming users
-  if (!err.message.includes('404')) {
-    // Notify all windows about error
-    BrowserWindow.getAllWindows().forEach(win => {
-      win.webContents.send('update-error', err.message);
-    });
-  }
-});
-
-autoUpdater.on('download-progress', (progressObj) => {
-  console.log('Download progress:', Math.round(progressObj.percent) + '%');
-  // Notify all windows about download progress
-  BrowserWindow.getAllWindows().forEach(win => {
-    win.webContents.send('update-download-progress', progressObj);
-  });
-});
-
-autoUpdater.on('update-downloaded', (info) => {
-  console.log('Update downloaded:', info.version);
-  
-  try {
-    // Notify all windows that update is ready to install
-    BrowserWindow.getAllWindows().forEach(win => {
-      try {
-        if (!win.isDestroyed()) {
-          win.webContents.send('update-downloaded', info);
-        }
-      } catch (err) {
-        console.log('Error sending update notification to window:', err.message);
-      }
-    });
-  } catch (err) {
-    console.log('Error during update-downloaded notification:', err.message);
-  }
-});
 
 app.whenReady().then(() => {
   console.log('=== AUTO-UPDATER DEBUG INFO ===');
@@ -874,13 +882,6 @@ app.whenReady().then(() => {
   // Initialize non-critical components after window creation
   setImmediate(() => {
     initAdBlocker();
-    
-    // Initialize auto-updater in production
-    if (process.env.NODE_ENV !== 'development') {
-      setTimeout(() => {
-        autoUpdater.checkForUpdatesAndNotify();
-      }, 5000); // Wait 5 seconds after app start
-    }
   });
   
   createWindow();
@@ -906,14 +907,32 @@ app.whenReady().then(() => {
     if (process.env.NODE_ENV !== 'development') {
       const now = Date.now();
       if (!updateInProgress && (now - lastUpdateCheck) > UPDATE_CHECK_COOLDOWN) {
-        console.log('Checking for updates...');
+        console.log('=== INITIATING AUTO UPDATE CHECK ===');
+        console.log('Time since last check:', now - lastUpdateCheck, 'ms');
+        console.log('Cooldown period:', UPDATE_CHECK_COOLDOWN, 'ms');
+        console.log('Update in progress:', updateInProgress);
+        console.log('Auto-updater feed URL:', autoUpdater.getFeedURL());
         updateInProgress = true;
         lastUpdateCheck = now;
-        autoUpdater.checkForUpdatesAndNotify().catch(err => {
-          console.log('Update check failed (this is normal if no releases exist yet):', err.message);
+        
+        console.log('Calling autoUpdater.checkForUpdatesAndNotify()...');
+        autoUpdater.checkForUpdatesAndNotify().then(result => {
+          console.log('checkForUpdatesAndNotify resolved with:', result);
+        }).catch(err => {
+          console.error('checkForUpdatesAndNotify failed:', err);
+          console.error('Error code:', err.code);
+          console.error('Error message:', err.message);
+          console.error('Error stack:', err.stack);
           updateInProgress = false;
         });
+      } else {
+        console.log('Skipping auto update check - conditions not met');
+        console.log('- Update in progress:', updateInProgress);
+        console.log('- Time since last check:', now - lastUpdateCheck, 'ms');
+        console.log('- Required cooldown:', UPDATE_CHECK_COOLDOWN, 'ms');
       }
+    } else {
+      console.log('Auto-updater disabled in development mode');
     }
   }, 1000); // Reduced from 3000 to 1000ms for faster testing
 
