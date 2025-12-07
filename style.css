@@ -6,6 +6,141 @@
   --newtab-gradient-dark: radial-gradient(circle, #2d2d2d 0%, #404040 100%);
 }
 
+/* --- Custom Title Bar --- */
+#title-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 40px; /* Increased from 32px for larger top bar */
+  background: #f1f3f4;
+  padding: 8px 0 0 0; /* Add top padding for floating effect */
+  -webkit-app-region: drag; /* Make title bar draggable */
+  user-select: none;
+  position: relative;
+}
+
+#tabs {
+  display: flex;
+  flex: 1;
+  align-items: flex-end; /* Align tabs to bottom of title bar */
+  height: 100%;
+  padding: 0 8px 0 16px; /* Increased left padding from 8px to 16px */
+  -webkit-app-region: drag; /* Make empty tab area draggable */
+}
+
+/* Make individual tabs non-draggable but keep empty space draggable */
+.tab {
+  -webkit-app-region: no-drag;
+}
+
+#window-controls {
+  display: flex;
+  height: 100%;
+  -webkit-app-region: no-drag; /* Window controls should be clickable */
+  padding-right: 8px; /* Add right padding to move close button away from edge */
+}
+
+.window-control-btn {
+  background: transparent;
+  border: none;
+  width: 46px;
+  height: 32px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.1s ease;
+  padding: 0;
+  border-radius: 6px; /* Added rounded corners */
+}
+
+.window-control-btn img {
+  width: 16px;
+  height: 16px;
+  opacity: 0.6 !important;
+  transition: opacity 0.1s ease;
+  filter: none !important; /* Override any theme filters */
+}
+
+/* Ensure window controls stay gray in all themes */
+body.theme-dark .window-control-btn img,
+body.theme-dark-purple .window-control-btn img,
+body.theme-dark-nord .window-control-btn img,
+body.theme-dark-forest .window-control-btn img,
+body.theme-dark-rose .window-control-btn img {
+  filter: none !important;
+  opacity: 0.6 !important;
+}
+
+.window-control-btn:hover {
+  background: rgba(95, 99, 104, 0.1) !important; /* Consistent gray hover */
+}
+
+.window-control-btn:hover img {
+  opacity: 1 !important;
+  filter: none !important; /* Override any theme filters */
+}
+
+/* Ensure window control hover stays gray in all themes */
+body.theme-dark .window-control-btn:hover,
+body.theme-dark-purple .window-control-btn:hover,
+body.theme-dark-nord .window-control-btn:hover,
+body.theme-dark-forest .window-control-btn:hover,
+body.theme-dark-rose .window-control-btn:hover {
+  background: rgba(95, 99, 104, 0.1) !important;
+}
+
+body.theme-dark .window-control-btn:hover img,
+body.theme-dark-purple .window-control-btn:hover img,
+body.theme-dark-nord .window-control-btn:hover img,
+body.theme-dark-forest .window-control-btn:hover img,
+body.theme-dark-rose .window-control-btn:hover img {
+  filter: none !important;
+  opacity: 1 !important;
+}
+
+/* Critical: Ensure window controls are never affected by icon-btn rules */
+.window-control-btn,
+.window-control-btn:hover {
+  filter: none !important;
+}
+
+.window-control-btn img,
+.window-control-btn:hover img {
+  filter: none !important;
+}
+
+#close-btn:hover {
+  background: #e81123; /* Keep red hover for close */
+}
+
+#close-btn:hover img {
+  filter: brightness(0) invert(1); /* Make close icon white on red background */
+  opacity: 1;
+}
+
+.window-control-btn:active {
+  background: rgba(95, 99, 104, 0.2) !important; /* Consistent gray active state */
+}
+
+#close-btn:active {
+  background: #c50e1f;
+}
+
+/* Dark theme adjustments */
+body.theme-dark #title-bar {
+  background: var(--tab-bg, #2d2d2d);
+  border-bottom-color: #1a1a1a; /* Match bookmark bar background */
+}
+
+body.theme-dark-purple #title-bar,
+body.theme-dark-nord #title-bar,
+body.theme-dark-forest #title-bar,
+body.theme-dark-rose #title-bar {
+  background: var(--tab-bg, #2d2d2d);
+  border-bottom-color: #1a1a1a; /* Match bookmark bar background */
+}
+
 /* --- Theme-Specific Variable Overrides --- */
 body.theme-light-mint {
   --accent-color-light: #50c878; /* Emerald Green */
@@ -60,11 +195,13 @@ iframe {
 
 #tabs {
   display: flex;
-  background: #dee1e6;
-  padding: 0 10px;
-  padding-top: 5px;
+  background: transparent;
+  padding: 0;
   position: relative;
   z-index: 1;
+  height: 100%;
+  align-items: center;
+  -webkit-app-region: drag; /* Make empty space draggable */
 }
 .tab {
   display: flex;
@@ -72,28 +209,39 @@ iframe {
   min-width: 60px;
   max-width: 240px;
   padding: 0 16px 0 8px;
-  background: #b0b3b8;
-  border-top-left-radius: 8px;
-  border-top-right-radius: 8px;
+  background: #dee1e6;
+  border-radius: 8px 8px 0 0; /* Rounded top corners only */
   cursor: pointer;
-  height: 34px;
+  height: 38px; /* Increased from 34px for bigger tabs */
   position: relative;
-  margin-right: 0;
-  margin-left: -1px;
+  margin: 2px -6px 0 0; /* Reduced negative margin from -8px to -6px */
   z-index: 1;
-  border: 1px solid #dee1e6;
-  border-bottom: none;
-  transition: background 0.2s, z-index 0s;
+  border: none; /* Remove borders for cleaner look */
+  -webkit-app-region: no-drag; /* Make tabs clickable, not draggable */
+  transition: all 0.2s ease;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1); /* Add subtle shadow */
+}
+
+/* Add right margin to last tab to prevent overlap with add button */
+.tab:last-of-type {
+  margin-right: 4px; /* Reduced from 8px to bring add button closer */
+}
+
+/* Add left margin to first tab for floating design gap */
+.tab:first-child {
+  margin-left: 8px;
 }
 .tab:not(.active):hover {
-  background: #c7cacf;
-  z-index: 2;
+  background: #e8eaed;
+  z-index: 5; /* Higher than inactive but lower than active */
+  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
 }
 .tab.active {
   background: #fff;
   font-weight: normal;
-  z-index: 10;
-  border-bottom: 2px solid #fff;
+  z-index: 10; /* Always on top */
+  box-shadow: 0 3px 10px rgba(0,0,0,0.2);
+  margin-top: 1px; /* Bring active tab closer to top */
 }
 
 /* Incognito tab styling */
@@ -111,9 +259,28 @@ iframe {
   border-bottom: 2px solid #1e1e1e;
 }
 
-.tab + .tab {
-  margin-left: -8px;
+/* Style the new tab button */
+#new-tab-btn {
+  background: none;
+  border: none;
+  width: 28px;
+  height: 38px; /* Match new tab height */
+  border-radius: 6px; /* Match tab border radius style */
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  color: #5f6368;
+  margin: 2px 8px 0 2px; /* Reduced left margin from 4px to 2px */
+  transition: background-color 0.2s;
+  -webkit-app-region: no-drag;
 }
+
+#new-tab-btn:hover {
+  background-color: rgba(95, 99, 104, 0.1);
+}
+
 .tab span {
   white-space: nowrap;
   overflow: hidden;
@@ -136,12 +303,13 @@ iframe {
   background-size: 20px 20px;
   background-position: center;
   background-repeat: no-repeat;
-  opacity: 0.7;
-  transition: background 0.2s, opacity 0.2s;
+  opacity: 0.6;
+  transition: all 0.2s;
 }
 .tab .close:hover {
-  background-color: #e0e0e0;
+  background-color: rgba(0,0,0,0.1);
   opacity: 1;
+  transform: scale(1.1);
 }
 
 #bookmark-bar {
@@ -192,16 +360,16 @@ iframe {
 #controls {
   display: flex;
   align-items: center;
-  padding: 8px;
+  padding: 6px; /* Reduced from 8px */
   background: #eee;
   border-bottom: 1px solid #ccc;
 }
 #url {
   flex: 1;
-  margin: 0 8px;
+  margin: 0 6px; /* Reduced from 8px */
   border-radius: 20px;
   border: 1px solid #ccc;
-  padding: 6px 15px;
+  padding: 4px 12px; /* Reduced from 6px 15px */
   font-size: 14px;
   transition: box-shadow 0.2s;
 }
@@ -572,9 +740,9 @@ body.theme-dark-rose .news-time {
 .icon-btn {
   background: none;
   border: none;
-  padding: 0 6px;
+  padding: 0 4px; /* Reduced from 6px */
   cursor: pointer;
-  height: 28px;
+  height: 24px; /* Reduced from 28px */
   display: flex;
   align-items: center;
   border-radius: 0;
@@ -612,8 +780,8 @@ body.theme-light-sunny .button-group-right {
   background: var(--accent-color-light);
 }
 .icon-btn img {
-  width: 22px;
-  height: 22px;
+  width: 20px; /* Reduced from 22px */
+  height: 20px; /* Reduced from 22px */
 }
 
 .icon-btn:hover {
@@ -645,6 +813,7 @@ body.theme-light-sunny .icon-btn:hover {
   outline: none;
   border-radius: 50%;
   margin-left: 4px;
+  -webkit-app-region: no-drag; /* Make new tab button clickable */
 }
 
 #new-tab-btn:focus {
@@ -1651,6 +1820,80 @@ body.theme-dark-rose .downloads-list a {
 .update-error {
   background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
   color: white;
+}
+
+/* CRITICAL: Window Control Override - Must stay at end of file for highest priority */
+.window-control-btn,
+.window-control-btn:hover,
+body.theme-dark .window-control-btn,
+body.theme-dark .window-control-btn:hover,
+body.theme-dark-purple .window-control-btn,
+body.theme-dark-purple .window-control-btn:hover,
+body.theme-dark-nord .window-control-btn,
+body.theme-dark-nord .window-control-btn:hover,
+body.theme-dark-forest .window-control-btn,
+body.theme-dark-forest .window-control-btn:hover,
+body.theme-dark-rose .window-control-btn,
+body.theme-dark-rose .window-control-btn:hover {
+  filter: none !important;
+  background: transparent !important;
+}
+
+.window-control-btn:hover,
+body.theme-dark .window-control-btn:hover,
+body.theme-dark-purple .window-control-btn:hover,
+body.theme-dark-nord .window-control-btn:hover,
+body.theme-dark-forest .window-control-btn:hover,
+body.theme-dark-rose .window-control-btn:hover {
+  background: rgba(95, 99, 104, 0.1) !important;
+}
+
+.window-control-btn img,
+.window-control-btn:hover img,
+body.theme-dark .window-control-btn img,
+body.theme-dark .window-control-btn:hover img,
+body.theme-dark-purple .window-control-btn img,
+body.theme-dark-purple .window-control-btn:hover img,
+body.theme-dark-nord .window-control-btn img,
+body.theme-dark-nord .window-control-btn:hover img,
+body.theme-dark-forest .window-control-btn img,
+body.theme-dark-forest .window-control-btn:hover img,
+body.theme-dark-rose .window-control-btn img,
+body.theme-dark-rose .window-control-btn:hover img {
+  filter: none !important;
+  opacity: 0.6 !important;
+  width: 16px !important;
+  height: 16px !important;
+  transition: opacity 0.1s ease !important;
+}
+
+.window-control-btn:hover img,
+body.theme-dark .window-control-btn:hover img,
+body.theme-dark-purple .window-control-btn:hover img,
+body.theme-dark-nord .window-control-btn:hover img,
+body.theme-dark-forest .window-control-btn:hover img,
+body.theme-dark-rose .window-control-btn:hover img {
+  opacity: 1 !important;
+}
+
+/* Close button red hover - highest priority */
+#close-btn:hover,
+body.theme-dark #close-btn:hover,
+body.theme-dark-purple #close-btn:hover,
+body.theme-dark-nord #close-btn:hover,
+body.theme-dark-forest #close-btn:hover,
+body.theme-dark-rose #close-btn:hover {
+  background: #e81123 !important;
+}
+
+#close-btn:hover img,
+body.theme-dark #close-btn:hover img,
+body.theme-dark-purple #close-btn:hover img,
+body.theme-dark-nord #close-btn:hover img,
+body.theme-dark-forest #close-btn:hover img,
+body.theme-dark-rose #close-btn:hover img {
+  filter: brightness(0) invert(1) !important;
+  opacity: 1 !important;
 }
 
 .update-notification:hover {

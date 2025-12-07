@@ -22,6 +22,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openIncognitoWindow: () => ipcRenderer.send('open-incognito'),
   toggleDevTools: () => ipcRenderer.send('toggle-devtools'),
   broadcastWidgetSettings: (widget, enabled) => ipcRenderer.send('broadcast-widget-settings', { widget, enabled }),
+  setBookmarkBarVisibility: (visible) => ipcRenderer.send('set-bookmark-bar-visibility', visible),
   closeApp: () => ipcRenderer.send('close-app'),
 
   // Cookie management APIs
@@ -51,6 +52,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onUpdateError: (callback) => ipcRenderer.on('update-error', (_event, message) => callback(message)),
   onUpdateDownloadProgress: (callback) => ipcRenderer.on('update-download-progress', (_event, progress) => callback(progress)),
   onUpdateDownloaded: (callback) => ipcRenderer.on('update-downloaded', (_event, info) => callback(info)),
+
+  // --- Window Control APIs ---
+  minimizeWindow: () => ipcRenderer.invoke('minimize-window'),
+  maximizeWindow: () => ipcRenderer.invoke('maximize-window'),
+  closeWindow: () => ipcRenderer.invoke('close-window'),
+  isMaximized: () => ipcRenderer.invoke('is-maximized'),
 
   // --- Memory Management APIs ---
   getMemoryUsage: () => ipcRenderer.invoke('get-memory-usage'),

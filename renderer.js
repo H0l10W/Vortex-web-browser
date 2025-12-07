@@ -46,13 +46,14 @@ window.addEventListener('DOMContentLoaded', () => {
     });
 
     window.electronAPI.onUpdateAvailable((info) => {
-      if (!updateState.available) {
+      const now = Date.now();
+      if (!updateState.available && (now - updateState.lastNotification > 5000)) {
         console.log('Update available:', info);
         showUpdateNotification(`Update v${info.version} found. Downloading...`, 'info');
         updateState.available = true;
         updateState.checking = false;
         updateState.downloading = true;
-        updateState.lastNotification = Date.now();
+        updateState.lastNotification = now;
       }
     });
 
@@ -82,17 +83,29 @@ window.addEventListener('DOMContentLoaded', () => {
     });
 
     window.electronAPI.onUpdateDownloaded((info) => {
-      if (!updateState.downloaded) {
+      const now = Date.now();
+      if (!updateState.downloaded && (now - updateState.lastNotification > 2000)) {
         console.log('Update downloaded:', info);
-        showUpdateNotification(
-          `Update v${info.version} ready to install. Click to restart and install.`,
-          'success',
-          0,
-          () => window.electronAPI.installUpdate()
-        );
-        updateState.downloaded = true;
-        updateState.downloading = false;
-        updateState.lastNotification = Date.now();
+        
+        // Small delay to ensure progress notification is visible
+        setTimeout(() => {
+          showUpdateNotification(
+            `Update v${info.version} ready to install. Click to restart and install.`,
+            'success',
+            0,
+            () => {
+              console.log('Install button clicked');
+              window.electronAPI.installUpdate().then(() => {
+                console.log('Install update called successfully');
+              }).catch(err => {
+                console.error('Install update failed:', err);
+              });
+            }
+          );
+          updateState.downloaded = true;
+          updateState.downloading = false;
+          updateState.lastNotification = now;
+        }, 1000);
       }
     });
   }
@@ -640,7 +653,31 @@ window.addEventListener('DOMContentLoaded', () => {
 
   // --- Bookmarks Bar ---
   function renderBookmarkBar() {
+    // Exit early if bookmark bar doesn't exist (e.g., on settings page)
+    if (!bookmarkBar) return;
+    
     bookmarkBar.innerHTML = '';
+    
+    // Check if we should show the bookmark bar
+    const shouldShowBar = bookmarks.length > 0;
+    const showBookmarksBar = document.getElementById('show-bookmarks-bar');
+    const userWantsToShow = !showBookmarksBar || showBookmarksBar.checked;
+    
+    // Hide bar if no bookmarks, regardless of user setting
+    const actuallyVisible = shouldShowBar && userWantsToShow;
+    if (!shouldShowBar) {
+      bookmarkBar.style.display = 'none';
+    } else {
+      // Show bar only if user wants it visible and there are bookmarks
+      bookmarkBar.style.display = userWantsToShow ? 'flex' : 'none';
+    }
+    
+    // Don't notify main process if we're on settings page (settings page always uses full header height)
+    if (!window.location.href.includes('settings.html')) {
+      // Notify main process about bookmark bar visibility change
+      window.electronAPI.setBookmarkBarVisibility(actuallyVisible);
+    }
+    
     bookmarks.forEach((b, index) => {
       const btn = document.createElement('button');
       btn.className = 'bookmark-btn';
@@ -961,10 +998,14 @@ window.addEventListener('DOMContentLoaded', () => {
   const showBookmarksBar = document.getElementById('show-bookmarks-bar');
   if (showBookmarksBar) {
     showBookmarksBar.checked = localStorage.getItem('showBookmarksBar') !== 'false';
-    bookmarkBar.style.display = showBookmarksBar.checked ? 'flex' : 'none';
+    
+    // Initial render respects both user setting and bookmark presence
+    renderBookmarkBar();
+    
     showBookmarksBar.onchange = () => {
       localStorage.setItem('showBookmarksBar', showBookmarksBar.checked);
-      bookmarkBar.style.display = showBookmarksBar.checked ? 'flex' : 'none';
+      // Re-render to apply new visibility logic
+      renderBookmarkBar();
     };
   }
 
@@ -1956,8 +1997,83 @@ function updateNewsWidget() {
 // Make function globally accessible immediately
 window.updateNewsWidget = updateNewsWidget;
 
+// Window Controls Functions
+function initializeWindowControls() {
+  const minimizeBtn = document.getElementById('minimize-btn');
+  const maximizeBtn = document.getElementById('maximize-btn');
+  const closeBtn = document.getElementById('close-btn');
+  const titleBar = document.getElementById('title-bar');
+
+  if (minimizeBtn) {
+    minimizeBtn.addEventListener('click', () => {
+      window.electronAPI.minimizeWindow();
+    });
+  }
+
+  if (maximizeBtn) {
+    maximizeBtn.addEventListener('click', async () => {
+      await window.electronAPI.maximizeWindow();
+      // Update the maximize button appearance
+      updateMaximizeButton();
+    });
+  }
+
+  if (closeBtn) {
+    closeBtn.addEventListener('click', () => {
+      window.electronAPI.closeWindow();
+    });
+  }
+
+  // Add double-click to maximize functionality
+  if (titleBar) {
+    titleBar.addEventListener('dblclick', async (e) => {
+      // Only trigger on the draggable area, not on buttons or tabs
+      if (e.target === titleBar || e.target.closest('#tabs')) {
+        await window.electronAPI.maximizeWindow();
+        updateMaximizeButton();
+      }
+    });
+  }
+
+  // Initialize maximize button state
+  updateMaximizeButton();
+  
+  // Listen for window resize to update maximize button
+  window.addEventListener('resize', () => {
+    setTimeout(updateMaximizeButton, 100);
+  });
+}
+
+async function updateMaximizeButton() {
+  const maximizeBtn = document.getElementById('maximize-btn');
+  if (maximizeBtn && window.electronAPI.isMaximized) {
+    try {
+      const isMaximized = await window.electronAPI.isMaximized();
+      const img = maximizeBtn.querySelector('img');
+      if (img) {
+        if (isMaximized) {
+          maximizeBtn.classList.add('maximized');
+          img.src = 'icons/window-restore.png';
+          img.alt = 'Restore Down';
+          maximizeBtn.title = 'Restore Down';
+        } else {
+          maximizeBtn.classList.remove('maximized');
+          img.src = 'icons/window-maximize.png';
+          img.alt = 'Maximize';
+          maximizeBtn.title = 'Maximize';
+        }
+      }
+    } catch (err) {
+      console.error('Error checking maximize state:', err);
+    }
+  }
+}
+
 // Initialize widgets when page loads
 document.addEventListener('DOMContentLoaded', () => {
+  // Initialize window controls
+  initializeWindowControls();
+  
   // Small delay to ensure all elements are loaded
   setTimeout(() => {
     initializeWidgets();

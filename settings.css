@@ -254,7 +254,7 @@ html, body {
 
 #full-settings-main {
   flex: 1;
-  padding: 24px;
+  padding: 8px 24px 24px 24px; /* Reduced top padding from 24px to 8px */
   overflow-y: auto;
 }
 
@@ -1001,6 +1001,19 @@ body.theme-dark-rose .btn-secondary:hover {
 
 .theme-selector h5:first-of-type {
   margin-top: 0;
+}
+
+/* Add more space between theme sections */
+.theme-selector {
+  margin-bottom: 40px;
+}
+
+.theme-selector:first-of-type {
+  margin-bottom: 50px;
+}
+
+.theme-selector:nth-child(2) h5 {
+  margin-top: 40px;
 }
 
 .btn-secondary.danger {

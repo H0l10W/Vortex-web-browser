@@ -101,11 +101,11 @@ autoUpdater.on('checking-for-update', () => {
 
 autoUpdater.on('update-available', (info) => {
   console.log('Update available:', info.version);
-  // Notify all windows about available update
+  // Notify all windows about available update (shows "Update found" notification)
   BrowserWindow.getAllWindows().forEach(win => {
     win.webContents.send('update-available', info);
   });
-  // Explicitly start download
+  // Start download
   console.log('Starting download...');
   autoUpdater.downloadUpdate();
 });
@@ -261,12 +261,29 @@ function initAdBlocker() {
 }
 
 // Define the header height (height of tabs + controls)
-const headerHeight = 130; // Increased further to prevent overlap with navigation controls
+let headerHeight = 129; // Title bar (48px) + Bookmark bar (37px) + Controls (44px)
+const headerHeightWithoutBookmarks = 92; // Title bar (48px) + Controls (44px)
+
+// Track bookmark bar visibility globally
+let bookmarkBarVisible = true; // Default to true, will be updated by renderer
+
+// Helper function to get the correct header height based on URL
+function getHeaderHeightForUrl(url) {
+  // Settings page should use reduced height since it has its own internal header
+  if (url && url.includes('settings.html')) {
+    return 51; // Increased from 43 to prevent overlap with tab bottoms
+  }
+  // Regular webpages need full header height to avoid overlapping with controls
+  // Default to full header height when bookmarks are visible or when URL is unknown
+  return bookmarkBarVisible ? 129 : 92; // Updated values
+}
 
 function createWindow(initialUrl) {
   const win = new BrowserWindow({
     width: 1200,
     height: 800,
+    frame: false, // Remove default window frame
+    titleBarStyle: 'hidden', // Hide title bar
     icon: path.join(__dirname, 'icons', 'icon.png'), // Add icon for running app
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -313,7 +330,9 @@ function createWindow(initialUrl) {
             if (!isFullScreen) { // Going to fullscreen
               view.setBounds({ x: 0, y: 0, width: bounds.width, height: bounds.height });
             } else { // Exiting fullscreen
-              view.setBounds({ x: 0, y: headerHeight, width: bounds.width, height: bounds.height - headerHeight });
+              const currentUrl = view.webContents.getURL();
+              const effectiveHeaderHeight = getHeaderHeightForUrl(currentUrl);
+              view.setBounds({ x: 0, y: effectiveHeaderHeight, width: bounds.width, height: bounds.height - effectiveHeaderHeight });
             }
           }, 100);
         }
@@ -397,7 +416,9 @@ function createWindow(initialUrl) {
             view.setBounds({ x: 0, y: 0, width: bounds.width, height: bounds.height });
           } else {
             // Normal mode, account for header
-            view.setBounds({ x: 0, y: headerHeight, width: bounds.width, height: bounds.height - headerHeight });
+            const currentUrl = view.webContents.getURL();
+            const effectiveHeaderHeight = getHeaderHeightForUrl(currentUrl);
+            view.setBounds({ x: 0, y: effectiveHeaderHeight, width: bounds.width, height: bounds.height - effectiveHeaderHeight });
           }
         }, 10);
       }
@@ -415,7 +436,9 @@ function createWindow(initialUrl) {
           if (win.isFullScreen()) {
             view.setBounds({ x: 0, y: 0, width: bounds.width, height: bounds.height });
           } else {
-            view.setBounds({ x: 0, y: headerHeight, width: bounds.width, height: bounds.height - headerHeight });
+            const currentUrl = view.webContents.getURL();
+            const effectiveHeaderHeight = getHeaderHeightForUrl(currentUrl);
+            view.setBounds({ x: 0, y: effectiveHeaderHeight, width: bounds.width, height: bounds.height - effectiveHeaderHeight });
           }
         }, 10);
       }
@@ -433,7 +456,9 @@ function createWindow(initialUrl) {
           if (win.isFullScreen()) {
             view.setBounds({ x: 0, y: 0, width: bounds.width, height: bounds.height });
           } else {
-            view.setBounds({ x: 0, y: headerHeight, width: bounds.width, height: bounds.height - headerHeight });
+            const currentUrl = view.webContents.getURL();
+            const effectiveHeaderHeight = getHeaderHeightForUrl(currentUrl);
+            view.setBounds({ x: 0, y: effectiveHeaderHeight, width: bounds.width, height: bounds.height - effectiveHeaderHeight });
           }
         }, 10);
       }
@@ -542,7 +567,9 @@ ipcMain.removeAllListeners('toggle-devtools');
     // Restore normal bounds
     setTimeout(() => {
       const bounds = win.getContentBounds();
-      view.setBounds({ x: 0, y: headerHeight, width: bounds.width, height: bounds.height - headerHeight });
+      const currentUrl = view.webContents.getURL();
+      const effectiveHeaderHeight = getHeaderHeightForUrl(currentUrl);
+      view.setBounds({ x: 0, y: effectiveHeaderHeight, width: bounds.width, height: bounds.height - effectiveHeaderHeight });
     }, 100);
   });
   
@@ -626,7 +653,9 @@ ipcMain.on('view:show', (event, id) => {
   if (view) {
     win.setBrowserView(view);
     const bounds = win.getContentBounds();
-    view.setBounds({ x: 0, y: headerHeight, width: bounds.width, height: bounds.height - headerHeight });
+    const currentUrl = view.webContents.getURL();
+    const effectiveHeaderHeight = getHeaderHeightForUrl(currentUrl);
+    view.setBounds({ x: 0, y: effectiveHeaderHeight, width: bounds.width, height: bounds.height - effectiveHeaderHeight });
     view.setAutoResize({ width: true, height: true });
     state.activeViewId = id;
     
@@ -770,6 +799,31 @@ ipcMain.on('broadcast-widget-settings', (event, data) => {
 
 ipcMain.on('close-app', () => {
   app.quit();
+});
+
+ipcMain.on('set-bookmark-bar-visibility', (event, visible) => {
+  bookmarkBarVisible = visible;
+  headerHeight = visible ? 129 : headerHeightWithoutBookmarks;
+  
+  // Update current BrowserView bounds for the window
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (win) {
+    const currentView = win.getBrowserView();
+    if (currentView) {
+      const bounds = win.getContentBounds();
+      
+      // Use helper function to get correct header height
+      const currentUrl = currentView.webContents.getURL();
+      const effectiveHeaderHeight = getHeaderHeightForUrl(currentUrl); // Settings always use full height
+      
+      currentView.setBounds({ 
+        x: 0, 
+        y: effectiveHeaderHeight, 
+        width: bounds.width, 
+        height: bounds.height - effectiveHeaderHeight 
+      });
+    }
+  }
 });
 
 ipcMain.on('toggle-devtools', (event) => {
@@ -1049,49 +1103,69 @@ app.whenReady().then(() => {
     }
   });
 
-  ipcMain.handle('install-update', () => {
-    console.log('Installing update, initiating app restart...');
+  ipcMain.handle('install-update', async () => {
+    console.log('=== INSTALL UPDATE CALLED ===');
     console.log('App is packaged:', app.isPackaged);
+    console.log('Current version:', app.getVersion());
     
-    // Check if this is a development environment
     if (!app.isPackaged) {
-      console.log('Development mode - quitAndInstall not available');
-      app.quit();
-      return { success: false, reason: 'Development mode' };
+      console.log('Development mode - just quitting app');
+      setTimeout(() => app.quit(), 500);
+      return { success: true, reason: 'Development mode' };
     }
     
-    // In packaged mode, proceed with install
-    console.log('Packaged app mode - proceeding with update installation...');
+    console.log('Packaged app mode - using quitAndInstall');
     
-    // Immediate response to prevent hanging UI
-    return Promise.resolve().then(() => {
-      // Close all windows first
-      const allWindows = BrowserWindow.getAllWindows();
-      console.log(`Closing ${allWindows.length} windows before update...`);
-      
-      allWindows.forEach(window => {
+    try {
+      // Respond immediately
+      setImmediate(() => {
+        console.log('Calling autoUpdater.quitAndInstall()...');
         try {
-          if (!window.isDestroyed()) {
-            window.close();
-          }
+          autoUpdater.quitAndInstall(false, true); // Don't force close immediately, but restart after quit
+          console.log('quitAndInstall called successfully');
         } catch (err) {
-          console.log('Error closing window:', err.message);
+          console.error('quitAndInstall failed:', err);
+          console.log('Force quitting as fallback...');
+          app.exit(0);
         }
       });
       
-      // Give windows time to close, then force quit and install
-      setTimeout(() => {
-        try {
-          console.log('Calling autoUpdater.quitAndInstall()...');
-          autoUpdater.quitAndInstall(true, true); // Force close and install immediately
-          console.log('quitAndInstall called - app should restart with new version');
-        } catch (err) {
-          console.error('Error during quitAndInstall:', err);
-          console.log('Forcing app exit as fallback...');
-          app.quit();
-        }
-      }, 1000); // Give more time for windows to close properly
-    });
+      return { success: true };
+    } catch (err) {
+      console.error('Install update error:', err);
+      return { success: false, error: err.message };
+    }
+  });
+
+  // Window control IPC handlers
+  ipcMain.handle('minimize-window', () => {
+    const focusedWindow = BrowserWindow.getFocusedWindow();
+    if (focusedWindow) {
+      focusedWindow.minimize();
+    }
+  });
+
+  ipcMain.handle('maximize-window', () => {
+    const focusedWindow = BrowserWindow.getFocusedWindow();
+    if (focusedWindow) {
+      if (focusedWindow.isMaximized()) {
+        focusedWindow.unmaximize();
+      } else {
+        focusedWindow.maximize();
+      }
+    }
+  });
+
+  ipcMain.handle('close-window', () => {
+    const focusedWindow = BrowserWindow.getFocusedWindow();
+    if (focusedWindow) {
+      focusedWindow.close();
+    }
+  });
+
+  ipcMain.handle('is-maximized', () => {
+    const focusedWindow = BrowserWindow.getFocusedWindow();
+    return focusedWindow ? focusedWindow.isMaximized() : false;
   });
 
   // Memory management IPC handlers
