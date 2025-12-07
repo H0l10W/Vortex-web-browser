@@ -43,7 +43,7 @@ let adDomains = [];
 let adBlockEnabled = false;
 
 // Auto-updater configuration
-// Removed early checkForUpdatesAndNotify() - let it initialize properly first
+autoUpdater.checkForUpdatesAndNotify();
 autoUpdater.autoDownload = false; // Don't auto-download, let user choose
 autoUpdater.autoInstallOnAppQuit = false; // We'll handle installation manually
 autoUpdater.allowDowngrade = false; // Prevent downgrade attacks
@@ -64,14 +64,9 @@ if (process.env.NODE_ENV !== 'development') {
   console.log('Current version:', app.getVersion());
 }
 
-// Auto-updater event handlers - MUST be registered early!
+// Auto-updater event handlers
 autoUpdater.on('checking-for-update', () => {
-  console.log('=== AUTO-UPDATER EVENT: checking-for-update ===');
   console.log('Checking for update...');
-  console.log('Repository: H0l10W/Vortex-web-browser');
-  console.log('API URL: https://api.github.com/repos/H0l10W/Vortex-web-browser/releases');
-  console.log('Current app version:', app.getVersion());
-  console.log('Feed URL:', autoUpdater.getFeedURL());
   // Notify all windows about update check
   BrowserWindow.getAllWindows().forEach(win => {
     win.webContents.send('update-checking');
@@ -79,9 +74,7 @@ autoUpdater.on('checking-for-update', () => {
 });
 
 autoUpdater.on('update-available', (info) => {
-  console.log('=== AUTO-UPDATER EVENT: update-available ===');
   console.log('Update available:', info.version);
-  console.log('Update info:', JSON.stringify(info, null, 2));
   // Notify all windows about available update
   BrowserWindow.getAllWindows().forEach(win => {
     win.webContents.send('update-available', info);
@@ -92,7 +85,6 @@ autoUpdater.on('update-available', (info) => {
 });
 
 autoUpdater.on('update-not-available', (info) => {
-  console.log('=== AUTO-UPDATER EVENT: update-not-available ===');
   console.log('Update not available - Current version:', app.getVersion(), 'Latest:', info?.version || 'unknown');
   console.log('Full update info:', JSON.stringify(info, null, 2));
   updateInProgress = false;
@@ -109,11 +101,7 @@ autoUpdater.on('update-not-available', (info) => {
 });
 
 autoUpdater.on('error', (err) => {
-  console.log('=== AUTO-UPDATER EVENT: error ===');
   console.error('Update error:', err);
-  console.error('Error code:', err.code);
-  console.error('Error message:', err.message);
-  console.error('Error stack:', err.stack);
   updateInProgress = false;
   // Only show error notification for non-404 errors to avoid spamming users
   if (!err.message.includes('404')) {
@@ -883,6 +871,13 @@ app.whenReady().then(() => {
   // Initialize non-critical components after window creation
   setImmediate(() => {
     initAdBlocker();
+    
+    // Initialize auto-updater in production (restored from working v0.1.12)
+    if (process.env.NODE_ENV !== 'development') {
+      setTimeout(() => {
+        autoUpdater.checkForUpdatesAndNotify();
+      }, 5000); // Wait 5 seconds after app start
+    }
   });
   
   createWindow();
@@ -903,31 +898,21 @@ app.whenReady().then(() => {
     });
   }, 2000);
 
-  // Check for updates after app is ready (simplified approach)
+  // Check for updates after app is ready (restored working pattern from v0.1.12)
   setTimeout(() => {
     if (process.env.NODE_ENV !== 'development') {
-      console.log('=== SIMPLIFIED AUTO UPDATE CHECK ===');
-      console.log('Current app version:', app.getVersion());
-      console.log('Checking for updates...');
-      
-      // Reset state and check directly
-      updateInProgress = false;
-      lastUpdateCheck = 0;
-      
-      autoUpdater.checkForUpdates().then(result => {
-        console.log('checkForUpdates resolved with:', result);
-        if (result) {
-          console.log('Update check completed successfully');
-        }
-      }).catch(err => {
-        console.error('checkForUpdates failed:', err);
-        console.error('Error code:', err.code);
-        console.error('Error message:', err.message);
-      });
-    } else {
-      console.log('Auto-updater disabled in development mode');
+      const now = Date.now();
+      if (!updateInProgress && (now - lastUpdateCheck) > UPDATE_CHECK_COOLDOWN) {
+        console.log('Checking for updates...');
+        updateInProgress = true;
+        lastUpdateCheck = now;
+        autoUpdater.checkForUpdatesAndNotify().catch(err => {
+          console.log('Update check failed (this is normal if no releases exist yet):', err.message);
+          updateInProgress = false;
+        });
+      }
     }
-  }, 2000); // 2 second delay
+  }, 3000);
 
   // Handle IPC messages for updates
   ipcMain.handle('check-for-updates', async () => {
