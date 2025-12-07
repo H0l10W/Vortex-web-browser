@@ -1051,6 +1051,17 @@ app.whenReady().then(() => {
 
   ipcMain.handle('install-update', () => {
     console.log('Installing update, initiating app restart...');
+    console.log('App is packaged:', app.isPackaged);
+    
+    // Check if this is a development environment
+    if (!app.isPackaged) {
+      console.log('Development mode - quitAndInstall not available');
+      app.quit();
+      return { success: false, reason: 'Development mode' };
+    }
+    
+    // In packaged mode, proceed with install
+    console.log('Packaged app mode - proceeding with update installation...');
     
     // Immediate response to prevent hanging UI
     return Promise.resolve().then(() => {
@@ -1071,14 +1082,15 @@ app.whenReady().then(() => {
       // Give windows time to close, then force quit and install
       setTimeout(() => {
         try {
-          console.log('Forcing quit and install...');
+          console.log('Calling autoUpdater.quitAndInstall()...');
           autoUpdater.quitAndInstall(true, true); // Force close and install immediately
+          console.log('quitAndInstall called - app should restart with new version');
         } catch (err) {
           console.error('Error during quitAndInstall:', err);
-          // Fallback: force quit if quitAndInstall fails
-          app.exit(0);
+          console.log('Forcing app exit as fallback...');
+          app.quit();
         }
-      }, 500); // 500ms should be enough for windows to close
+      }, 1000); // Give more time for windows to close properly
     });
   });
 
