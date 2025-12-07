@@ -44,7 +44,7 @@ VORTEX BROWSER - CHANGELOG
 - Automated publishing pipeline
 - GitHub repository configuration for releases
 
-## [0.2.0] - 2025-10-XX
+## [0.2.0]
 
 ### 🛡️ Major Security Overhaul
 - Re-enabled Chromium sandbox for enhanced security
