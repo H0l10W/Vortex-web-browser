@@ -1,6 +1,6 @@
 {
   "name": "vortexwebbrowser",
-  "version": "0.1.21",
+  "version": "0.1.22",
   "description": "A fast, lightweight web browser built with Electron",
   "main": "main.js",
   "scripts": {
@@ -19,7 +19,7 @@
   "homepage": "https://github.com/H0l10W/web-browser-with-js",
   "repository": {
     "type": "git",
-    "url": "https://github.com/H0l10W/web-browser-with-js.git"
+    "url": "https://github.com/H0l10W/Vortex-web-browser.git"
   },
   "dependencies": {
     "electron-updater": "^6.3.9"
@@ -35,7 +35,7 @@
     "publish": {
       "provider": "github",
       "owner": "H0l10W",
-      "repo": "web-browser-with-js"
+      "repo": "Vortex-web-browser"
     },
     "directories": {
       "output": "dist"

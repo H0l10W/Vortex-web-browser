@@ -878,12 +878,6 @@ app.whenReady().then(() => {
     // Initialize auto-updater in production
     if (process.env.NODE_ENV !== 'development') {
       setTimeout(() => {
-  setImmediate(() => {
-    initAdBlocker();
-    
-    // Initialize auto-updater in production
-    if (process.env.NODE_ENV !== 'development') {
-      setTimeout(() => {
         autoUpdater.checkForUpdatesAndNotify();
       }, 5000); // Wait 5 seconds after app start
     }
