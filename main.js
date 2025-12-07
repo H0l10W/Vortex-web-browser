@@ -901,7 +901,7 @@ app.whenReady().then(() => {
     });
   }, 2000);
 
-  // Check for updates after app is ready (delay to ensure window is loaded)
+  // Check for updates after app is ready (shortened delay for testing)
   setTimeout(() => {
     if (process.env.NODE_ENV !== 'development') {
       const now = Date.now();
@@ -915,7 +915,7 @@ app.whenReady().then(() => {
         });
       }
     }
-  }, 3000);
+  }, 1000); // Reduced from 3000 to 1000ms for faster testing
 
   // Handle IPC messages for updates
   ipcMain.handle('check-for-updates', async () => {
@@ -1062,18 +1062,18 @@ app.whenReady().then(() => {
     return Array.from(memoryMonitoring.hibernatedTabs);
   });
 
-  // Start memory monitoring and management
-  console.log('Starting memory management system...');
+  // Start memory monitoring and management (TEMPORARILY DISABLED FOR AUTO-UPDATER TESTING)
+  console.log('Memory management system disabled for auto-updater testing...');
   
-  // Periodic memory monitoring
-  setInterval(() => {
-    checkMemoryPressure();
-  }, 60000); // Check every minute
+  // Periodic memory monitoring (DISABLED)
+  // setInterval(() => {
+  //   checkMemoryPressure();
+  // }, 60000); // Check every minute
   
-  // Periodic garbage collection
-  setInterval(() => {
-    triggerGarbageCollectionIfNeeded();
-  }, MEMORY_CONFIG.gcIntervalMs);
+  // Periodic garbage collection (DISABLED)
+  // setInterval(() => {
+  //   triggerGarbageCollectionIfNeeded();
+  // }, MEMORY_CONFIG.gcIntervalMs);
   
   // Initial memory status
   console.log('Initial memory usage:', getMemoryUsage());
