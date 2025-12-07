@@ -43,7 +43,7 @@ let adDomains = [];
 let adBlockEnabled = false;
 
 // Auto-updater configuration
-autoUpdater.checkForUpdatesAndNotify(); // This early call is needed for initialization!
+// Removed early checkForUpdatesAndNotify() - let it initialize properly first
 autoUpdater.autoDownload = false; // Don't auto-download, let user choose
 autoUpdater.autoInstallOnAppQuit = false; // We'll handle installation manually
 autoUpdater.allowDowngrade = false; // Prevent downgrade attacks
@@ -903,39 +903,31 @@ app.whenReady().then(() => {
     });
   }, 2000);
 
-  // Check for updates after app is ready (shortened delay for testing)
+  // Check for updates after app is ready (simplified approach)
   setTimeout(() => {
     if (process.env.NODE_ENV !== 'development') {
-      const now = Date.now();
-      if (!updateInProgress && (now - lastUpdateCheck) > UPDATE_CHECK_COOLDOWN) {
-        console.log('=== INITIATING AUTO UPDATE CHECK ===');
-        console.log('Time since last check:', now - lastUpdateCheck, 'ms');
-        console.log('Cooldown period:', UPDATE_CHECK_COOLDOWN, 'ms');
-        console.log('Update in progress:', updateInProgress);
-        console.log('Auto-updater feed URL:', autoUpdater.getFeedURL());
-        updateInProgress = true;
-        lastUpdateCheck = now;
-        
-        console.log('Calling autoUpdater.checkForUpdatesAndNotify()...');
-        autoUpdater.checkForUpdatesAndNotify().then(result => {
-          console.log('checkForUpdatesAndNotify resolved with:', result);
-        }).catch(err => {
-          console.error('checkForUpdatesAndNotify failed:', err);
-          console.error('Error code:', err.code);
-          console.error('Error message:', err.message);
-          console.error('Error stack:', err.stack);
-          updateInProgress = false;
-        });
-      } else {
-        console.log('Skipping auto update check - conditions not met');
-        console.log('- Update in progress:', updateInProgress);
-        console.log('- Time since last check:', now - lastUpdateCheck, 'ms');
-        console.log('- Required cooldown:', UPDATE_CHECK_COOLDOWN, 'ms');
-      }
+      console.log('=== SIMPLIFIED AUTO UPDATE CHECK ===');
+      console.log('Current app version:', app.getVersion());
+      console.log('Checking for updates...');
+      
+      // Reset state and check directly
+      updateInProgress = false;
+      lastUpdateCheck = 0;
+      
+      autoUpdater.checkForUpdates().then(result => {
+        console.log('checkForUpdates resolved with:', result);
+        if (result) {
+          console.log('Update check completed successfully');
+        }
+      }).catch(err => {
+        console.error('checkForUpdates failed:', err);
+        console.error('Error code:', err.code);
+        console.error('Error message:', err.message);
+      });
     } else {
       console.log('Auto-updater disabled in development mode');
     }
-  }, 1000); // Reduced from 3000 to 1000ms for faster testing
+  }, 2000); // 2 second delay
 
   // Handle IPC messages for updates
   ipcMain.handle('check-for-updates', async () => {
