@@ -44,14 +44,181 @@
     </header>
     <div id="full-settings-content">
       <aside id="full-settings-sidebar">
-        <button class="settings-tab-button active" data-tab="appearance">Appearance</button>
-        <button class="settings-tab-button" data-tab="widgets">Widgets</button>
-        <button class="settings-tab-button" data-tab="privacy">Privacy</button>
-        <button class="settings-tab-button" data-tab="performance">Performance</button>
-        <button class="settings-tab-button" data-tab="about">About</button>
+        <div class="sidebar-section">
+          <button class="settings-tab-button active" data-tab="general">
+            <span class="setting-icon">⚙️</span>
+            <span class="setting-text">General</span>
+          </button>
+          <button class="settings-tab-button" data-tab="appearance">
+            <span class="setting-icon">🎨</span>
+            <span class="setting-text">Appearance</span>
+          </button>
+          <button class="settings-tab-button" data-tab="widgets">
+            <span class="setting-icon">📊</span>
+            <span class="setting-text">Widgets</span>
+          </button>
+          <button class="settings-tab-button" data-tab="privacy">
+            <span class="setting-icon">🔒</span>
+            <span class="setting-text">Privacy</span>
+          </button>
+          <button class="settings-tab-button" data-tab="about">
+            <span class="setting-icon">ℹ️</span>
+            <span class="setting-text">About</span>
+          </button>
+        </div>
       </aside>
       <main id="full-settings-main">
-        <div id="appearance-settings" class="settings-tab-content active">
+        <div id="general-settings" class="settings-tab-content active">
+          <div class="settings-tab-header">
+            <h3>General Settings</h3>
+            <p>Configure your browser's core functionality and behavior.</p>
+          </div>
+          
+          <div class="settings-grid">
+            <div class="settings-card">
+              <div class="card-header">
+                <h4>🚀 Startup & Navigation</h4>
+                <p>Control how your browser starts and navigates</p>
+              </div>
+              <div class="card-content">
+                <div class="setting-group">
+                  <label for="start-page-select-full" class="setting-label">When browser starts</label>
+                  <select id="start-page-select-full" class="setting-select">
+                    <option value="homepage">Open homepage</option>
+                    <option value="newtab">Open new tab page</option>
+                    <option value="lastsession">Restore last session</option>
+                    <option value="blank">Open blank page</option>
+                  </select>
+                </div>
+                
+                <div class="setting-group">
+                  <label for="homepage-input-full" class="setting-label">Homepage URL</label>
+                  <div class="input-group">
+                    <input type="text" id="homepage-input-full" placeholder="https://www.example.com" class="setting-input">
+                    <button id="save-homepage-full" class="btn-secondary">Save</button>
+                  </div>
+                </div>
+
+                <div class="setting-group">
+                  <label for="new-tab-behavior" class="setting-label">New tab behavior</label>
+                  <select id="new-tab-behavior" class="setting-select">
+                    <option value="newtab">Show new tab page</option>
+                    <option value="homepage">Show homepage</option>
+                    <option value="blank">Show blank page</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <div class="settings-card">
+              <div class="card-header">
+                <h4>🔍 Search & Navigation</h4>
+                <p>Configure search engine and address bar behavior</p>
+              </div>
+              <div class="card-content">
+                <div class="setting-group">
+                  <label for="search-engine-select-full" class="setting-label">Default search engine</label>
+                  <select id="search-engine-select-full" class="setting-select">
+                    <option value="google">Google</option>
+                    <option value="bing">Microsoft Bing</option>
+                    <option value="duckduckgo">DuckDuckGo</option>
+                    <option value="yandex">Yandex</option>
+                    <option value="baidu">Baidu</option>
+                    <option value="custom">Custom search engine</option>
+                  </select>
+                </div>
+                
+                <div class="setting-group" id="custom-search-group" style="display: none;">
+                  <label for="custom-search-url" class="setting-label">Custom search URL</label>
+                  <input type="text" id="custom-search-url" placeholder="https://example.com/search?q=%s" class="setting-input">
+                  <p style="font-size: 12px; color: #666; margin-top: 4px;">Use %s as placeholder for search terms</p>
+                </div>
+
+                <div class="setting-group">
+                  <div class="checkbox-setting">
+                    <input type="checkbox" id="search-suggestions-toggle" checked>
+                    <label for="search-suggestions-toggle">
+                      <span class="checkbox-label">Show search suggestions</span>
+                      <span class="checkbox-description">Display search suggestions in the address bar</span>
+                    </label>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="settings-card">
+              <div class="card-header">
+                <h4>📂 Downloads & Files</h4>
+                <p>Manage download location and file handling</p>
+              </div>
+              <div class="card-content">
+                <div class="setting-group">
+                  <label for="download-location" class="setting-label">Download location</label>
+                  <div class="button-group">
+                    <input type="text" id="download-location" class="setting-input" readonly>
+                    <button id="choose-download-folder" class="btn-secondary">Choose Folder</button>
+                  </div>
+                </div>
+
+                <div class="setting-group">
+                  <div class="checkbox-setting">
+                    <input type="checkbox" id="ask-download-location-toggle">
+                    <label for="ask-download-location-toggle">
+                      <span class="checkbox-label">Ask where to save files</span>
+                      <span class="checkbox-description">Prompt for download location before downloading</span>
+                    </label>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="settings-card">
+              <div class="card-header">
+                <h4>🔗 Advanced</h4>
+                <p>Advanced browser configuration and developer options</p>
+              </div>
+              <div class="card-content">
+                <div class="setting-group">
+                  <label for="user-agent-input-full" class="setting-label">Custom User Agent</label>
+                  <input type="text" id="user-agent-input-full" placeholder="Leave empty for default" class="setting-input">
+                  <p style="font-size: 12px; color: #666; margin-top: 4px;">Override the browser's user agent string</p>
+                </div>
+
+                <div class="setting-group">
+                  <div class="checkbox-setting">
+                    <input type="checkbox" id="javascript-enabled-toggle" checked>
+                    <label for="javascript-enabled-toggle">
+                      <span class="checkbox-label">Enable JavaScript</span>
+                      <span class="checkbox-description">Allow websites to run JavaScript (recommended)</span>
+                    </label>
+                  </div>
+                </div>
+
+                <div class="setting-group">
+                  <div class="checkbox-setting">
+                    <input type="checkbox" id="images-enabled-toggle" checked>
+                    <label for="images-enabled-toggle">
+                      <span class="checkbox-label">Load images</span>
+                      <span class="checkbox-description">Download and display images on websites</span>
+                    </label>
+                  </div>
+                </div>
+
+                <div class="setting-group">
+                  <div class="checkbox-setting">
+                    <input type="checkbox" id="popup-blocker-toggle" checked>
+                    <label for="popup-blocker-toggle">
+                      <span class="checkbox-label">Block pop-ups</span>
+                      <span class="checkbox-description">Prevent websites from opening unwanted pop-up windows</span>
+                    </label>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div id="appearance-settings" class="settings-tab-content">
           <div class="settings-tab-header">
             <h3>Appearance</h3>
             <p>Customize the look and feel of your browser.</p>
@@ -111,7 +278,88 @@
               </div>
             </div>
           </div>
+        
+          <div class="settings-card">
+            <div class="card-header">
+              <h4>Text & Display</h4>
+              <p>Adjust text size and visual display options</p>
+            </div>
+            <div class="card-content">
+              <div class="setting-group">
+                <label for="font-size-slider" class="setting-label">Font Size</label>
+                <div class="slider-container">
+                  <input type="range" id="font-size-slider" min="12" max="20" value="14" step="1" class="range-slider">
+                  <div class="slider-labels">
+                    <span>Small</span>
+                    <span id="font-size-value">14px</span>
+                    <span>Large</span>
+                  </div>
+                </div>
+              </div>
+              
+              <div class="setting-group">
+                <label for="page-zoom-slider" class="setting-label">Page Zoom</label>
+                <div class="slider-container">
+                  <input type="range" id="page-zoom-slider" min="75" max="150" value="100" step="25" class="range-slider">
+                  <div class="slider-labels">
+                    <span>75%</span>
+                    <span id="zoom-value">100%</span>
+                    <span>150%</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="setting-group">
+                <div class="checkbox-setting">
+                  <input type="checkbox" id="smooth-scrolling-toggle">
+                  <label for="smooth-scrolling-toggle">
+                    <span class="checkbox-label">Smooth Scrolling</span>
+                    <span class="checkbox-description">Enable smooth scrolling for a more fluid browsing experience</span>
+                  </label>
+                </div>
+              </div>
+
+              <div class="setting-group">
+                <div class="checkbox-setting">
+                  <input type="checkbox" id="reduced-animations-toggle">
+                  <label for="reduced-animations-toggle">
+                    <span class="checkbox-label">Reduce Animations</span>
+                    <span class="checkbox-description">Minimize visual effects for better performance</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="settings-card">
+            <div class="card-header">
+              <h4>Tab Behavior</h4>
+              <p>Configure how tabs work and appear</p>
+            </div>
+            <div class="card-content">
+              <div class="setting-group">
+                <div class="checkbox-setting">
+                  <input type="checkbox" id="close-tabs-on-exit-toggle">
+                  <label for="close-tabs-on-exit-toggle">
+                    <span class="checkbox-label">Close All Tabs on Exit</span>
+                    <span class="checkbox-description">Don't restore tabs when the browser starts</span>
+                  </label>
+                </div>
+              </div>
+
+              <div class="setting-group">
+                <div class="checkbox-setting">
+                  <input type="checkbox" id="show-tab-previews-toggle" checked>
+                  <label for="show-tab-previews-toggle">
+                    <span class="checkbox-label">Show Tab Previews</span>
+                    <span class="checkbox-description">Display website favicons and titles in tabs</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
+
         <div id="widgets-settings" class="settings-tab-content">
           <div class="settings-tab-header">
             <h3>Widgets</h3>

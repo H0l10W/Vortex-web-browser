@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' https://wttr.in https://nominatim.openstreetmap.org https://api.rss2json.com https://feeds.reuters.com https://newsapi.org; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data: https:; object-src 'none'; base-uri 'self'; form-action 'self' https:; frame-ancestors 'none'; upgrade-insecure-requests;">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' https://wttr.in https://nominatim.openstreetmap.org https://api.rss2json.com https://feeds.reuters.com https://newsapi.org https://api.open-meteo.com; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data: https:; object-src 'none'; base-uri 'self'; form-action 'self' https:; frame-ancestors 'none'; upgrade-insecure-requests;">
   <title>Vortex</title>
   <link rel="stylesheet" href="style.css">
 </head>
@@ -85,73 +85,57 @@
     </div>
     <div class="settings-content">
       <div class="settings-section">
-        <h3>All Settings</h3>
-        <button id="all-settings-btn" class="settings-button">Show All Settings</button>
+        <h3>🚀 Quick Actions</h3>
+        <button id="all-settings-btn" class="settings-button">Open Full Settings</button>
       </div>
+      
       <div class="settings-section">
-        <h3>Homepage</h3>
-        <div class="settings-row">
-          <input id="homepage-input" type="text" placeholder="Enter homepage URL">
-          <button id="save-homepage-btn" class="settings-button">Save</button>
+        <h3>📊 View Options</h3>
+        <label><input type="checkbox" id="show-bookmarks-bar"> Show Bookmarks Bar</label>
+        <div class="zoom-control">
+          <label for="page-zoom" class="zoom-label">Page Zoom</label>
+          <select id="page-zoom-select" class="zoom-select">
+            <option value="0.75">75%</option>
+            <option value="0.9">90%</option>
+            <option value="1" selected>100%</option>
+            <option value="1.1">110%</option>
+            <option value="1.25">125%</option>
+            <option value="1.5">150%</option>
+          </select>
         </div>
       </div>
+
       <div class="settings-section">
-        <h3>Default Search Engine</h3>
-        <select id="search-engine-select">
-          <option value="google">Google</option>
-          <option value="bing">Bing</option>
-          <option value="duckduckgo">DuckDuckGo</option>
-        </select>
+        <h3>🛡️ Privacy & Security</h3>
+        <div class="adblock-control">
+          <label class="adblock-toggle">
+            <input type="checkbox" id="adblock-toggle">
+            <span class="adblock-slider"></span>
+            <span class="adblock-text">
+              <strong>Ad Blocker</strong>
+              <small>Block intrusive advertisements</small>
+            </span>
+          </label>
+        </div>
       </div>
 
       <div class="settings-section">
-        <h3>Font Size</h3>
-        <input id="font-size-input" type="number" min="12" max="32" value="16"> px
-      </div>
-      <div class="settings-section">
-        <h3>Bookmarks Bar</h3>
-        <label><input type="checkbox" id="show-bookmarks-bar"> Show Bookmarks Bar</label>
-      </div>
-      <div class="settings-section">
-        <h3>Clear Browsing Data</h3>
-        <button id="clear-data-btn">Clear Data</button>
-      </div>
-      <div class="settings-section">
-        <h3>Start Page</h3>
-        <select id="start-page-select">
-          <option value="homepage">Homepage</option>
-          <option value="newtab">New Tab</option>
-          <option value="lastsession">Last Session</option>
-        </select>
-      </div>
-
-
-      <div class="settings-section">
-        <h3>Bookmark Folders</h3>
-        <button id="manage-bookmark-folders-btn">Manage Folders</button>
-      </div>
-      <div class="settings-section">
-        <h3>Download Manager</h3>
-        <button id="show-downloads-btn">Show Downloads</button>
+        <h3>🗂️ Quick Tools</h3>
+        <button id="show-downloads-btn" class="settings-button">Downloads</button>
+        <button id="clear-data-btn" class="settings-button danger-btn">Clear Data</button>
       </div>
 
       <div class="settings-section">
-        <h3>Keyboard Shortcuts</h3>
-        <p>Ctrl+T: New Tab, Ctrl+W: Close Tab, Ctrl+Shift+T: Reopen Tab, Ctrl+Tab: Next Tab</p>
-      </div>
-      <div class="settings-section">
-        <h3>Ad Blocker</h3>
-        <label><input type="checkbox" id="adblock-toggle"> Enable Simple Ad Blocker</label>
-      </div>
-
-      <div class="settings-section">
-        <h3>About</h3>
-        <p>Vortex Browser</p>
-        <p>Version:<span id="app-version"></span></p>
-        <button id="check-updates" class="settings-button">
-          <img src="icons/auto-update.png" alt="Update" style="width: 16px; height: 16px; margin-right: 8px; vertical-align: middle;">
+        <h3>ℹ️ About</h3>
+        <p class="app-info">Vortex Browser</p>
+        <p class="version-info">Version: <span id="app-version">1.0.0</span></p>
+        <button id="check-updates" class="settings-button update-btn">
+          <img src="icons/auto-update.png" alt="Update" class="update-icon">
           Check for Updates
         </button>
+      </div>
+      </div>
+      <div class="settings-section">
       </div>
     </div>
   </div>

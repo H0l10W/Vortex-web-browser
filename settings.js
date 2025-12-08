@@ -16,6 +16,14 @@ window.addEventListener('DOMContentLoaded', () => {
         console.error('Error setting storage item:', key, error);
         return false;
       }
+    },
+    async removeItem(key) {
+      try {
+        return await window.electronAPI.removeStorageItem(key);
+      } catch (error) {
+        console.error('Error removing storage item:', key, error);
+        return false;
+      }
     }
   };
 
@@ -32,6 +40,16 @@ window.addEventListener('DOMContentLoaded', () => {
   const cookieModal = document.getElementById('cookie-modal');
   const closeCookieModal = document.getElementById('close-cookie-modal');
   const cookiesList = document.getElementById('cookies-list');
+
+  // Appearance settings elements
+  const fontSizeSlider = document.getElementById('font-size-slider');
+  const fontSizeValue = document.getElementById('font-size-value');
+  const pageZoomSlider = document.getElementById('page-zoom-slider');
+  const zoomValue = document.getElementById('zoom-value');
+  const smoothScrollingToggle = document.getElementById('smooth-scrolling-toggle');
+  const reducedAnimationsToggle = document.getElementById('reduced-animations-toggle');
+  const closeTabsOnExitToggle = document.getElementById('close-tabs-on-exit-toggle');
+  const showTabPreviewsToggle = document.getElementById('show-tab-previews-toggle');
 
   if (window.electronAPI && typeof window.electronAPI.getAppVersion === 'function') {
     window.electronAPI.getAppVersion().then(version => {
@@ -128,6 +146,13 @@ window.addEventListener('DOMContentLoaded', () => {
   const weatherLocationInput = document.getElementById('weather-location');
   const updateWeatherBtn = document.getElementById('update-weather-location');
   const resetWeatherBtn = document.getElementById('reset-weather-location');
+  
+  console.log('Weather elements found:', {
+    weatherSettings: !!weatherSettings,
+    weatherLocationInput: !!weatherLocationInput,
+    updateWeatherBtn: !!updateWeatherBtn,
+    resetWeatherBtn: !!resetWeatherBtn
+  });
   
 
 
@@ -277,37 +302,67 @@ window.addEventListener('DOMContentLoaded', () => {
   // Weather location settings
   if (weatherLocationInput) {
     // Load saved value
-    const savedLocation = localStorage.getItem('weatherLocation') || '';
-    weatherLocationInput.value = savedLocation;
+    storage.getItem('weatherLocation').then(savedLocation => {
+      weatherLocationInput.value = savedLocation || '';
+    });
   }
 
   if (updateWeatherBtn) {
-    updateWeatherBtn.onclick = function() {
+    console.log('Update weather button found, setting up click handler');
+    updateWeatherBtn.onclick = async function() {
+      console.log('=== BUTTON CLICKED! ===');
       const input = document.getElementById('weather-location');
       const location = input.value.trim();
+      console.log('Location input value:', location);
       
       if (!location) {
         alert('Please enter a location');
         return;
       }
       
-      localStorage.setItem('weatherLocation', location);
-      localStorage.setItem('useAutoLocation', 'false');
+      console.log('Saving weather location to storage:', location);
+      try {
+        await storage.setItem('weatherLocation', location);
+        await storage.setItem('useAutoLocation', 'false');
+        await storage.removeItem('weatherCoords'); // Clear cached coords
+        console.log('Storage operations completed successfully');
+        
+        // Verify the data was saved
+        const savedLocation = await storage.getItem('weatherLocation');
+        const savedAutoMode = await storage.getItem('useAutoLocation');
+        console.log('Verification - saved location:', savedLocation, 'useAutoLocation:', savedAutoMode);
+        
+      } catch (error) {
+        console.error('Error saving to storage:', error);
+        alert('Error saving location: ' + error.message);
+        return;
+      }
       
+      console.log('Broadcasting weather update to main window');
       if (window.electronAPI?.broadcastWidgetSettings) {
-        window.electronAPI.broadcastWidgetSettings('weatherUpdate', true);
+        try {
+          window.electronAPI.broadcastWidgetSettings('weatherUpdate', true);
+          console.log('Broadcast sent successfully');
+        } catch (error) {
+          console.error('Error broadcasting:', error);
+        }
+      } else {
+        console.error('electronAPI.broadcastWidgetSettings not available');
       }
       
       alert(`Weather location set to: ${location}`);
     };
+  } else {
+    console.error('Update weather button not found!');
   }
 
   if (resetWeatherBtn) {
-    resetWeatherBtn.onclick = function() {
+    resetWeatherBtn.onclick = async function() {
       const input = document.getElementById('weather-location');
       input.value = '';
-      localStorage.removeItem('weatherLocation');
-      localStorage.setItem('useAutoLocation', 'true');
+      await storage.removeItem('weatherLocation');
+      await storage.setItem('useAutoLocation', 'true');
+      await storage.removeItem('weatherCoords');
       
       if (window.electronAPI?.broadcastWidgetSettings) {
         window.electronAPI.broadcastWidgetSettings('weatherUpdate', true);
@@ -479,7 +534,6 @@ window.addEventListener('DOMContentLoaded', () => {
           
           const result = await window.electronAPI.forceGarbageCollection();
           if (result) {
-            console.log('Garbage collection completed:', result);
             updateMemoryDisplay();
           }
           
@@ -502,7 +556,6 @@ window.addEventListener('DOMContentLoaded', () => {
           hibernateTabsBtn.disabled = true;
           
           const hibernatedTabs = await window.electronAPI.hibernateInactiveTabs();
-          console.log('Hibernated tabs:', hibernatedTabs);
           updateMemoryDisplay();
           
           hibernateTabsBtn.textContent = 'Hibernate Inactive Tabs';
@@ -533,4 +586,289 @@ window.addEventListener('DOMContentLoaded', () => {
       cookieModal.style.display = 'none';
     }
   });
+
+  // --- Appearance Settings Functionality ---
+  
+  // Font Size Slider
+  if (fontSizeSlider && fontSizeValue) {
+    // Load saved font size
+    storage.getItem('fontSize').then(savedSize => {
+      const fontSize = savedSize || '14';
+      fontSizeSlider.value = fontSize;
+      fontSizeValue.textContent = fontSize + 'px';
+      document.documentElement.style.setProperty('--base-font-size', fontSize + 'px');
+    });
+
+    fontSizeSlider.addEventListener('input', (e) => {
+      const size = e.target.value;
+      fontSizeValue.textContent = size + 'px';
+      document.documentElement.style.setProperty('--base-font-size', size + 'px');
+      storage.setItem('fontSize', size);
+    });
+  }
+
+  // Page Zoom Slider
+  if (pageZoomSlider && zoomValue) {
+    // Load saved zoom level
+    storage.getItem('pageZoom').then(savedZoom => {
+      const zoom = savedZoom || '100';
+      pageZoomSlider.value = zoom;
+      zoomValue.textContent = zoom + '%';
+      document.body.style.zoom = zoom + '%';
+    });
+
+    pageZoomSlider.addEventListener('input', (e) => {
+      const zoom = e.target.value;
+      zoomValue.textContent = zoom + '%';
+      document.body.style.zoom = zoom + '%';
+      storage.setItem('pageZoom', zoom);
+    });
+  }
+
+  // Smooth Scrolling Toggle
+  if (smoothScrollingToggle) {
+    storage.getItem('smoothScrolling').then(enabled => {
+      smoothScrollingToggle.checked = enabled === 'true';
+      updateScrollBehavior(enabled === 'true');
+    });
+
+    smoothScrollingToggle.addEventListener('change', (e) => {
+      const enabled = e.target.checked;
+      storage.setItem('smoothScrolling', enabled.toString());
+      updateScrollBehavior(enabled);
+    });
+  }
+
+  function updateScrollBehavior(enabled) {
+    document.documentElement.style.scrollBehavior = enabled ? 'smooth' : 'auto';
+  }
+
+  // Reduced Animations Toggle
+  if (reducedAnimationsToggle) {
+    storage.getItem('reducedAnimations').then(enabled => {
+      reducedAnimationsToggle.checked = enabled === 'true';
+      updateAnimationSettings(enabled === 'true');
+    });
+
+    reducedAnimationsToggle.addEventListener('change', (e) => {
+      const enabled = e.target.checked;
+      storage.setItem('reducedAnimations', enabled.toString());
+      updateAnimationSettings(enabled);
+    });
+  }
+
+  function updateAnimationSettings(reduced) {
+    if (reduced) {
+      document.documentElement.style.setProperty('--animation-speed', '0.1s');
+      document.documentElement.style.setProperty('--transition-speed', '0.1s');
+    } else {
+      document.documentElement.style.removeProperty('--animation-speed');
+      document.documentElement.style.removeProperty('--transition-speed');
+    }
+  }
+
+  // Close Tabs on Exit Toggle
+  if (closeTabsOnExitToggle) {
+    storage.getItem('closeTabsOnExit').then(enabled => {
+      closeTabsOnExitToggle.checked = enabled === 'true';
+    });
+
+    closeTabsOnExitToggle.addEventListener('change', (e) => {
+      storage.setItem('closeTabsOnExit', e.target.checked.toString());
+    });
+  }
+
+  // Show Tab Previews Toggle
+  if (showTabPreviewsToggle) {
+    storage.getItem('showTabPreviews').then(enabled => {
+      showTabPreviewsToggle.checked = enabled !== 'false'; // Default to true
+    });
+
+    showTabPreviewsToggle.addEventListener('change', (e) => {
+      storage.setItem('showTabPreviews', e.target.checked.toString());
+      // Broadcast to main window to update tab display
+      if (window.electronAPI?.broadcastWidgetSettings) {
+        window.electronAPI.broadcastWidgetSettings('tabPreviews', e.target.checked);
+      }
+    });
+  }
+
+  // --- General Settings Tab Functionality ---
+  
+  // General tab elements
+  const startPageSelectFull = document.getElementById('start-page-select-full');
+  const homepageInputFull = document.getElementById('homepage-input-full');
+  const newTabBehavior = document.getElementById('new-tab-behavior');
+  const searchEngineSelectFull = document.getElementById('search-engine-select-full');
+  const customSearchGroup = document.getElementById('custom-search-group');
+  const customSearchUrl = document.getElementById('custom-search-url');
+  const searchSuggestionsToggle = document.getElementById('search-suggestions-toggle');
+  const downloadLocationInput = document.getElementById('download-location');
+  const chooseDownloadFolderBtn = document.getElementById('choose-download-folder');
+  const askDownloadLocationToggle = document.getElementById('ask-download-location-toggle');
+  const userAgentInputFull = document.getElementById('user-agent-input-full');
+  const javascriptEnabledToggle = document.getElementById('javascript-enabled-toggle');
+  const imagesEnabledToggle = document.getElementById('images-enabled-toggle');
+  const popupBlockerToggle = document.getElementById('popup-blocker-toggle');
+
+  // Initialize General Settings
+  if (startPageSelectFull) {
+    storage.getItem('startPage').then(startPage => {
+      startPageSelectFull.value = startPage || 'newtab';
+    });
+
+    startPageSelectFull.addEventListener('change', (e) => {
+      storage.setItem('startPage', e.target.value);
+    });
+  }
+
+  if (homepageInputFull) {
+    storage.getItem('homepage').then(homepage => {
+      homepageInputFull.value = homepage || 'https://www.google.com';
+    });
+
+    homepageInputFull.addEventListener('change', (e) => {
+      storage.setItem('homepage', e.target.value);
+    });
+  }
+
+  // Save homepage button functionality
+  const saveHomepageFull = document.getElementById('save-homepage-full');
+  if (saveHomepageFull && homepageInputFull) {
+    saveHomepageFull.addEventListener('click', async () => {
+      const url = homepageInputFull.value.trim();
+      if (url) {
+        await storage.setItem('homepage', url);
+        
+        // Visual feedback
+        saveHomepageFull.textContent = 'Saved!';
+        saveHomepageFull.style.background = '#34A853';
+        
+        setTimeout(() => {
+          saveHomepageFull.textContent = 'Save';
+          saveHomepageFull.style.background = '';
+        }, 1500);
+      }
+    });
+  }
+
+  if (newTabBehavior) {
+    storage.getItem('newTabBehavior').then(behavior => {
+      newTabBehavior.value = behavior || 'newtab';
+    });
+
+    newTabBehavior.addEventListener('change', (e) => {
+      storage.setItem('newTabBehavior', e.target.value);
+    });
+  }
+
+  if (searchEngineSelectFull) {
+    storage.getItem('searchEngine').then(engine => {
+      searchEngineSelectFull.value = engine || 'google';
+      // Show/hide custom search group
+      if (customSearchGroup) {
+        customSearchGroup.style.display = engine === 'custom' ? 'block' : 'none';
+      }
+    });
+
+    searchEngineSelectFull.addEventListener('change', (e) => {
+      storage.setItem('searchEngine', e.target.value);
+      // Show/hide custom search group
+      if (customSearchGroup) {
+        customSearchGroup.style.display = e.target.value === 'custom' ? 'block' : 'none';
+      }
+    });
+  }
+
+  if (customSearchUrl) {
+    storage.getItem('customSearchUrl').then(url => {
+      customSearchUrl.value = url || '';
+    });
+
+    customSearchUrl.addEventListener('change', (e) => {
+      storage.setItem('customSearchUrl', e.target.value);
+    });
+  }
+
+  if (searchSuggestionsToggle) {
+    storage.getItem('searchSuggestions').then(enabled => {
+      searchSuggestionsToggle.checked = enabled !== 'false';
+    });
+
+    searchSuggestionsToggle.addEventListener('change', (e) => {
+      storage.setItem('searchSuggestions', e.target.checked.toString());
+    });
+  }
+
+  if (downloadLocationInput) {
+    storage.getItem('downloadLocation').then(location => {
+      downloadLocationInput.value = location || '';
+    });
+  }
+
+  if (chooseDownloadFolderBtn) {
+    chooseDownloadFolderBtn.addEventListener('click', async () => {
+      try {
+        if (window.electronAPI && window.electronAPI.chooseDownloadFolder) {
+          const folderPath = await window.electronAPI.chooseDownloadFolder();
+          if (folderPath && downloadLocationInput) {
+            downloadLocationInput.value = folderPath;
+            await storage.setItem('downloadLocation', folderPath);
+          }
+        }
+      } catch (error) {
+        console.error('Error choosing download folder:', error);
+      }
+    });
+  }
+
+  if (askDownloadLocationToggle) {
+    storage.getItem('askDownloadLocation').then(enabled => {
+      askDownloadLocationToggle.checked = enabled === 'true';
+    });
+
+    askDownloadLocationToggle.addEventListener('change', (e) => {
+      storage.setItem('askDownloadLocation', e.target.checked.toString());
+    });
+  }
+
+  if (userAgentInputFull) {
+    storage.getItem('userAgent').then(userAgent => {
+      userAgentInputFull.value = userAgent || '';
+    });
+
+    userAgentInputFull.addEventListener('change', (e) => {
+      storage.setItem('userAgent', e.target.value);
+    });
+  }
+
+  if (javascriptEnabledToggle) {
+    storage.getItem('javascriptEnabled').then(enabled => {
+      javascriptEnabledToggle.checked = enabled !== 'false';
+    });
+
+    javascriptEnabledToggle.addEventListener('change', (e) => {
+      storage.setItem('javascriptEnabled', e.target.checked.toString());
+    });
+  }
+
+  if (imagesEnabledToggle) {
+    storage.getItem('imagesEnabled').then(enabled => {
+      imagesEnabledToggle.checked = enabled !== 'false';
+    });
+
+    imagesEnabledToggle.addEventListener('change', (e) => {
+      storage.setItem('imagesEnabled', e.target.checked.toString());
+    });
+  }
+
+  if (popupBlockerToggle) {
+    storage.getItem('popupBlocker').then(enabled => {
+      popupBlockerToggle.checked = enabled !== 'false';
+    });
+
+    popupBlockerToggle.addEventListener('change', (e) => {
+      storage.setItem('popupBlocker', e.target.checked.toString());
+    });
+  }
 });

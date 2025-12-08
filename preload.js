@@ -29,6 +29,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getAllCookies: () => ipcRenderer.invoke('get-all-cookies'),
   clearAllCookies: () => ipcRenderer.invoke('clear-all-cookies'),
   
+  // Download folder chooser
+  chooseDownloadFolder: () => ipcRenderer.invoke('choose-download-folder'),
+  
   // Persistent storage APIs (to replace localStorage)
   getStorageItem: (key) => ipcRenderer.invoke('storage-get', key),
   setStorageItem: (key, value) => ipcRenderer.invoke('storage-set', key, value),

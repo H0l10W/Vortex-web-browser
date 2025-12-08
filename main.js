@@ -1,4 +1,4 @@
-const { app, BrowserWindow, BrowserView, ipcMain } = require('electron');
+const { app, BrowserWindow, BrowserView, ipcMain, dialog } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const fs = require('fs');
 const path = require('path');
@@ -80,19 +80,11 @@ let adDomains = [];
 let adBlockEnabled = false;
 
 // Auto-updater configuration
-console.log('=== AUTO-UPDATER INITIALIZATION ===');
-console.log('NODE_ENV:', process.env.NODE_ENV);
-console.log('process.defaultApp:', process.defaultApp);
-console.log('__dirname:', __dirname);
-console.log('app.isPackaged:', app.isPackaged);
-
 // Use proper detection for production
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
-console.log('Auto-updater will be:', isDev ? 'DISABLED' : 'ENABLED');
 
 // FORCE dev config for testing
 autoUpdater.forceDevUpdateConfig = true;
-console.log('Forced dev update config enabled');
 
 autoUpdater.checkForUpdatesAndNotify();
 autoUpdater.autoDownload = false; // Don't auto-download, let user choose
@@ -101,9 +93,6 @@ autoUpdater.allowDowngrade = false; // Prevent downgrade attacks
 
 // Configure auto-updater for GitHub releases
 if (!isDev) { // Using forced production mode
-  console.log('=== CONFIGURING AUTO-UPDATER ===');
-  console.log('NODE_ENV:', process.env.NODE_ENV);
-  
   // FORCE auto-updater to work in development
   autoUpdater.forceDevUpdateConfig = true;
   
@@ -113,23 +102,15 @@ if (!isDev) { // Using forced production mode
     repo: 'Vortex-web-browser'
   });
   
-  console.log('Feed URL set to:', autoUpdater.getFeedURL());
-  
   // Force clear any cached update info
   autoUpdater.allowPrerelease = false;
   autoUpdater.allowDowngrade = false;
-  
-  console.log('Auto-updater configured for GitHub releases');
-  console.log('Current version:', app.getVersion());
-  console.log('Repository: H0l10W/Vortex-web-browser');
-  console.log('Expected latest API URL: https://api.github.com/repos/H0l10W/Vortex-web-browser/releases/latest');
 } else {
-  console.log('Auto-updater DISABLED - Development mode detected');
+  // Auto-updater disabled in development
 }
 
 // Auto-updater event handlers
 autoUpdater.on('checking-for-update', () => {
-  console.log('Checking for update...');
   // Notify all windows about update check
   BrowserWindow.getAllWindows().forEach(win => {
     win.webContents.send('update-checking');
@@ -137,19 +118,15 @@ autoUpdater.on('checking-for-update', () => {
 });
 
 autoUpdater.on('update-available', (info) => {
-  console.log('Update available:', info.version);
   // Notify all windows about available update (shows "Update found" notification)
   BrowserWindow.getAllWindows().forEach(win => {
     win.webContents.send('update-available', info);
   });
   // Start download
-  console.log('Starting download...');
   autoUpdater.downloadUpdate();
 });
 
 autoUpdater.on('update-not-available', (info) => {
-  console.log('Update not available - Current version:', app.getVersion(), 'Latest:', info?.version || 'unknown');
-  console.log('Full update info:', JSON.stringify(info, null, 2));
   updateInProgress = false;
   // Notify all windows
   BrowserWindow.getAllWindows().forEach(win => {
@@ -208,11 +185,9 @@ autoUpdater.on('update-downloaded', (info) => {
 function triggerGarbageCollectionIfNeeded() {
   const now = Date.now();
   if (now - memoryMonitoring.lastGC > MEMORY_CONFIG.gcIntervalMs) {
-    console.log('Triggering garbage collection...');
     if (global.gc) {
       global.gc();
       memoryMonitoring.lastGC = now;
-      console.log('Garbage collection completed');
     }
   }
 }
@@ -583,8 +558,8 @@ ipcMain.removeAllListeners('toggle-devtools');
 
   // Security: Permission request handling
   view.webContents.session.setPermissionRequestHandler((webContents, permission, callback) => {
-    // Allow notifications and fullscreen permissions
-    const allowedPermissions = ['notifications', 'fullscreen'];
+    // Allow notifications, fullscreen, and geolocation permissions
+    const allowedPermissions = ['notifications', 'fullscreen', 'geolocation'];
     const allowed = allowedPermissions.includes(permission);
     console.log(`Permission request: ${permission} - ${allowed ? 'Allowed' : 'Denied'}`);
     callback(allowed);
@@ -925,6 +900,21 @@ ipcMain.handle('storage-remove', (event, key) => {
 
 ipcMain.handle('storage-get-all-keys', () => {
   return Object.keys(storageData);
+});
+
+// Choose download folder dialog
+ipcMain.handle('choose-download-folder', async (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  const result = await dialog.showOpenDialog(win, {
+    properties: ['openDirectory'],
+    title: 'Choose Download Folder'
+  });
+  
+  if (!result.canceled && result.filePaths.length > 0) {
+    return result.filePaths[0];
+  }
+  
+  return null;
 });
 
 // Create incognito window (no session persistence)

@@ -1,5 +1,33 @@
 # Vortex Browser - Changelog
 
+## [0.3.0] - 2025-12-08
+
+### ✨ New Features
+- **Modern Settings Interface**: Complete redesign with card-based layout and organized sections
+- **Download Folder Picker**: Native system dialog for choosing download location
+- **Enhanced Tab Management**: Improved tab restoration after browser restart
+- **Smart Sidebar Positioning**: Settings sidebar now properly avoids blocking browser controls
+
+### 🐛 Bug Fixes
+- **Fixed Tab Refresh Issue**: Tabs no longer refresh unnecessarily when closing other tabs
+- **Fixed Settings Tab Persistence**: Settings page now maintains state when switching between tabs
+- **Fixed Sidebar Overlap**: Resolved issue where settings sidebar blocked browser navigation
+- **Improved Weather Widget**: Enhanced fallback system and location handling
+
+### 🔧 Improvements
+- **Code Cleanup**: Removed debug logs and unused files for better performance
+- **CSS Optimization**: Consolidated theme styles and simplified selectors
+- **Memory Management**: Improved garbage collection and tab hibernation
+- **UI Polish**: Better spacing, modern controls, and responsive design
+
+### 🛠️ Technical Changes
+- Enhanced IPC communication for settings management
+- Improved view lifecycle management for Electron BrowserViews
+- Streamlined auto-updater configuration
+- Better persistent storage integration
+
+---
+
 ## [0.2.2] - 2025-12-07
 
 ### 🎨 Major UI Modernization
