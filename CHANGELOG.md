@@ -1,5 +1,15 @@
 # Vortex Browser - Changelog
 
+## [0.3.2] - 2025-12-09
+
+### 🔧 Bug Fixes & Improvements
+- Fixed an issue where overlays could block typing in the URL bar; URL input is now reliably focusable and responsive.
+- Improved history persistence and rendering: recent visits are now flushed reliably, and the history panel/page refreshes automatically or via the new "Refresh" button.
+- Stability improvements and small UX fixes (sidebar behaviour, overlay focus handling).
+ - Performance optimizations: debounce and batch storage writes, favicon caching, and incremental rendering to reduce UI latency.
+
+---
+
 ## [0.3.1] - 2025-12-09
 
 ### ✨ New Features & Fixes
