@@ -523,12 +523,16 @@ ipcMain.removeAllListeners('open-incognito');
 ipcMain.removeAllListeners('broadcast-theme-change');
 ipcMain.removeAllListeners('toggle-devtools');
   ipcMain.removeAllListeners('broadcast-widget-settings');
-  ipcMain.removeAllListeners('close-app');ipcMain.on('view:create', (event, id) => {
+  ipcMain.removeAllListeners('close-app');ipcMain.on('view:create', async (event, id, settings = {}) => {
   const win = BrowserWindow.fromWebContents(event.sender);
   if (!win) return;
 
   const state = windows.get(win.id);
   if (!state || state.views.has(id)) return;
+
+  // Get JavaScript setting from settings or default
+  const javascriptEnabled = settings.javascriptEnabled !== 'false';
+  console.log('Creating view with JavaScript enabled:', javascriptEnabled);
 
   const view = new BrowserView({
     webPreferences: {
@@ -540,7 +544,8 @@ ipcMain.removeAllListeners('toggle-devtools');
       experimentalFeatures: false,
       enableRemoteModule: false,
       sandbox: true,
-      safeDialogs: true
+      safeDialogs: true,
+      javascript: javascriptEnabled // Apply JavaScript setting
     }
   });
 
@@ -917,6 +922,235 @@ ipcMain.handle('choose-download-folder', async (event) => {
   return null;
 });
 
+// Apply browser settings to views
+ipcMain.handle('apply-browser-settings', async (event, viewId, settings) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  const windowState = windows.get(win.id);
+  
+  if (!windowState) return false;
+  
+  const view = windowState.views.get(viewId);
+  if (!view) return false;
+  
+  try {
+    // Use provided settings or defaults
+    const javascriptEnabled = settings?.javascriptEnabled !== 'false';
+    const imagesEnabled = settings?.imagesEnabled !== 'false'; 
+    const popupBlockerEnabled = settings?.popupBlockerEnabled !== 'false';
+    const userAgent = settings?.userAgent;
+    const smoothScrolling = settings?.smoothScrolling === 'true';
+    const reducedAnimations = settings?.reducedAnimations === 'true';
+    const pageZoom = settings?.pageZoom || '100';
+    
+    console.log('Applying browser settings:', { javascriptEnabled, imagesEnabled, popupBlockerEnabled, userAgent, smoothScrolling, reducedAnimations, pageZoom });
+    
+    // Apply JavaScript setting via webPreferences
+    view.webContents.session.setPermissionRequestHandler((webContents, permission, callback) => {
+      if (permission === 'javascript') {
+        callback(javascriptEnabled);
+      } else {
+        callback(true);
+      }
+    });
+    
+    // Apply images setting
+    if (!imagesEnabled) {
+      view.webContents.session.webRequest.onBeforeRequest(
+        { urls: ['*://*/*.jpg', '*://*/*.jpeg', '*://*/*.png', '*://*/*.gif', '*://*/*.webp', '*://*/*.svg'] },
+        (details, callback) => {
+          callback({ cancel: true });
+        }
+      );
+    } else {
+      // Clear image blocking if previously set
+      view.webContents.session.webRequest.onBeforeRequest(null);
+    }
+    
+    // Apply popup blocker setting
+    if (popupBlockerEnabled) {
+      view.webContents.setWindowOpenHandler(({ url }) => {
+        console.log('Popup blocked:', url);
+        return { action: 'deny' };
+      });
+    } else {
+      view.webContents.setWindowOpenHandler(({ url }) => {
+        return { action: 'allow' };
+      });
+    }
+    
+    // Apply custom user agent
+    if (userAgent && userAgent.trim()) {
+      view.webContents.setUserAgent(userAgent);
+    }
+    
+    // Apply zoom level
+    const zoomFactor = parseInt(pageZoom) / 100;
+    view.webContents.setZoomFactor(zoomFactor);
+    
+    // Inject CSS for webpage-level settings
+    view.webContents.on('dom-ready', () => {
+      let cssToInject = '';
+      
+      // Smooth scrolling for webpages
+      if (settings?.smoothScrolling === 'true') {
+        cssToInject += `
+          html { 
+            scroll-behavior: smooth !important; 
+          }
+        `;
+      }
+      
+      // Reduced animations for webpages
+      if (settings?.reducedAnimations === 'true') {
+        cssToInject += `
+          *, *::before, *::after {
+            animation-duration: 0.1s !important;
+            transition-duration: 0.1s !important;
+            animation-delay: 0s !important;
+          }
+        `;
+      }
+      
+      if (cssToInject) {
+        view.webContents.insertCSS(cssToInject);
+      }
+    });
+    
+    return true;
+  } catch (error) {
+    console.error('Error applying browser settings:', error);
+    return false;
+  }
+});
+
+// Update search engine setting
+ipcMain.handle('set-search-engine', async (event, engine) => {
+  storageData.searchEngine = engine;
+  saveStorageData(storageData);
+  return true;
+});
+
+// Update homepage setting  
+ipcMain.handle('set-homepage', async (event, url) => {
+  storageData.homepage = url;
+  saveStorageData(storageData);
+  return true;
+});
+
+// Update download location setting
+ipcMain.handle('set-download-location', async (event, path) => {
+  storageData.downloadLocation = path;
+  saveStorageData(storageData);
+  
+  // Apply to all existing sessions
+  const allWindows = BrowserWindow.getAllWindows();
+  allWindows.forEach(win => {
+    if (win.webContents.session) {
+      win.webContents.session.setDownloadPath(path);
+    }
+  });
+  
+  return true;
+});
+
+// Apply UI settings to main browser window
+ipcMain.handle('apply-ui-settings', async (event, settings) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (!win) return false;
+  
+  try {
+    console.log('Applying UI settings:', settings);
+    
+    // Apply settings to main browser window
+    if (settings.smoothScrolling !== undefined) {
+      const smoothScrolling = settings.smoothScrolling === 'true';
+      win.webContents.insertCSS(`
+        html { 
+          scroll-behavior: ${smoothScrolling ? 'smooth' : 'auto'} !important; 
+        }
+      `);
+    }
+    
+    if (settings.reducedAnimations !== undefined) {
+      const reduced = settings.reducedAnimations === 'true';
+      const animationSpeed = reduced ? '0.1s' : '0.3s';
+      win.webContents.insertCSS(`
+        :root {
+          --animation-speed: ${animationSpeed} !important;
+          --transition-speed: ${animationSpeed} !important;
+        }
+        *, *::before, *::after {
+          animation-duration: ${animationSpeed} !important;
+          transition-duration: ${animationSpeed} !important;
+        }
+      `);
+    }
+    
+    return true;
+  } catch (error) {
+    console.error('Error applying UI settings:', error);
+    return false;
+  }
+});
+
+// Set zoom level for all views
+ipcMain.handle('set-zoom-level', async (event, zoomPercent) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (!win) return false;
+  
+  try {
+    console.log('Setting zoom level:', zoomPercent + '%');
+    const windowState = windows.get(win.id);
+    
+    if (windowState) {
+      // Convert percentage to zoom factor (100% = 1.0, 150% = 1.5, 75% = 0.75)
+      const zoomFactor = zoomPercent / 100;
+      
+      // Apply to all views in this window
+      windowState.views.forEach((view, viewId) => {
+        view.webContents.setZoomFactor(zoomFactor);
+      });
+    }
+    
+    return true;
+  } catch (error) {
+    console.error('Error setting zoom level:', error);
+    return false;
+  }
+});
+
+// Set close tabs on exit behavior
+ipcMain.handle('set-close-tabs-on-exit', async (event, enabled) => {
+  try {
+    console.log('Setting close tabs on exit:', enabled);
+    storageData.closeTabsOnExit = enabled.toString();
+    saveStorageData(storageData);
+    return true;
+  } catch (error) {
+    console.error('Error setting close tabs on exit:', error);
+    return false;
+  }
+});
+
+// Set tab previews enabled
+ipcMain.handle('set-tab-previews-enabled', async (event, enabled) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (!win) return false;
+  
+  try {
+    console.log('Setting tab previews enabled:', enabled);
+    storageData.tabPreviewsEnabled = enabled.toString();
+    saveStorageData(storageData);
+    
+    // Send setting to main window to update tab rendering
+    win.webContents.send('tab-previews-setting-changed', enabled);
+    return true;
+  } catch (error) {
+    console.error('Error setting tab previews:', error);
+    return false;
+  }
+});
+
 // Create incognito window (no session persistence)
 function createIncognitoWindow() {
   const incognitoWin = new BrowserWindow({
@@ -1268,6 +1502,15 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   console.log('App is quitting, performing final cleanup...');
+  
+  // Check close tabs on exit setting
+  if (storageData.closeTabsOnExit === 'true') {
+    console.log('Close tabs on exit enabled - clearing saved tabs');
+    // Clear saved tabs data
+    storageData.tabs = [];
+    storageData.currentTabId = null;
+    saveStorageData(storageData);
+  }
   
   try {
     // Clean up all BrowserViews first

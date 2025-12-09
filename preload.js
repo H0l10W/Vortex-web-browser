@@ -3,7 +3,7 @@ const { contextBridge, ipcRenderer, shell } = require('electron');
 // Expose a secure API to the renderer process
 contextBridge.exposeInMainWorld('electronAPI', {
   // --- Renderer to Main ---
-  viewCreate: (id) => ipcRenderer.send('view:create', id),
+  viewCreate: (id, settings) => ipcRenderer.send('view:create', id, settings),
   viewDestroy: (id) => ipcRenderer.send('view:destroy', id),
   viewNavigate: (args) => ipcRenderer.send('view:navigate', args), // args: { id, url }
   viewReload: (id) => ipcRenderer.send('view:reload', id),
@@ -31,6 +31,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
   
   // Download folder chooser
   chooseDownloadFolder: () => ipcRenderer.invoke('choose-download-folder'),
+  
+  // Browser settings
+  applyBrowserSettings: (viewId, settings) => ipcRenderer.invoke('apply-browser-settings', viewId, settings),
+  setSearchEngine: (engine) => ipcRenderer.invoke('set-search-engine', engine),
+  setHomepage: (url) => ipcRenderer.invoke('set-homepage', url),
+  setDownloadLocation: (path) => ipcRenderer.invoke('set-download-location', path),
+  applyUISettings: (settings) => ipcRenderer.invoke('apply-ui-settings', settings),
+  setZoomLevel: (zoom) => ipcRenderer.invoke('set-zoom-level', zoom),
+  setCloseTabsOnExit: (enabled) => ipcRenderer.invoke('set-close-tabs-on-exit', enabled),
+  setTabPreviewsEnabled: (enabled) => ipcRenderer.invoke('set-tab-previews-enabled', enabled),
+  on: (channel, callback) => ipcRenderer.on(channel, callback),
   
   // Persistent storage APIs (to replace localStorage)
   getStorageItem: (key) => ipcRenderer.invoke('storage-get', key),

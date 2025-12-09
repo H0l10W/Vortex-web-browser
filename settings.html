@@ -82,13 +82,30 @@
               </div>
               <div class="card-content">
                 <div class="setting-group">
-                  <label for="start-page-select-full" class="setting-label">When browser starts</label>
-                  <select id="start-page-select-full" class="setting-select">
-                    <option value="homepage">Open homepage</option>
-                    <option value="newtab">Open new tab page</option>
-                    <option value="lastsession">Restore last session</option>
-                    <option value="blank">Open blank page</option>
-                  </select>
+                  <label class="setting-label">When browser starts</label>
+                  <div class="toggle-group">
+                    <div class="toggle-option">
+                      <label class="toggle-switch">
+                        <input type="radio" name="start-page" id="start-homepage" value="homepage">
+                        <span class="slider"></span>
+                      </label>
+                      <span class="toggle-label">Open homepage</span>
+                    </div>
+                    <div class="toggle-option">
+                      <label class="toggle-switch">
+                        <input type="radio" name="start-page" id="start-newtab" value="newtab" checked>
+                        <span class="slider"></span>
+                      </label>
+                      <span class="toggle-label">Open new tab page</span>
+                    </div>
+                    <div class="toggle-option">
+                      <label class="toggle-switch">
+                        <input type="radio" name="start-page" id="start-lastsession" value="lastsession">
+                        <span class="slider"></span>
+                      </label>
+                      <span class="toggle-label">Restore last session</span>
+                    </div>
+                  </div>
                 </div>
                 
                 <div class="setting-group">
@@ -117,15 +134,30 @@
               </div>
               <div class="card-content">
                 <div class="setting-group">
-                  <label for="search-engine-select-full" class="setting-label">Default search engine</label>
-                  <select id="search-engine-select-full" class="setting-select">
-                    <option value="google">Google</option>
-                    <option value="bing">Microsoft Bing</option>
-                    <option value="duckduckgo">DuckDuckGo</option>
-                    <option value="yandex">Yandex</option>
-                    <option value="baidu">Baidu</option>
-                    <option value="custom">Custom search engine</option>
-                  </select>
+                  <label class="setting-label">Default search engine</label>
+                  <div class="toggle-group">
+                    <div class="toggle-option">
+                      <label class="toggle-switch">
+                        <input type="radio" name="search-engine" id="search-google" value="google" checked>
+                        <span class="slider"></span>
+                      </label>
+                      <span class="toggle-label">Google</span>
+                    </div>
+                    <div class="toggle-option">
+                      <label class="toggle-switch">
+                        <input type="radio" name="search-engine" id="search-bing" value="bing">
+                        <span class="slider"></span>
+                      </label>
+                      <span class="toggle-label">Microsoft Bing</span>
+                    </div>
+                    <div class="toggle-option">
+                      <label class="toggle-switch">
+                        <input type="radio" name="search-engine" id="search-duckduckgo" value="duckduckgo">
+                        <span class="slider"></span>
+                      </label>
+                      <span class="toggle-label">DuckDuckGo</span>
+                    </div>
+                  </div>
                 </div>
                 
                 <div class="setting-group" id="custom-search-group" style="display: none;">
@@ -135,12 +167,15 @@
                 </div>
 
                 <div class="setting-group">
-                  <div class="checkbox-setting">
-                    <input type="checkbox" id="search-suggestions-toggle" checked>
-                    <label for="search-suggestions-toggle">
-                      <span class="checkbox-label">Show search suggestions</span>
-                      <span class="checkbox-description">Display search suggestions in the address bar</span>
+                  <div class="toggle-setting">
+                    <label class="toggle-switch">
+                      <input type="checkbox" id="search-suggestions-toggle" checked>
+                      <span class="slider"></span>
                     </label>
+                    <div class="toggle-info">
+                      <span class="toggle-label">Show search suggestions</span>
+                      <span class="toggle-description">Display search suggestions in the address bar</span>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -161,12 +196,15 @@
                 </div>
 
                 <div class="setting-group">
-                  <div class="checkbox-setting">
-                    <input type="checkbox" id="ask-download-location-toggle">
-                    <label for="ask-download-location-toggle">
-                      <span class="checkbox-label">Ask where to save files</span>
-                      <span class="checkbox-description">Prompt for download location before downloading</span>
+                  <div class="toggle-setting">
+                    <label class="toggle-switch">
+                      <input type="checkbox" id="ask-download-location-toggle">
+                      <span class="slider"></span>
                     </label>
+                    <div class="toggle-info">
+                      <span class="toggle-label">Ask where to save files</span>
+                      <span class="toggle-description">Prompt for download location before downloading</span>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -185,32 +223,41 @@
                 </div>
 
                 <div class="setting-group">
-                  <div class="checkbox-setting">
-                    <input type="checkbox" id="javascript-enabled-toggle" checked>
-                    <label for="javascript-enabled-toggle">
-                      <span class="checkbox-label">Enable JavaScript</span>
-                      <span class="checkbox-description">Allow websites to run JavaScript (recommended)</span>
+                  <div class="toggle-setting">
+                    <label class="toggle-switch">
+                      <input type="checkbox" id="javascript-enabled-toggle" checked>
+                      <span class="slider"></span>
                     </label>
+                    <div class="toggle-info">
+                      <span class="toggle-label">Enable JavaScript</span>
+                      <span class="toggle-description">Allow websites to run JavaScript (recommended)</span>
+                    </div>
                   </div>
                 </div>
 
                 <div class="setting-group">
-                  <div class="checkbox-setting">
-                    <input type="checkbox" id="images-enabled-toggle" checked>
-                    <label for="images-enabled-toggle">
-                      <span class="checkbox-label">Load images</span>
-                      <span class="checkbox-description">Download and display images on websites</span>
+                  <div class="toggle-setting">
+                    <label class="toggle-switch">
+                      <input type="checkbox" id="images-enabled-toggle" checked>
+                      <span class="slider"></span>
                     </label>
+                    <div class="toggle-info">
+                      <span class="toggle-label">Load images</span>
+                      <span class="toggle-description">Download and display images on websites</span>
+                    </div>
                   </div>
                 </div>
 
                 <div class="setting-group">
-                  <div class="checkbox-setting">
-                    <input type="checkbox" id="popup-blocker-toggle" checked>
-                    <label for="popup-blocker-toggle">
-                      <span class="checkbox-label">Block pop-ups</span>
-                      <span class="checkbox-description">Prevent websites from opening unwanted pop-up windows</span>
+                  <div class="toggle-setting">
+                    <label class="toggle-switch">
+                      <input type="checkbox" id="popup-blocker-toggle" checked>
+                      <span class="slider"></span>
                     </label>
+                    <div class="toggle-info">
+                      <span class="toggle-label">Block pop-ups</span>
+                      <span class="toggle-description">Prevent websites from opening unwanted pop-up windows</span>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -310,22 +357,28 @@
               </div>
 
               <div class="setting-group">
-                <div class="checkbox-setting">
-                  <input type="checkbox" id="smooth-scrolling-toggle">
-                  <label for="smooth-scrolling-toggle">
-                    <span class="checkbox-label">Smooth Scrolling</span>
-                    <span class="checkbox-description">Enable smooth scrolling for a more fluid browsing experience</span>
+                <div class="toggle-setting">
+                  <label class="toggle-switch">
+                    <input type="checkbox" id="smooth-scrolling-toggle">
+                    <span class="slider"></span>
                   </label>
+                  <div class="toggle-info">
+                    <span class="toggle-label">Smooth Scrolling</span>
+                    <span class="toggle-description">Enable smooth scrolling for a more fluid browsing experience</span>
+                  </div>
                 </div>
               </div>
 
               <div class="setting-group">
-                <div class="checkbox-setting">
-                  <input type="checkbox" id="reduced-animations-toggle">
-                  <label for="reduced-animations-toggle">
-                    <span class="checkbox-label">Reduce Animations</span>
-                    <span class="checkbox-description">Minimize visual effects for better performance</span>
+                <div class="toggle-setting">
+                  <label class="toggle-switch">
+                    <input type="checkbox" id="reduced-animations-toggle">
+                    <span class="slider"></span>
                   </label>
+                  <div class="toggle-info">
+                    <span class="toggle-label">Reduce Animations</span>
+                    <span class="toggle-description">Minimize visual effects and animations for better performance</span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -338,22 +391,28 @@
             </div>
             <div class="card-content">
               <div class="setting-group">
-                <div class="checkbox-setting">
-                  <input type="checkbox" id="close-tabs-on-exit-toggle">
-                  <label for="close-tabs-on-exit-toggle">
-                    <span class="checkbox-label">Close All Tabs on Exit</span>
-                    <span class="checkbox-description">Don't restore tabs when the browser starts</span>
+                <div class="toggle-setting">
+                  <label class="toggle-switch">
+                    <input type="checkbox" id="close-tabs-on-exit-toggle">
+                    <span class="slider"></span>
                   </label>
+                  <div class="toggle-info">
+                    <span class="toggle-label">Close All Tabs on Exit</span>
+                    <span class="toggle-description">Don't restore tabs when the browser starts</span>
+                  </div>
                 </div>
               </div>
 
               <div class="setting-group">
-                <div class="checkbox-setting">
-                  <input type="checkbox" id="show-tab-previews-toggle" checked>
-                  <label for="show-tab-previews-toggle">
-                    <span class="checkbox-label">Show Tab Previews</span>
-                    <span class="checkbox-description">Display website favicons and titles in tabs</span>
+                <div class="toggle-setting">
+                  <label class="toggle-switch">
+                    <input type="checkbox" id="show-tab-previews-toggle" checked>
+                    <span class="slider"></span>
                   </label>
+                  <div class="toggle-info">
+                    <span class="toggle-label">Show Tab Previews</span>
+                    <span class="toggle-description">Display website favicons and titles in tabs</span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -439,16 +498,30 @@
                 </div>
                 
                 <div class="setting-group">
-                  <label for="news-category" class="setting-label">Category</label>
-                  <select id="news-category" class="setting-select">
-                    <option value="general">General</option>
-                    <option value="business">Business</option>
-                    <option value="technology">Technology</option>
-                    <option value="science">Science</option>
-                    <option value="health">Health</option>
-                    <option value="sports">Sports</option>
-                    <option value="entertainment">Entertainment</option>
-                  </select>
+                  <label class="setting-label">Category</label>
+                  <div class="toggle-group">
+                    <div class="toggle-option">
+                      <label class="toggle-switch">
+                        <input type="radio" name="news-category" id="news-general" value="general" checked>
+                        <span class="slider"></span>
+                      </label>
+                      <span class="toggle-label">General</span>
+                    </div>
+                    <div class="toggle-option">
+                      <label class="toggle-switch">
+                        <input type="radio" name="news-category" id="news-technology" value="technology">
+                        <span class="slider"></span>
+                      </label>
+                      <span class="toggle-label">Technology</span>
+                    </div>
+                    <div class="toggle-option">
+                      <label class="toggle-switch">
+                        <input type="radio" name="news-category" id="news-business" value="business">
+                        <span class="slider"></span>
+                      </label>
+                      <span class="toggle-label">Business</span>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>

@@ -1,5 +1,27 @@
 # Vortex Browser - Changelog
 
+## [0.3.1] - 2025-12-09
+
+### ✨ New Features & Fixes
+- **All Settings Now Functional**: Every setting in the browser now works and applies to both the browser UI and webpages as intended
+- **Tab Behavior Settings**: 'Close All Tabs on Exit' and 'Show Tab Previews' now work correctly
+- **Zoom, Images, JavaScript, Popups**: All browser and webpage settings apply instantly and persist across sessions
+- **Smooth Scrolling & Animations**: UI and webpage settings for scrolling and animations are now fully applied
+- **Robust Tab Restoration**: Improved tab restoration logic and error handling after restart
+
+### 🐛 Bug Fixes
+- Fixed: Settings page and tabs failing to load after restart
+- Fixed: Tab previews toggle now updates tab display instantly
+- Fixed: Close tabs on exit now clears session tabs as expected
+- Fixed: All settings now persist and apply correctly
+
+### 🛠️ Technical Changes
+- Improved IPC and settings communication
+- Enhanced tab rendering logic for previews
+- Better persistent storage and session management
+
+---
+
 ## [0.3.0] - 2025-12-08
 
 ### ✨ New Features

@@ -617,11 +617,16 @@ window.addEventListener('DOMContentLoaded', () => {
       document.body.style.zoom = zoom + '%';
     });
 
-    pageZoomSlider.addEventListener('input', (e) => {
+    pageZoomSlider.addEventListener('input', async (e) => {
       const zoom = e.target.value;
       zoomValue.textContent = zoom + '%';
       document.body.style.zoom = zoom + '%';
-      storage.setItem('pageZoom', zoom);
+      await storage.setItem('pageZoom', zoom);
+      
+      // Apply zoom to all webpages
+      if (window.electronAPI && window.electronAPI.setZoomLevel) {
+        await window.electronAPI.setZoomLevel(parseInt(zoom));
+      }
     });
   }
 
@@ -632,10 +637,17 @@ window.addEventListener('DOMContentLoaded', () => {
       updateScrollBehavior(enabled === 'true');
     });
 
-    smoothScrollingToggle.addEventListener('change', (e) => {
+    smoothScrollingToggle.addEventListener('change', async (e) => {
       const enabled = e.target.checked;
-      storage.setItem('smoothScrolling', enabled.toString());
+      await storage.setItem('smoothScrolling', enabled.toString());
       updateScrollBehavior(enabled);
+      
+      // Apply to main browser window
+      if (window.electronAPI && window.electronAPI.applyUISettings) {
+        await window.electronAPI.applyUISettings({
+          smoothScrolling: enabled.toString()
+        });
+      }
     });
   }
 
@@ -650,10 +662,17 @@ window.addEventListener('DOMContentLoaded', () => {
       updateAnimationSettings(enabled === 'true');
     });
 
-    reducedAnimationsToggle.addEventListener('change', (e) => {
+    reducedAnimationsToggle.addEventListener('change', async (e) => {
       const enabled = e.target.checked;
-      storage.setItem('reducedAnimations', enabled.toString());
+      await storage.setItem('reducedAnimations', enabled.toString());
       updateAnimationSettings(enabled);
+      
+      // Apply to main browser window
+      if (window.electronAPI && window.electronAPI.applyUISettings) {
+        await window.electronAPI.applyUISettings({
+          reducedAnimations: enabled.toString()
+        });
+      }
     });
   }
 
@@ -673,8 +692,12 @@ window.addEventListener('DOMContentLoaded', () => {
       closeTabsOnExitToggle.checked = enabled === 'true';
     });
 
-    closeTabsOnExitToggle.addEventListener('change', (e) => {
-      storage.setItem('closeTabsOnExit', e.target.checked.toString());
+    closeTabsOnExitToggle.addEventListener('change', async (e) => {
+      await storage.setItem('closeTabsOnExit', e.target.checked.toString());
+      // Apply close tabs on exit behavior immediately
+      if (window.electronAPI && window.electronAPI.setCloseTabsOnExit) {
+        await window.electronAPI.setCloseTabsOnExit(e.target.checked);
+      }
     });
   }
 
@@ -684,22 +707,24 @@ window.addEventListener('DOMContentLoaded', () => {
       showTabPreviewsToggle.checked = enabled !== 'false'; // Default to true
     });
 
-    showTabPreviewsToggle.addEventListener('change', (e) => {
-      storage.setItem('showTabPreviews', e.target.checked.toString());
-      // Broadcast to main window to update tab display
-      if (window.electronAPI?.broadcastWidgetSettings) {
-        window.electronAPI.broadcastWidgetSettings('tabPreviews', e.target.checked);
+    showTabPreviewsToggle.addEventListener('change', async (e) => {
+      await storage.setItem('showTabPreviews', e.target.checked.toString());
+      // Apply tab previews setting immediately
+      if (window.electronAPI && window.electronAPI.setTabPreviewsEnabled) {
+        await window.electronAPI.setTabPreviewsEnabled(e.target.checked);
       }
     });
   }
 
   // --- General Settings Tab Functionality ---
   
-  // General tab elements
-  const startPageSelectFull = document.getElementById('start-page-select-full');
+  // General tab elements - radio button groups
+  const startPageRadios = document.querySelectorAll('input[name="start-page"]');
+  const searchEngineRadios = document.querySelectorAll('input[name="search-engine"]');
+  const newsRadios = document.querySelectorAll('input[name="news-category"]');
+  
   const homepageInputFull = document.getElementById('homepage-input-full');
   const newTabBehavior = document.getElementById('new-tab-behavior');
-  const searchEngineSelectFull = document.getElementById('search-engine-select-full');
   const customSearchGroup = document.getElementById('custom-search-group');
   const customSearchUrl = document.getElementById('custom-search-url');
   const searchSuggestionsToggle = document.getElementById('search-suggestions-toggle');
@@ -712,13 +737,21 @@ window.addEventListener('DOMContentLoaded', () => {
   const popupBlockerToggle = document.getElementById('popup-blocker-toggle');
 
   // Initialize General Settings
-  if (startPageSelectFull) {
+  if (startPageRadios.length > 0) {
     storage.getItem('startPage').then(startPage => {
-      startPageSelectFull.value = startPage || 'newtab';
+      const selectedValue = startPage || 'newtab';
+      const targetRadio = document.getElementById(`start-${selectedValue}`);
+      if (targetRadio) {
+        targetRadio.checked = true;
+      }
     });
 
-    startPageSelectFull.addEventListener('change', (e) => {
-      storage.setItem('startPage', e.target.value);
+    startPageRadios.forEach(radio => {
+      radio.addEventListener('change', (e) => {
+        if (e.target.checked) {
+          storage.setItem('startPage', e.target.value);
+        }
+      });
     });
   }
 
@@ -740,6 +773,11 @@ window.addEventListener('DOMContentLoaded', () => {
       if (url) {
         await storage.setItem('homepage', url);
         
+        // Update in main process
+        if (window.electronAPI.setHomepage) {
+          window.electronAPI.setHomepage(url);
+        }
+        
         // Visual feedback
         saveHomepageFull.textContent = 'Saved!';
         saveHomepageFull.style.background = '#34A853';
@@ -752,6 +790,47 @@ window.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  // Search engine radio buttons
+  if (searchEngineRadios.length > 0) {
+    storage.getItem('searchEngine').then(engine => {
+      const selectedValue = engine || 'google';
+      const targetRadio = document.getElementById(`search-${selectedValue}`);
+      if (targetRadio) {
+        targetRadio.checked = true;
+      }
+    });
+
+    searchEngineRadios.forEach(radio => {
+      radio.addEventListener('change', (e) => {
+        if (e.target.checked) {
+          storage.setItem('searchEngine', e.target.value);
+          if (window.electronAPI.setSearchEngine) {
+            window.electronAPI.setSearchEngine(e.target.value);
+          }
+        }
+      });
+    });
+  }
+
+  // News category radio buttons  
+  if (newsRadios.length > 0) {
+    storage.getItem('newsCategory').then(category => {
+      const selectedValue = category || 'general';
+      const targetRadio = document.getElementById(`news-${selectedValue}`);
+      if (targetRadio) {
+        targetRadio.checked = true;
+      }
+    });
+
+    newsRadios.forEach(radio => {
+      radio.addEventListener('change', (e) => {
+        if (e.target.checked) {
+          storage.setItem('newsCategory', e.target.value);
+        }
+      });
+    });
+  }
+
   if (newTabBehavior) {
     storage.getItem('newTabBehavior').then(behavior => {
       newTabBehavior.value = behavior || 'newtab';
@@ -759,24 +838,6 @@ window.addEventListener('DOMContentLoaded', () => {
 
     newTabBehavior.addEventListener('change', (e) => {
       storage.setItem('newTabBehavior', e.target.value);
-    });
-  }
-
-  if (searchEngineSelectFull) {
-    storage.getItem('searchEngine').then(engine => {
-      searchEngineSelectFull.value = engine || 'google';
-      // Show/hide custom search group
-      if (customSearchGroup) {
-        customSearchGroup.style.display = engine === 'custom' ? 'block' : 'none';
-      }
-    });
-
-    searchEngineSelectFull.addEventListener('change', (e) => {
-      storage.setItem('searchEngine', e.target.value);
-      // Show/hide custom search group
-      if (customSearchGroup) {
-        customSearchGroup.style.display = e.target.value === 'custom' ? 'block' : 'none';
-      }
     });
   }
 
@@ -814,6 +875,10 @@ window.addEventListener('DOMContentLoaded', () => {
           if (folderPath && downloadLocationInput) {
             downloadLocationInput.value = folderPath;
             await storage.setItem('downloadLocation', folderPath);
+            // Apply download location setting immediately
+            if (window.electronAPI.setDownloadLocation) {
+              await window.electronAPI.setDownloadLocation(folderPath);
+            }
           }
         }
       } catch (error) {
@@ -847,8 +912,9 @@ window.addEventListener('DOMContentLoaded', () => {
       javascriptEnabledToggle.checked = enabled !== 'false';
     });
 
-    javascriptEnabledToggle.addEventListener('change', (e) => {
-      storage.setItem('javascriptEnabled', e.target.checked.toString());
+    javascriptEnabledToggle.addEventListener('change', async (e) => {
+      await storage.setItem('javascriptEnabled', e.target.checked.toString());
+      console.log('JavaScript setting changed:', e.target.checked);
     });
   }
 
@@ -857,18 +923,20 @@ window.addEventListener('DOMContentLoaded', () => {
       imagesEnabledToggle.checked = enabled !== 'false';
     });
 
-    imagesEnabledToggle.addEventListener('change', (e) => {
-      storage.setItem('imagesEnabled', e.target.checked.toString());
+    imagesEnabledToggle.addEventListener('change', async (e) => {
+      await storage.setItem('imagesEnabled', e.target.checked.toString());
+      console.log('Images setting changed:', e.target.checked);
     });
   }
 
   if (popupBlockerToggle) {
-    storage.getItem('popupBlocker').then(enabled => {
+    storage.getItem('popupBlockerEnabled').then(enabled => {
       popupBlockerToggle.checked = enabled !== 'false';
     });
 
-    popupBlockerToggle.addEventListener('change', (e) => {
-      storage.setItem('popupBlocker', e.target.checked.toString());
+    popupBlockerToggle.addEventListener('change', async (e) => {
+      await storage.setItem('popupBlockerEnabled', e.target.checked.toString());
+      console.log('Popup blocker setting changed:', e.target.checked);
     });
   }
 });

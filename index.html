@@ -91,7 +91,13 @@
       
       <div class="settings-section">
         <h3>📊 View Options</h3>
-        <label><input type="checkbox" id="show-bookmarks-bar"> Show Bookmarks Bar</label>
+        <div class="toggle-setting">
+          <label class="toggle-switch">
+            <input type="checkbox" id="show-bookmarks-bar">
+            <span class="slider"></span>
+          </label>
+          <span class="toggle-label">Show Bookmarks Bar</span>
+        </div>
         <div class="zoom-control">
           <label for="page-zoom" class="zoom-label">Page Zoom</label>
           <select id="page-zoom-select" class="zoom-select">

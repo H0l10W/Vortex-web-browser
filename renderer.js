@@ -33,12 +33,61 @@ window.addEventListener('DOMContentLoaded', () => {
     document.body.className = themeToApply; // Set theme class directly
   });
   
+  // Apply UI settings immediately
+  storage.getItem('smoothScrolling').then(smoothScrolling => {
+    if (smoothScrolling === 'true') {
+      document.documentElement.style.scrollBehavior = 'smooth';
+    }
+  });
+  
+  storage.getItem('reducedAnimations').then(reducedAnimations => {
+    if (reducedAnimations === 'true') {
+      document.documentElement.style.setProperty('--animation-speed', '0.1s');
+      document.documentElement.style.setProperty('--transition-speed', '0.1s');
+    }
+  });
+  
+  // Initialize tab previews setting
+  let tabPreviewsEnabled = true; // Default to true
+  storage.getItem('showTabPreviews').then(enabled => {
+    tabPreviewsEnabled = enabled !== 'false';
+    renderTabs(); // Re-render tabs with correct setting
+  });
+  
+  // Listen for tab previews setting changes
+  window.electronAPI?.on?.('tab-previews-setting-changed', (event, enabled) => {
+    tabPreviewsEnabled = enabled;
+    renderTabs(); // Re-render tabs with new preview setting
+  });
+  
   // --- State ---
   // Initialize state asynchronously with persistent storage
   async function initializeState() {
     let tabs = JSON.parse(await storage.getItem('tabs') || '[]');
-    if (!tabs.length) tabs = [{ id: Date.now(), url: 'newtab', history: [], historyIndex: -1 }];
+    
+    // Validate and clean up tabs
+    tabs = tabs.filter(tab => tab && tab.id && typeof tab.url === 'string');
+    
+    // If no valid tabs, create default tab
+    if (!tabs.length) {
+      tabs = [{ id: Date.now(), url: 'newtab', history: ['newtab'], historyIndex: 0 }];
+    }
+    
+    // Ensure all tabs have proper structure
+    tabs = tabs.map(tab => ({
+      ...tab,
+      history: tab.history || [tab.url || 'newtab'],
+      historyIndex: tab.historyIndex || 0,
+      viewCreated: false // Force recreation on restart
+    }));
+    
     let currentTabId = parseInt(await storage.getItem('currentTabId') || (tabs.length > 0 ? tabs[0].id : null), 10);
+    
+    // Validate currentTabId exists in tabs
+    if (!tabs.find(tab => tab.id === currentTabId)) {
+      currentTabId = tabs[0].id;
+    }
+    
     let bookmarks = JSON.parse(await storage.getItem('bookmarks') || '[]');
     let homepage = await storage.getItem('homepage') || 'https://www.google.com';
     let quickLinks = JSON.parse(await storage.getItem('quickLinks') || '[]');
@@ -298,10 +347,36 @@ window.addEventListener('DOMContentLoaded', () => {
       const needsViewRecreation = !tab.viewCreated;
       
       if (needsViewRecreation) {
-        // For any tab that needs restoration after restart (including settings)
-        window.electronAPI.viewCreate(tab.id);
-        window.electronAPI.viewNavigate({ id: tab.id, url: tab.url });
-        tab.viewCreated = true;
+        try {
+          console.log('Restoring tab:', tab.id, 'URL:', tab.url);
+          
+          // Get browser settings for restored tab
+          const settings = {
+            javascriptEnabled: localStorage.getItem('javascriptEnabled'),
+            imagesEnabled: localStorage.getItem('imagesEnabled'),
+            popupBlockerEnabled: localStorage.getItem('popupBlockerEnabled'),
+            userAgent: localStorage.getItem('userAgent'),
+            smoothScrolling: localStorage.getItem('smoothScrolling'),
+            reducedAnimations: localStorage.getItem('reducedAnimations'),
+            pageZoom: localStorage.getItem('pageZoom')
+          };
+          
+          // For any tab that needs restoration after restart (including settings)
+          window.electronAPI.viewCreate(tab.id, settings);
+          
+          // Only navigate if URL is valid and not 'newtab'
+          if (tab.url && tab.url !== 'newtab' && tab.url !== '') {
+            window.electronAPI.viewNavigate({ id: tab.id, url: tab.url });
+          }
+          
+          tab.viewCreated = true;
+        } catch (error) {
+          console.error('Error restoring tab:', tab.id, error);
+          // If restoration fails, reset to newtab
+          tab.url = 'newtab';
+          tab.history = ['newtab'];
+          tab.historyIndex = 0;
+        }
       }
       
       window.electronAPI.viewShow(tab.id);
@@ -326,23 +401,39 @@ window.addEventListener('DOMContentLoaded', () => {
       }
       tabEl.className = tabClass;
       
-      const favicon = document.createElement('img');
-      favicon.src = getFavicon(tab.url);
-      favicon.style.width = '16px';
-      favicon.style.height = '16px';
-      favicon.onerror = function() { this.src = 'icons/newtab.png'; };
-      tabEl.appendChild(favicon);
+      // Only show favicon and title if tab previews are enabled
+      if (tabPreviewsEnabled) {
+        const favicon = document.createElement('img');
+        favicon.src = getFavicon(tab.url);
+        favicon.style.width = '16px';
+        favicon.style.height = '16px';
+        favicon.onerror = function() { this.src = 'icons/newtab.png'; };
+        tabEl.appendChild(favicon);
 
-      const titleSpan = document.createElement('span');
-      let displayTitle;
-      if (tab.url === 'newtab') {
-        displayTitle = tab.isIncognito ? 'New Tab (Incognito)' : 'New Tab';
+        const titleSpan = document.createElement('span');
+        let displayTitle;
+        if (tab.url === 'newtab') {
+          displayTitle = tab.isIncognito ? 'New Tab (Incognito)' : 'New Tab';
+        } else {
+          const baseTitle = (tab.title || tab.url).substring(0, 20) + '...';
+          displayTitle = tab.isIncognito ? `${baseTitle} (Incognito)` : baseTitle;
+        }
+        titleSpan.textContent = displayTitle;
+        tabEl.appendChild(titleSpan);
       } else {
-        const baseTitle = (tab.title || tab.url).substring(0, 20) + '...';
-        displayTitle = tab.isIncognito ? `${baseTitle} (Incognito)` : baseTitle;
+        // When tab previews are disabled, just show a minimal tab indicator
+        const indicator = document.createElement('div');
+        indicator.style.width = '8px';
+        indicator.style.height = '8px';
+        indicator.style.borderRadius = '50%';
+        indicator.style.backgroundColor = tab.id === currentTabId ? '#4285f4' : '#dadce0';
+        indicator.style.margin = 'auto';
+        tabEl.appendChild(indicator);
+        
+        // Adjust tab styling for minimal view
+        tabEl.style.minWidth = '32px';
+        tabEl.style.maxWidth = '32px';
       }
-      titleSpan.textContent = displayTitle;
-      tabEl.appendChild(titleSpan);
 
       const closeBtn = document.createElement('div');
       closeBtn.className = 'close';
@@ -351,7 +442,11 @@ window.addEventListener('DOMContentLoaded', () => {
         e.stopPropagation();
         closeTab(tab.id);
       };
-      tabEl.appendChild(closeBtn);
+      
+      // Only show close button if tab previews are enabled or it's the active tab
+      if (tabPreviewsEnabled || tab.id === currentTabId) {
+        tabEl.appendChild(closeBtn);
+      }
 
       tabEl.onclick = () => switchTab(tab.id);
       tabsDiv.appendChild(tabEl);
@@ -390,7 +485,29 @@ window.addEventListener('DOMContentLoaded', () => {
         const newTabObj = { id: newTabId, url, history: [url], historyIndex: 0, viewCreated: true };
         tabs.push(newTabObj);
         currentTabId = newTabId;
-        window.electronAPI.viewCreate(newTabId);
+        
+        // Get browser settings before creating view
+        const settings = {
+          javascriptEnabled: localStorage.getItem('javascriptEnabled'),
+          imagesEnabled: localStorage.getItem('imagesEnabled'),
+          popupBlockerEnabled: localStorage.getItem('popupBlockerEnabled'),
+          userAgent: localStorage.getItem('userAgent'),
+          smoothScrolling: localStorage.getItem('smoothScrolling'),
+          reducedAnimations: localStorage.getItem('reducedAnimations'),
+          pageZoom: localStorage.getItem('pageZoom')
+        };
+        
+        console.log('Creating new tab with settings:', settings);
+        window.electronAPI.viewCreate(newTabId, settings);
+        
+        // Apply other settings after view creation
+        setTimeout(async () => {
+          if (window.electronAPI.applyBrowserSettings) {
+            console.log('Applying additional settings to new tab:', settings);
+            await window.electronAPI.applyBrowserSettings(newTabId, settings);
+          }
+        }, 100);
+        
         if (url !== 'newtab') {
           window.electronAPI.viewNavigate({ id: newTabId, url });
         }
@@ -886,9 +1003,20 @@ window.addEventListener('DOMContentLoaded', () => {
       tabs = [{ id: newTabId, url: url, history: [url], historyIndex: 0 }];
       currentTabId = newTabId;
       
+      // Get browser settings for new window
+      const settings = {
+        javascriptEnabled: localStorage.getItem('javascriptEnabled'),
+        imagesEnabled: localStorage.getItem('imagesEnabled'),
+        popupBlockerEnabled: localStorage.getItem('popupBlockerEnabled'),
+        userAgent: localStorage.getItem('userAgent'),
+        smoothScrolling: localStorage.getItem('smoothScrolling'),
+        reducedAnimations: localStorage.getItem('reducedAnimations'),
+        pageZoom: localStorage.getItem('pageZoom')
+      };
+      
       // Persist the new state and update the UI
       persistTabs();
-      window.electronAPI.viewCreate(newTabId);
+      window.electronAPI.viewCreate(newTabId, settings);
       window.electronAPI.viewNavigate({ id: newTabId, url });
       updateView();
       renderTabs();

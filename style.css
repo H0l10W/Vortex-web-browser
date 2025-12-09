@@ -4,6 +4,8 @@
   --accent-color-dark: #6b6b6b;  /* Neutral Gray */
   --newtab-gradient-light: radial-gradient(circle, #d4e4ff 0%, #a1c4fd 100%);
   --newtab-gradient-dark: radial-gradient(circle, #2d2d2d 0%, #404040 100%);
+  --animation-speed: 0.3s; /* Default animation duration */
+  --transition-speed: 0.3s; /* Default transition duration */
 }
 
 /* --- Custom Title Bar --- */
@@ -206,7 +208,7 @@ iframe {
   z-index: 1;
   border: none; /* Remove borders for cleaner look */
   -webkit-app-region: no-drag; /* Make tabs clickable, not draggable */
-  transition: all 0.2s ease;
+  transition: all var(--transition-speed) ease;
   box-shadow: 0 1px 3px rgba(0,0,0,0.1); /* Add subtle shadow */
 }
 
@@ -2289,4 +2291,88 @@ body.theme-dark-nord .adblock-toggle input:checked + .adblock-slider,
 body.theme-dark-forest .adblock-toggle input:checked + .adblock-slider,
 body.theme-dark-rose .adblock-toggle input:checked + .adblock-slider {
   background-color: var(--accent-color-dark);
+}
+
+/* Toggle Switch Styles for Sidebar */
+.toggle-switch {
+  position: relative;
+  display: inline-block;
+  width: 44px;
+  height: 24px;
+  margin: 0;
+}
+
+.toggle-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.toggle-switch .slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: #ccc;
+  transition: .4s;
+  border-radius: 24px;
+}
+
+.toggle-switch .slider:before {
+  position: absolute;
+  content: "";
+  height: 18px;
+  width: 18px;
+  left: 3px;
+  bottom: 3px;
+  background-color: white;
+  transition: .4s;
+  border-radius: 50%;
+}
+
+.toggle-switch input:checked + .slider {
+  background-color: var(--accent-color-light);
+}
+
+.toggle-switch input:checked + .slider:before {
+  transform: translateX(20px);
+}
+
+.toggle-setting {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.toggle-label {
+  font-size: 14px;
+  color: var(--text-color);
+}
+
+/* Dark theme overrides for sidebar toggles */
+body.theme-dark .toggle-switch .slider,
+body.theme-dark-purple .toggle-switch .slider,
+body.theme-dark-nord .toggle-switch .slider,
+body.theme-dark-forest .toggle-switch .slider,
+body.theme-dark-rose .toggle-switch .slider {
+  background-color: #5f6368;
+}
+
+body.theme-dark .toggle-switch input:checked + .slider,
+body.theme-dark-purple .toggle-switch input:checked + .slider,
+body.theme-dark-nord .toggle-switch input:checked + .slider,
+body.theme-dark-forest .toggle-switch input:checked + .slider,
+body.theme-dark-rose .toggle-switch input:checked + .slider {
+  background-color: var(--accent-color-dark);
+}
+
+body.theme-dark .toggle-label,
+body.theme-dark-purple .toggle-label,
+body.theme-dark-nord .toggle-label,
+body.theme-dark-forest .toggle-label,
+body.theme-dark-rose .toggle-label {
+  color: #e8eaed;
 }
