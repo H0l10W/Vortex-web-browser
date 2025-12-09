@@ -378,6 +378,9 @@ window.addEventListener('DOMContentLoaded', () => {
   if (clearHistoryBtn) {
     clearHistoryBtn.addEventListener('click', () => {
       if (confirm('Are you sure you want to clear all browsing history?')) {
+        // Clear persistent browser history used by the main window
+        storage.setItem('browserHistory', '[]');
+        // Also remove any legacy 'history' key
         localStorage.removeItem('history');
         alert('Browsing history cleared successfully.');
       }
@@ -429,6 +432,8 @@ window.addEventListener('DOMContentLoaded', () => {
         if (window.electronAPI && typeof window.electronAPI.clearAllCookies === 'function') {
           window.electronAPI.clearAllCookies();
         }
+        // Clear persistent browser history as well
+        storage.setItem('browserHistory', '[]');
         
         alert('All browsing data cleared successfully.');
       }

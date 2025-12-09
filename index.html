@@ -27,12 +27,13 @@
       <button id="back" class="icon-btn"><img src="icons/back.png" alt="Back"></button>
       <button id="forward" class="icon-btn"><img src="icons/forward.png" alt="Forward"></button>
       <button id="reload" class="icon-btn"><img src="icons/reload.png" alt="Reload"></button>
+      <button id="set-home" class="icon-btn"><img src="icons/home.png" alt="Set Home"></button>
     </div>
     <input id="url" type="text" placeholder="Enter URL and press Enter" />
     <div class="button-group-right">
       <button id="bookmark-add" class="icon-btn"><img src="icons/bookmark.png" alt="Bookmark"></button>
       <button id="incognito-btn" class="icon-btn"><img src="icons/incognito.png" alt="Add Quick Link"></button>
-      <button id="set-home" class="icon-btn"><img src="icons/home.png" alt="Set Home"></button>
+      <button id="history-btn" class="icon-btn"><img src="icons/history.png" alt="History"></button>
       <button id="settings" class="icon-btn"><img src="icons/settings.png" alt="Settings"></button>
     </div>
   </div>
@@ -129,6 +130,12 @@
         <h3>🗂️ Quick Tools</h3>
         <button id="show-downloads-btn" class="settings-button">Downloads</button>
         <button id="clear-data-btn" class="settings-button danger-btn">Clear Data</button>
+      </div>
+
+      <div class="settings-section" id="history-section">
+        <h3>🕑 Browsing History</h3>
+        <div id="settings-history-list" style="max-height:200px;overflow-y:auto;margin-bottom:10px;"></div>
+        <button id="clear-history-btn" class="settings-button danger-btn" style="margin-top:8px;">Clear Browsing History</button>
       </div>
 
       <div class="settings-section">

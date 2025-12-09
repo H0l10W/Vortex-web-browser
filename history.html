@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Browsing History</title>
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' https://wttr.in https://nominatim.openstreetmap.org https://api.open-meteo.com https://api.rss2json.com https://feeds.reuters.com https://newsapi.org https://openweathermap.org https://api.openweathermap.org; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data: https:; object-src 'none'; base-uri 'self'; form-action 'self' https:; frame-ancestors 'none'; upgrade-insecure-requests;">
+  <link rel="stylesheet" href="style.css">
+  <style>
+    body { margin: 0; padding: 0; }
+    .history-container {
+      max-width: 600px;
+      margin: 40px auto;
+      background: var(--settings-bg, #fff);
+      border-radius: 12px;
+      box-shadow: 0 8px 32px #000a;
+      padding: 32px 24px 24px 24px;
+    }
+    .history-header {
+      font-size: 2em;
+      margin-bottom: 24px;
+      color: var(--settings-header-color, #202124);
+      text-align: center;
+    }
+    .history-list {
+      max-height: 60vh;
+      overflow-y: auto;
+    }
+    .history-item {
+      display: flex;
+      align-items: center;
+      padding: 12px 0;
+      border-bottom: 1px solid #3333;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .history-item:hover {
+      background: rgba(0,0,0,0.07);
+    }
+    .history-favicon {
+      width: 20px;
+      height: 20px;
+      margin-right: 16px;
+      border-radius: 4px;
+      background: #eee;
+      flex-shrink: 0;
+    }
+    .history-title {
+      font-size: 1.1em;
+      color: var(--settings-header-color, #202124);
+      font-weight: 500;
+    }
+    .no-history {
+      color: #aaa;
+      text-align: center;
+      margin: 32px 0;
+    }
+  </style>
+</head>
+<body>
+  <div class="history-container">
+    <div class="history-header">Browsing History <button id="refresh-history-btn" style="float:right; padding:6px 10px;border-radius:6px;border:none;background:var(--accent-color-light);color:#fff;cursor:pointer;">Refresh</button></div>
+    <div id="history-list" class="history-list"></div>
+  </div>
+  <script src="history.js"></script>
+</body>
+</html>

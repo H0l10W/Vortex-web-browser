@@ -23,6 +23,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   toggleDevTools: () => ipcRenderer.send('toggle-devtools'),
   broadcastWidgetSettings: (widget, enabled) => ipcRenderer.send('broadcast-widget-settings', { widget, enabled }),
   setBookmarkBarVisibility: (visible) => ipcRenderer.send('set-bookmark-bar-visibility', visible),
+  broadcastHistoryUpdated: () => ipcRenderer.send('history-updated'),
   closeApp: () => ipcRenderer.send('close-app'),
 
   // Cookie management APIs

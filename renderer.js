@@ -1,3 +1,48 @@
+  const __debounceSetTimers = new Map();
+  function debouncedSetItem(key, value, delay = 500) {
+    // Cancel existing timer
+    if (__debounceSetTimers.has(key)) clearTimeout(__debounceSetTimers.get(key));
+    const timer = setTimeout(() => {
+      storage.setItem(key, value);
+      __debounceSetTimers.delete(key);
+    }, delay);
+    __debounceSetTimers.set(key, timer);
+  }
+
+  // --- Performance logging helpers ---
+  const perfMarks = new Set();
+  function perfStart(name) {
+    try {
+      performance.mark(name + '-start');
+      perfMarks.add(name);
+    } catch (e) {}
+  }
+  function perfEnd(name) {
+    try {
+      if (!perfMarks.has(name)) return;
+      performance.mark(name + '-end');
+      performance.measure(name, name + '-start', name + '-end');
+      const m = performance.getEntriesByName(name).pop();
+      if (m) {
+        console.debug(`PERF: ${name}: ${m.duration.toFixed(1)}ms`);
+        // Record for later analysis
+        if (!window.__perfMeasures) window.__perfMeasures = [];
+        window.__perfMeasures.push({ name, duration: m.duration, ts: Date.now() });
+        // Persist a short rolling log
+        if (window.__perfMeasures.length > 500) window.__perfMeasures.shift();
+        // Debounced save
+        debouncedSetItem('perfMeasures', JSON.stringify(window.__perfMeasures));
+      }
+      perfMarks.delete(name);
+    } catch(e) {}
+  }
+
+  // Expose a small performance logger on window for debugging
+  window.__perfLog = {
+    start: perfStart,
+    end: perfEnd,
+    get: () => performance.getEntriesByType('measure')
+  };
 // Persistent storage helper to replace localStorage (global scope)
 const storage = {
   async getItem(key) {
@@ -27,6 +72,111 @@ const storage = {
 };
 
 window.addEventListener('DOMContentLoaded', () => {
+    // --- Settings Panel History Logic ---
+    const settingsHistoryList = document.getElementById('settings-history-list');
+    const clearHistoryBtn = document.getElementById('clear-history-btn');
+    if (settingsHistoryList && clearHistoryBtn) {
+      async function renderSettingsHistory() {
+        perfStart('renderSettingsHistory');
+        let history = JSON.parse(await storage.getItem('browserHistory') || '[]');
+        // Merge with in-memory buffer if present so we can render immediately
+        if (window.__unsavedHistory && Array.isArray(window.__unsavedHistory)) {
+          try {
+            // Make a copy to avoid modifying original buffer
+            const merged = [...history, ...window.__unsavedHistory];
+            // Remove duplicates by URL keeping the latest entry
+            const byUrl = new Map();
+            for (const entry of merged) {
+              if (!entry || !entry.url) continue;
+              byUrl.set(entry.url, entry);
+            }
+            history = Array.from(byUrl.values());
+          } catch (e) {
+            console.debug('Failed to merge in-memory history into settings view', e);
+          }
+        }
+        history = history.filter(e => {
+          if (!e || !e.url) return false;
+          const u = e.url;
+          if (u === 'newtab') return false;
+          if (u.includes('settings.html')) return false;
+          if (u.includes('history.html')) return false;
+          return true;
+        });
+        settingsHistoryList.innerHTML = '';
+        if (!history.length) {
+              settingsHistoryList.innerHTML = '<div style="color:#aaa;text-align:center;">No browsing history yet.</div>';
+            } else {
+              const frag = document.createDocumentFragment();
+              // Render in chunks to avoid creating too many DOM nodes at once
+              const pageSize = 30;
+              const entries = history.slice().reverse();
+              let settingsOffset = 0;
+              function appendSettingsHistory() {
+                if (settingsOffset >= entries.length) return;
+                const frag2 = document.createDocumentFragment();
+                const next = entries.slice(settingsOffset, settingsOffset + pageSize);
+                next.forEach(entry => {
+                  const item = document.createElement('div');
+                  item.style.display = 'flex';
+                  item.style.alignItems = 'center';
+                  item.style.padding = '8px 0';
+                  item.style.borderBottom = '1px solid rgba(0,0,0,0.08)';
+                  item.style.cursor = 'pointer';
+                  const fav = document.createElement('img');
+                  const host = getHostFromUrl(entry.url);
+                  if (host) fav.dataset.faviconHost = host;
+                  fav.src = getFavicon(entry.url);
+                  fav.style.width = '18px';
+                  fav.style.height = '18px';
+                  fav.style.marginRight = '12px';
+                  fav.onerror = function() { this.src = 'icons/newtab.png'; };
+                  const title = document.createElement('div');
+                  title.textContent = (entry.host && entry.host.length) ? (entry.host.charAt(0).toUpperCase() + entry.host.slice(1)) : getSiteName(entry.url);
+                  title.style.fontSize = '1em';
+                  title.style.color = 'var(--settings-header-color, #202124)';
+                  title.style.flex = '1';
+                  item.appendChild(fav);
+                  item.appendChild(title);
+                  item.onclick = () => {
+                    closeSettingsPanel();
+                    document.getElementById('url').value = entry.url;
+                    document.getElementById('url').dispatchEvent(new KeyboardEvent('keydown', {key:'Enter',bubbles:true}));
+                  };
+                  frag2.appendChild(item);
+                });
+                settingsHistoryList.appendChild(frag2);
+                settingsOffset += pageSize;
+              }
+              appendSettingsHistory();
+              // load more when scrolled near bottom
+              if (!settingsHistoryList._virtualizationListenerAdded) {
+                settingsHistoryList.addEventListener('scroll', () => {
+                if (settingsHistoryList.scrollTop + settingsHistoryList.clientHeight > settingsHistoryList.scrollHeight - 200) {
+                  appendSettingsHistory();
+                }
+              });
+                settingsHistoryList._virtualizationListenerAdded = true;
+              }
+              settingsHistoryList.appendChild(frag);
+              perfEnd('renderSettingsHistory');
+            }
+      }
+      // Render on open
+      const origOpenSettingsPanel = openSettingsPanel;
+      openSettingsPanel = function() {
+        renderSettingsHistory();
+        origOpenSettingsPanel();
+      };
+      // Clear history
+      clearHistoryBtn.onclick = async () => {
+        if (confirm('Are you sure you want to clear all browsing history?')) {
+          await storage.setItem('browserHistory', '[]');
+          renderSettingsHistory();
+          alert('Browsing history cleared successfully.');
+        }
+      };
+    }
   // Apply theme immediately to prevent flash
   storage.getItem('theme').then(savedTheme => {
     const themeToApply = savedTheme || 'theme-light';
@@ -231,6 +381,12 @@ window.addEventListener('DOMContentLoaded', () => {
   
   // --- DOM Elements ---
   const urlInput = document.getElementById('url');
+  // Ensure url input is focusable for keyboard navigation
+  try {
+    if (urlInput && typeof urlInput.setAttribute === 'function') {
+      urlInput.setAttribute('tabindex', '0');
+    }
+  } catch (e) {}
   const backBtn = document.getElementById('back');
   const forwardBtn = document.getElementById('forward');
   const bookmarkAddBtn = document.getElementById('bookmark-add');
@@ -242,6 +398,8 @@ window.addEventListener('DOMContentLoaded', () => {
   const reloadBtn = document.getElementById('reload');
   const settingsBtn = document.getElementById('settings');
   const controlsDiv = document.getElementById('controls'); // Add controls div reference
+  // Ensure clicking anywhere on the controls focuses the URL input (helps recover focus if an overlay briefly steals it)
+  try { if (controlsDiv && urlInput) controlsDiv.addEventListener('click', () => { try { urlInput.focus(); } catch (e) {} }); } catch (e) {}
 
   // --- App Version Display ---
   const appVersionSpan = document.getElementById('app-version');
@@ -270,15 +428,87 @@ window.addEventListener('DOMContentLoaded', () => {
   }
 
   // --- Utility ---
+  // Lightweight favicon URL/base64 caching to avoid repeated generation, network calls and reflows
+  const __faviconCache = new Map(); // host -> dataURL or remote URL
+  const __faviconBase64Cache = new Map(); // host -> dataURL
+  const __faviconFetchQueue = new Set();
+  function getHostFromUrl(url) {
+    try {
+      const u = new URL(url);
+      return u.hostname.replace(/^www\./, '');
+    } catch (e) {
+      return null;
+    }
+  }
+
+  async function fetchAndCacheFavicon(host) {
+    try {
+      if (!host || __faviconFetchQueue.has(host)) return;
+      __faviconFetchQueue.add(host);
+      // Check storage cache first
+      const storageKey = `favicons:${host}`;
+      const existing = await storage.getItem(storageKey);
+      if (existing) {
+        __faviconBase64Cache.set(host, existing);
+        __faviconFetchQueue.delete(host);
+        return existing;
+      }
+      const remoteUrl = `https://icons.duckduckgo.com/ip3/${host}.ico`;
+      const response = await fetch(remoteUrl);
+      if (!response.ok) throw new Error('Failed to fetch favicon');
+      const blob = await response.blob();
+      // Convert to base64
+      const dataUrl = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result);
+        reader.onerror = (e) => reject(e);
+        reader.readAsDataURL(blob);
+      });
+      __faviconBase64Cache.set(host, dataUrl);
+      debouncedSetItem(storageKey, dataUrl, 1000); // persist asynchronously
+      __faviconFetchQueue.delete(host);
+      // Update any existing images with data-favicon-host attribute
+      try {
+        document.querySelectorAll(`img[data-favicon-host="${host}"]`).forEach(img => {
+          if (img && img.src && !img.src.startsWith('data:')) img.src = dataUrl;
+        });
+      } catch(e) {}
+      return dataUrl;
+    } catch (err) {
+      __faviconFetchQueue.delete(host);
+      return null;
+    }
+  }
+
   function getFavicon(url) {
     try {
-      if (url === 'newtab') {
-        return 'icons/newtab.png';
-      }
-      const u = new URL(url);
-      return `https://icons.duckduckgo.com/ip3/${u.hostname}.ico`;
+      if (!url) return 'icons/newtab.png';
+      if (url === 'newtab') return 'icons/newtab.png';
+      const host = getHostFromUrl(url);
+      if (!host) return 'icons/newtab.png';
+      // Return base64 dataURL if cached in memory
+      if (__faviconBase64Cache.has(host)) return __faviconBase64Cache.get(host);
+      // If we have a URL cached already, return that while fetching base64
+      if (__faviconCache.has(host)) return __faviconCache.get(host);
+      const remoteUrl = `https://icons.duckduckgo.com/ip3/${host}.ico`;
+      __faviconCache.set(host, remoteUrl);
+      // Trigger background fetch & caching without awaiting
+      fetchAndCacheFavicon(host).catch(() => {});
+      return remoteUrl;
     } catch {
       return 'icons/newtab.png';
+    }
+  }
+
+  // Helper: get a simplified site name from a URL (e.g., 'youtube.com' -> 'YouTube')
+  function getSiteName(url) {
+    try {
+      const u = new URL(url);
+      let host = u.hostname.replace(/^www\./, '');
+      // Capitalize first letter
+      return host.charAt(0).toUpperCase() + host.slice(1);
+    } catch {
+      return url;
     }
   }
 
@@ -392,7 +622,9 @@ window.addEventListener('DOMContentLoaded', () => {
 
   // --- Tabs ---
   function renderTabs() {
+    perfStart('renderTabs');
     tabsDiv.innerHTML = '';
+    const frag = document.createDocumentFragment();
     tabs.forEach((tab) => {
       const tabEl = document.createElement('div');
       let tabClass = 'tab' + (tab.id === currentTabId ? ' active' : '');
@@ -404,6 +636,8 @@ window.addEventListener('DOMContentLoaded', () => {
       // Only show favicon and title if tab previews are enabled
       if (tabPreviewsEnabled) {
         const favicon = document.createElement('img');
+        const host = getHostFromUrl(tab.url);
+        favicon.dataset.faviconHost = host;
         favicon.src = getFavicon(tab.url);
         favicon.style.width = '16px';
         favicon.style.height = '16px';
@@ -449,13 +683,15 @@ window.addEventListener('DOMContentLoaded', () => {
       }
 
       tabEl.onclick = () => switchTab(tab.id);
-      tabsDiv.appendChild(tabEl);
+      frag.appendChild(tabEl);
     });
     const newTabBtn = document.createElement('button');
     newTabBtn.id = 'new-tab-btn';
     newTabBtn.textContent = '+';
     newTabBtn.onclick = () => newTab();
-    tabsDiv.appendChild(newTabBtn);
+    frag.appendChild(newTabBtn);
+    tabsDiv.appendChild(frag);
+    perfEnd('renderTabs');
   }
 
   function switchTab(id) {
@@ -579,9 +815,15 @@ window.addEventListener('DOMContentLoaded', () => {
     renderTabs();
   }
 
+  // Persist tabs throttled to avoid many writes during rapid changes
+  let _persistTabsTimeout = null;
   function persistTabs() {
-    storage.setItem('tabs', JSON.stringify(tabs));
-    storage.setItem('currentTabId', currentTabId);
+    if (_persistTabsTimeout) clearTimeout(_persistTabsTimeout);
+    _persistTabsTimeout = setTimeout(() => {
+      storage.setItem('tabs', JSON.stringify(tabs));
+      storage.setItem('currentTabId', currentTabId);
+      _persistTabsTimeout = null;
+    }, 500);
   }
 
   // --- Navigation ---
@@ -643,6 +885,13 @@ window.addEventListener('DOMContentLoaded', () => {
   urlInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') navigate(urlInput.value);
   });
+
+  // Debug focus and click events to detect any blocking overlays or lost focus issues
+  try {
+    urlInput.addEventListener('focus', () => { console.debug('URL input focused'); });
+    urlInput.addEventListener('click', () => { console.debug('URL input clicked'); });
+    urlInput.addEventListener('input', () => { /* no-op, keeps input interactive; used for debugging */ });
+  } catch (e) { /* ignore errors if element not present */ }
 
   // --- Back/Forward Button Logic ---
   backBtn.onclick = () => {
@@ -743,6 +992,11 @@ window.addEventListener('DOMContentLoaded', () => {
   // Overlay click handler - close settings when clicking outside
   if (overlay) {
     overlay.addEventListener('click', closeSettingsPanel);
+    // Ensure overlay is not blocking interaction by default
+    try {
+      overlay.classList.remove('active');
+      overlay.style.visibility = overlay.style.visibility || 'hidden';
+    } catch (e) { /* ignore */ }
   }
   
   // Open the settings panel
@@ -798,14 +1052,13 @@ window.addEventListener('DOMContentLoaded', () => {
     // First, make the panel visible but keep it off-screen
     // This ensures it's in the DOM and rendered
     settingsPanel.style.visibility = 'visible';
-    overlay.style.visibility = 'visible';
+    overlay.classList.add('active');
     
     // Force a reflow to ensure styles are applied
     void settingsPanel.offsetWidth;
     
     // Now add the active class to trigger the animation
     settingsPanel.classList.add('active');
-    overlay.classList.add('active');
     
     // Prevent scrolling of the main content while settings are open
     document.body.style.overflow = 'hidden';
@@ -814,6 +1067,8 @@ window.addEventListener('DOMContentLoaded', () => {
     // This sometimes helps with z-index stacking contexts
     document.body.appendChild(overlay);
     document.body.appendChild(settingsPanel);
+    // Blur the URL input so keyboard input doesn't keep going to the url bar
+    try { urlInput && urlInput.blur(); } catch (e) {}
   }
   
   // Close the settings panel
@@ -836,6 +1091,7 @@ window.addEventListener('DOMContentLoaded', () => {
       if (tab && tab.url !== 'newtab') {
         window.electronAPI.viewShow(tab.id);
       }
+      try { urlInput && urlInput.focus(); } catch (e) {}
     }, 300);
   }
   
@@ -854,6 +1110,7 @@ window.addEventListener('DOMContentLoaded', () => {
 
   // --- Bookmarks Bar ---
   function renderBookmarkBar() {
+    perfStart('renderBookmarkBar');
     // Exit early if bookmark bar doesn't exist (e.g., on settings page)
     if (!bookmarkBar) return;
     
@@ -879,6 +1136,7 @@ window.addEventListener('DOMContentLoaded', () => {
       window.electronAPI.setBookmarkBarVisibility(actuallyVisible);
     }
     
+    const frag = document.createDocumentFragment();
     bookmarks.forEach((b, index) => {
       const btn = document.createElement('button');
       btn.className = 'bookmark-btn';
@@ -903,6 +1161,8 @@ window.addEventListener('DOMContentLoaded', () => {
       };
 
       const favicon = document.createElement('img');
+      const host = getHostFromUrl(b.url || b);
+      favicon.dataset.faviconHost = host;
       favicon.src = getFavicon(b.url || b);
       favicon.onerror = function() { this.src = 'icons/newtab.png'; };
       btn.appendChild(favicon);
@@ -917,15 +1177,17 @@ window.addEventListener('DOMContentLoaded', () => {
       };
       btn.appendChild(deleteBtn);
 
-      bookmarkBar.appendChild(btn);
+      frag.appendChild(btn);
     });
+    bookmarkBar.appendChild(frag);
+    perfEnd('renderBookmarkBar');
   }
 
-  function deleteBookmark(index) {
+    function deleteBookmark(index) {
       bookmarks.splice(index, 1);
-      storage.setItem('bookmarks', JSON.stringify(bookmarks));
+      debouncedSetItem('bookmarks', JSON.stringify(bookmarks));
       renderBookmarkBar();
-  }
+    }
 
   bookmarkAddBtn.onclick = () => {
     const tab = tabs.find(t => t.id === currentTabId);
@@ -941,7 +1203,7 @@ window.addEventListener('DOMContentLoaded', () => {
         }
       }
       bookmarks.push({ url: tab.url, label: label });
-      storage.setItem('bookmarks', JSON.stringify(bookmarks));
+      debouncedSetItem('bookmarks', JSON.stringify(bookmarks));
       renderBookmarkBar();
     }
   };
@@ -971,7 +1233,9 @@ window.addEventListener('DOMContentLoaded', () => {
   };
 
   // --- BrowserView Events ---
-  window.electronAPI.onViewNavigated(({ id, url }) => {
+
+  window.electronAPI.onViewNavigated(async ({ id, url }) => {
+    perfStart('onViewNavigated');
     const tab = tabs.find(t => t.id === id);
     if (!tab) return;
 
@@ -985,6 +1249,77 @@ window.addEventListener('DOMContentLoaded', () => {
     }
     persistTabs();
     renderTabs(); // Update tab title/favicon
+
+    // --- Browser-wide History Saving (exclude internal pages) ---
+    function isSkippableUrl(u) {
+      if (!u) return true;
+      // Normalize
+      try {
+        const parsed = new URL(u);
+        const pathname = parsed.pathname || '';
+        const hostname = parsed.hostname || '';
+        if (pathname.endsWith('/settings.html') || pathname.endsWith('/history.html')) return true;
+        if (u.includes('settings.html') || u.includes('history.html')) return true;
+      } catch (e) {
+        // If not a valid URL, check simple strings
+        if (u === 'newtab' || u === 'settings.html' || u === 'history.html') return true;
+      }
+      // Legacy 'newtab' page string
+      if (u === 'newtab') return true;
+      return false;
+    }
+
+    if (isSkippableUrl(url)) return; // Do not store settings/history/newtab entries
+
+    // Use a batched write approach to reduce storage writes for history
+    if (!window.__unsavedHistory) window.__unsavedHistory = JSON.parse(await storage.getItem('browserHistory') || '[]');
+    const unsaved = window.__unsavedHistory;
+    // Avoid duplicate consecutive entries
+    // Avoid duplicates and skip saving if last stored is same
+    if (!unsaved.length || unsaved[unsaved.length-1].url !== url) {
+      // Derive host (site) for easier display
+      let host = url;
+      try { host = new URL(url).hostname.replace(/^www\./, ''); } catch (e) { /* leave as-is */ }
+      console.debug('Pushing url to in-memory history buffer:', url);
+      unsaved.push({
+        url,
+        title: tab.title || url,
+        host,
+        timestamp: Date.now()
+      });
+      // Immediately refresh the settings-panel view if it's visible
+      if (document.getElementById('settings-panel') && document.getElementById('settings-panel').classList.contains('active')) {
+        try { renderSettingsHistory(); } catch (e) { /* ignore */ }
+      }
+      // Limit history to 500 entries in the in-memory buffer
+      if (unsaved.length > 500) unsaved.splice(0, unsaved.length-500);
+      console.debug('Buffered history entries now:', unsaved.length);
+      // Schedule write to storage to batch frequent navigations
+      if (window.__historyFlushTimeout) clearTimeout(window.__historyFlushTimeout);
+      window.__historyFlushTimeout = setTimeout(async () => {
+        try {
+          const ok = await storage.setItem('browserHistory', JSON.stringify(window.__unsavedHistory || []));
+          window.__historyFlushTimeout = null;
+          if (!ok) {
+            console.warn('storage.setItem returned falsy for browserHistory, falling back to localStorage');
+            try { localStorage.setItem('browserHistory', JSON.stringify(window.__unsavedHistory || [])); } catch (e) { /* ignore */ }
+          }
+          console.debug('Flushed browserHistory to persistent storage, entries:', (window.__unsavedHistory || []).length);
+          // If settings sidebar is showing, update it so users see history immediately
+          if (typeof renderSettingsHistory === 'function') {
+            try { renderSettingsHistory(); } catch (e) { /* ignore */ }
+          }
+          // Notify other windows that history was updated (so history.html can refresh)
+          try { window.electronAPI.broadcastHistoryUpdated(); } catch (e) { /* ignore */ }
+        } catch (err) {
+          console.error('Failed to write browserHistory', err);
+          // Fallback to localStorage so we don't lose entries silently
+          try { localStorage.setItem('browserHistory', JSON.stringify(window.__unsavedHistory || [])); } catch (e) { console.error('localStorage fallback failed', e); }
+          window.__historyFlushTimeout = null;
+        }
+      }, 1000);
+        perfEnd('onViewNavigated');
+    }
   });
 
   // Listen for the main process to request a new tab
@@ -1024,6 +1359,7 @@ window.addEventListener('DOMContentLoaded', () => {
 
   // --- Quick Links ---
   function renderQuickLinks() {
+    perfStart('renderQuickLinks');
     quickLinksDiv.innerHTML = '';
     quickLinks.forEach((q, i) => {
       const ql = document.createElement('div');
@@ -1035,12 +1371,14 @@ window.addEventListener('DOMContentLoaded', () => {
       closeBtn.onclick = (e) => {
         e.stopPropagation();
         quickLinks.splice(i, 1);
-        localStorage.setItem('quickLinks', JSON.stringify(quickLinks));
+        debouncedSetItem('quickLinks', JSON.stringify(quickLinks));
         renderQuickLinks();
       };
       ql.appendChild(closeBtn);
 
       const favicon = document.createElement('img');
+      const host = getHostFromUrl(q.url);
+      favicon.dataset.faviconHost = host;
       favicon.src = getFavicon(q.url);
       favicon.onerror = function() { this.src = 'icons/newtab.png'; };
       ql.appendChild(favicon);
@@ -1064,6 +1402,7 @@ window.addEventListener('DOMContentLoaded', () => {
       };
     }
     quickLinksDiv.appendChild(addBtn);
+    perfEnd('renderQuickLinks');
   }
 
   // Modal Logic - only if the elements exist
@@ -1101,7 +1440,7 @@ window.addEventListener('DOMContentLoaded', () => {
 
       if (!quickLinks.some(q => q.url === url)) {
         quickLinks.push({ url, label });
-        localStorage.setItem('quickLinks', JSON.stringify(quickLinks));
+        debouncedSetItem('quickLinks', JSON.stringify(quickLinks));
         renderQuickLinks();
         newQuickLinkUrlInput.value = '';
         newQuickLinkLabelInput.value = '';
@@ -1246,8 +1585,9 @@ window.addEventListener('DOMContentLoaded', () => {
   // Clear browsing data
   const clearDataBtn = document.getElementById('clear-data-btn');
   if (clearDataBtn) {
-    clearDataBtn.onclick = () => {
+    clearDataBtn.onclick = async () => {
       localStorage.clear();
+      await storage.setItem('browserHistory', '[]');
       location.reload();
     };
   }
@@ -1362,14 +1702,14 @@ window.addEventListener('DOMContentLoaded', () => {
       state: 'downloading',
       startTime: Date.now()
     });
-    localStorage.setItem('downloads', JSON.stringify(downloads));
+    debouncedSetItem('downloads', JSON.stringify(downloads));
   });
 
   window.electronAPI.onDownloadProgress && window.electronAPI.onDownloadProgress((data) => {
     const download = downloads.find(d => d.name === data.name);
     if (download) {
       download.progress = data.progress;
-      localStorage.setItem('downloads', JSON.stringify(downloads));
+      debouncedSetItem('downloads', JSON.stringify(downloads));
     }
   });
 
@@ -1378,7 +1718,7 @@ window.addEventListener('DOMContentLoaded', () => {
     if (download) {
       download.state = data.state;
       download.savePath = data.savePath;
-      localStorage.setItem('downloads', JSON.stringify(downloads));
+      debouncedSetItem('downloads', JSON.stringify(downloads));
     }
   });
 
@@ -1490,6 +1830,14 @@ window.addEventListener('DOMContentLoaded', () => {
   window.addEventListener('beforeunload', () => {
     localStorage.setItem('lastSessionTabs', JSON.stringify(tabs));
     localStorage.setItem('lastCurrentTabId', currentTabId.toString());
+    // Flush any unsaved history to storage before exit
+    if (window.__historyFlushTimeout) {
+      clearTimeout(window.__historyFlushTimeout);
+      window.__historyFlushTimeout = null;
+    }
+    if (window.__unsavedHistory) {
+      try { storage.setItem('browserHistory', JSON.stringify(window.__unsavedHistory)); } catch (err) { /* ignore */ }
+    }
   });
 
   // Enhanced Keyboard Shortcuts (prevent duplicate listeners)
@@ -1845,7 +2193,7 @@ class WeatherWidget {
       
       // Add timeout to prevent hanging
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 2000); // 2 second timeout for wttr.in
+      const timeoutId = setTimeout(() => controller.abort(),  2000); // 2 second timeout for wttr.in
       
       const response = await fetch(url, {
         signal: controller.signal,
@@ -2621,8 +2969,32 @@ function handleWidgetSettingsChange(data) {
   }
 }
 
-
-
-// Also add to global scope for debugging
-window.globalNewsWidget = globalNewsWidget;
-window.globalWeatherWidget = globalWeatherWidget;
+// --- History Button Opens History Page (local file) ---
+const historyBtn = document.getElementById('history-btn');
+  if (historyBtn) {
+  historyBtn.addEventListener('click', async function(e) {
+    e.preventDefault();
+    // Ensure buffered history is flushed to persistent storage before opening history page
+    try {
+      if (window.__unsavedHistory) {
+        const ok = await storage.setItem('browserHistory', JSON.stringify(window.__unsavedHistory));
+        if (!ok) {
+          try { localStorage.setItem('browserHistory', JSON.stringify(window.__unsavedHistory)); } catch(e){}
+        }
+        console.debug('Flushed history before opening history page, entries:', (window.__unsavedHistory || []).length);
+        try { window.electronAPI.broadcastHistoryUpdated(); } catch (e) { /* ignore */ }
+      }
+    } catch (err) {
+      console.error('Failed to flush history before opening history page', err);
+      try { localStorage.setItem('browserHistory', JSON.stringify(window.__unsavedHistory || [])); } catch(e){}
+    }
+    // Open local history.html using a URL relative to the current page
+    try {
+      const fileUrl = new URL('history.html', window.location.href).href;
+      newTab(fileUrl);
+    } catch (err) {
+      // Fallback to history.html relative path
+      newTab('history.html');
+    }
+  });
+}

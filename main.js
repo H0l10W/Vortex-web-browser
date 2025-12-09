@@ -845,9 +845,18 @@ ipcMain.on('set-bookmark-bar-visibility', (event, visible) => {
 
 ipcMain.on('toggle-devtools', (event) => {
   const win = BrowserWindow.fromWebContents(event.sender);
-  if (win) {
-    win.webContents.toggleDevTools();
+  if (!win) return;
+  const state = windows.get(win.id);
+  // Prefer toggling devtools of the active BrowserView (webpage) if present
+  if (state && state.activeViewId && state.views.has(state.activeViewId)) {
+    const view = state.views.get(state.activeViewId);
+    if (view && view.webContents && !view.webContents.isDestroyed()) {
+      view.webContents.toggleDevTools();
+      return;
+    }
   }
+  // Fallback to toggling the main window devtools (UI)
+  win.webContents.toggleDevTools();
 });
 
 ipcMain.handle('get-app-version', () => {
@@ -895,7 +904,9 @@ ipcMain.handle('storage-get', (event, key) => {
 
 ipcMain.handle('storage-set', (event, key, value) => {
   storageData[key] = value;
-  return saveStorageData(storageData);
+  const ok = saveStorageData(storageData);
+  try { console.debug(`storage-set ${key}: ${ok}`); } catch (e) { /* ignore */ }
+  return ok;
 });
 
 ipcMain.handle('storage-remove', (event, key) => {
@@ -905,6 +916,13 @@ ipcMain.handle('storage-remove', (event, key) => {
 
 ipcMain.handle('storage-get-all-keys', () => {
   return Object.keys(storageData);
+});
+
+// Broadcast history updated event
+ipcMain.on('history-updated', (_event) => {
+  BrowserWindow.getAllWindows().forEach(win => {
+    try { win.webContents.send('history-updated'); } catch (e) {}
+  });
 });
 
 // Choose download folder dialog

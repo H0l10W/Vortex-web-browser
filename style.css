@@ -1762,6 +1762,21 @@ input[type="checkbox"] {
 /* Overlay improvements */
 #overlay {
   background: rgba(0, 0, 0, 0.5) !important;
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  z-index: 2147483646 !important; /* Slightly below settings panel */
+  display: none !important;
+  pointer-events: none !important; /* Do not block pointer events when hidden */
+}
+
+#overlay.active {
+  display: block !important;
+  pointer-events: auto !important; /* Allow pointer events when active */
 }
 
 body.theme-dark #overlay {
