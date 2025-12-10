@@ -1,5 +1,17 @@
 # Vortex Browser - Changelog
 
+## [0.3.4] - 2025-12-10
+
+### 🔧 Bug Fixes & Improvements
+- Fixed history & local page restore: `history.html` and `settings.html` now load reliably after restart (converted to platform-safe file:// URLs and fallback to loadFile on failure).
+- Hidden URL and bookmark bars on internal pages (history/settings) for cleaner UI.
+- Improved auto-updater UX and reliability: progress updates throttle every 10%, retry on download errors, dismissible notifications with short silence window, and moved notifications to bottom-left.
+- Performance & UX: debounce and batch storage writes, incremental history rendering, favicon caching, and reduced UI spam from progress events.
+- Refactored history buffering & persistence into a modular `renderer-modular/history-manager.js` for clarity and better error handling.
+- Minor fixes: syntax error fixes and several small UI/behavior improvements.
+
+---
+
 ## [0.3.2] - 2025-12-09
 
 ### 🔧 Bug Fixes & Improvements
