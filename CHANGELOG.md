@@ -7,6 +7,9 @@
 - Improved history persistence and rendering: recent visits are now flushed reliably, and the history panel/page refreshes automatically or via the new "Refresh" button.
 - Stability improvements and small UX fixes (sidebar behaviour, overlay focus handling).
  - Performance optimizations: debounce and batch storage writes, favicon caching, and incremental rendering to reduce UI latency.
+ - Fixed restore and load issue for local pages after restart (history/settings pages now load correctly on Windows and other platforms).
+ - Moved update notifications to bottom-left, made them dismissible, and added a short silence window to prevent reappearing immediately.
+ - Improved auto-updater reliability: throttled progress updates, added retries on failure, and better error handling & diagnostics.
 
 ---
 

@@ -2,6 +2,7 @@ const { app, BrowserWindow, BrowserView, ipcMain, dialog } = require('electron')
 const { autoUpdater } = require('electron-updater');
 const fs = require('fs');
 const path = require('path');
+const { pathToFileURL, fileURLToPath } = require('url');
 
 // Global update state tracking
 let updateInProgress = false;
@@ -87,7 +88,8 @@ const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 autoUpdater.forceDevUpdateConfig = true;
 
 autoUpdater.checkForUpdatesAndNotify();
-autoUpdater.autoDownload = false; // Don't auto-download, let user choose
+// Auto-download for production for reliability, but keep disabled in development
+autoUpdater.autoDownload = !isDev;
 autoUpdater.autoInstallOnAppQuit = false; // We'll handle installation manually
 autoUpdater.allowDowngrade = false; // Prevent downgrade attacks
 
@@ -123,7 +125,18 @@ autoUpdater.on('update-available', (info) => {
     win.webContents.send('update-available', info);
   });
   // Start download
-  autoUpdater.downloadUpdate();
+  try {
+    updateInProgress = true;
+    _lastUpdaterPercent = 0;
+    _downloadRetries = 0;
+    autoUpdater.downloadUpdate();
+  } catch (err) {
+    console.error('Failed to start auto-update download:', err);
+    // Notify all windows about the error
+    BrowserWindow.getAllWindows().forEach(win => {
+      try { win.webContents.send('update-error', err.message || String(err)); } catch(e){}
+    });
+  }
 });
 
 autoUpdater.on('update-not-available', (info) => {
@@ -150,18 +163,42 @@ autoUpdater.on('error', (err) => {
       win.webContents.send('update-error', err.message);
     });
   }
+  // If this was a download error, attempt a small number of retries
+  if (typeof _downloadRetries === 'undefined') _downloadRetries = 0;
+  if (_downloadRetries < 3) {
+    _downloadRetries++;
+    console.log('Retrying update download in 5s (attempt', _downloadRetries, ')');
+    setTimeout(() => {
+      try {
+        autoUpdater.downloadUpdate();
+      } catch (e) {
+        console.error('Retry downloadUpdate failed:', e);
+      }
+    }, 5000);
+  } else {
+    _downloadRetries = 0;
+  }
 });
 
+let _lastUpdaterPercent = 0;
+let _downloadRetries = 0;
 autoUpdater.on('download-progress', (progressObj) => {
-  console.log('Download progress:', Math.round(progressObj.percent) + '%');
-  // Notify all windows about download progress
-  BrowserWindow.getAllWindows().forEach(win => {
-    win.webContents.send('update-download-progress', progressObj);
-  });
+  const percent = Math.round(progressObj.percent);
+  // Only forward progress updates in 10% increments or when complete, to reduce IPC noise
+  if (percent >= _lastUpdaterPercent + 10 || percent === 100) {
+    _lastUpdaterPercent = percent;
+    console.log('Download progress:', percent + '%');
+    BrowserWindow.getAllWindows().forEach(win => {
+      try { win.webContents.send('update-download-progress', { percent }); } catch (e) { /* ignore */ }
+    });
+  }
 });
 
 autoUpdater.on('update-downloaded', (info) => {
   console.log('Update downloaded:', info.version);
+  _lastUpdaterPercent = 100;
+  updateInProgress = false;
+  _downloadRetries = 0;
   
   try {
     // Notify all windows that update is ready to install
@@ -589,6 +626,29 @@ ipcMain.removeAllListeners('toggle-devtools');
       view.setBounds({ x: 0, y: effectiveHeaderHeight, width: bounds.width, height: bounds.height - effectiveHeaderHeight });
     }, 100);
   });
+
+  // Attempt to recover failed loads, particularly file:// pages restored after restart
+  view.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
+    try {
+      console.warn(`View ${id} failed to load: ${validatedURL} (${errorCode}) ${errorDescription}`);
+      if (validatedURL && validatedURL.startsWith('file://')) {
+        // Try loading using loadFile for local file paths
+        try {
+          const localPath = fileURLToPath(validatedURL);
+          console.log(`Attempting to load local file fallback for view ${id}: ${localPath}`);
+          view.webContents.loadFile(localPath).then(() => {
+            console.log(`Successfully loaded fallback local file for view ${id}`);
+          }).catch(err => {
+            console.error(`Fallback loadFile failed for view ${id}:`, err);
+          });
+        } catch (innerErr) {
+          console.error('Error while converting file URL to path for fallback:', innerErr);
+        }
+      }
+    } catch (err) {
+      console.error('Error in did-fail-load handler:', err);
+    }
+  });
   
   view.webContents.setWindowOpenHandler(({ url }) => {
     win.webContents.send('open-in-new-tab', url);
@@ -696,6 +756,17 @@ ipcMain.on('view:navigate', (event, { id, url }) => {
   if (!win) return;
   const state = windows.get(win.id);
   if (!state || !state.views.has(id)) return;
+
+  // Normalize and convert internal file pages to absolute file:// URLs
+  try {
+      if (!url.startsWith('file://')) {
+      if (url === 'settings.html' || url === '/settings.html' || url.endsWith('/settings.html')) {
+        url = pathToFileURL(path.join(__dirname, 'settings.html')).href;
+      } else if (url === 'history.html' || url === '/history.html' || url.endsWith('/history.html')) {
+        url = pathToFileURL(path.join(__dirname, 'history.html')).href;
+      }
+    }
+  } catch (e) {}
 
   // HTTPS enforcement (except for localhost and special URLs)
   if (url && !url.startsWith('https://') && !url.startsWith('http://localhost') && 

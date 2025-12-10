@@ -1,75 +1,14 @@
-  const __debounceSetTimers = new Map();
-  function debouncedSetItem(key, value, delay = 500) {
-    // Cancel existing timer
-    if (__debounceSetTimers.has(key)) clearTimeout(__debounceSetTimers.get(key));
-    const timer = setTimeout(() => {
-      storage.setItem(key, value);
-      __debounceSetTimers.delete(key);
-    }, delay);
-    __debounceSetTimers.set(key, timer);
-  }
+import { debouncedSetItem, perfStart, perfEnd, createStorage } from './renderer-modular/utils.js';
+import { createHistoryManager } from './renderer-modular/history-manager.js';
 
-  // --- Performance logging helpers ---
-  const perfMarks = new Set();
-  function perfStart(name) {
-    try {
-      performance.mark(name + '-start');
-      perfMarks.add(name);
-    } catch (e) {}
-  }
-  function perfEnd(name) {
-    try {
-      if (!perfMarks.has(name)) return;
-      performance.mark(name + '-end');
-      performance.measure(name, name + '-start', name + '-end');
-      const m = performance.getEntriesByName(name).pop();
-      if (m) {
-        console.debug(`PERF: ${name}: ${m.duration.toFixed(1)}ms`);
-        // Record for later analysis
-        if (!window.__perfMeasures) window.__perfMeasures = [];
-        window.__perfMeasures.push({ name, duration: m.duration, ts: Date.now() });
-        // Persist a short rolling log
-        if (window.__perfMeasures.length > 500) window.__perfMeasures.shift();
-        // Debounced save
-        debouncedSetItem('perfMeasures', JSON.stringify(window.__perfMeasures));
-      }
-      perfMarks.delete(name);
-    } catch(e) {}
-  }
+// Create a storage wrapper using the preload electronAPI
+const storage = createStorage(window.electronAPI);
+window.storage = storage;
 
-  // Expose a small performance logger on window for debugging
-  window.__perfLog = {
-    start: perfStart,
-    end: perfEnd,
-    get: () => performance.getEntriesByType('measure')
-  };
-// Persistent storage helper to replace localStorage (global scope)
-const storage = {
-  async getItem(key) {
-    try {
-      return await window.electronAPI.getStorageItem(key);
-    } catch (error) {
-      console.error('Error getting storage item:', key, error);
-      return null;
-    }
-  },
-  async setItem(key, value) {
-    try {
-      return await window.electronAPI.setStorageItem(key, value);
-    } catch (error) {
-      console.error('Error setting storage item:', key, error);
-      return false;
-    }
-  },
-  async removeItem(key) {
-    try {
-      return await window.electronAPI.removeStorageItem(key);
-    } catch (error) {
-      console.error('Error removing storage item:', key, error);
-      return false;
-    }
-  }
-};
+// Initialize the history manager to replace inline buffer/flush logic
+const historyManager = createHistoryManager(window.electronAPI);
+historyManager.init().catch(() => {});
+window.historyManager = historyManager;
 
 window.addEventListener('DOMContentLoaded', () => {
     // --- Settings Panel History Logic ---
@@ -79,11 +18,11 @@ window.addEventListener('DOMContentLoaded', () => {
       async function renderSettingsHistory() {
         perfStart('renderSettingsHistory');
         let history = JSON.parse(await storage.getItem('browserHistory') || '[]');
-        // Merge with in-memory buffer if present so we can render immediately
-        if (window.__unsavedHistory && Array.isArray(window.__unsavedHistory)) {
-          try {
-            // Make a copy to avoid modifying original buffer
-            const merged = [...history, ...window.__unsavedHistory];
+        // Merge with in-memory buffer managed by historyManager so we can render immediately
+        try {
+          const inMemory = historyManager.getAll();
+          if (Array.isArray(inMemory) && inMemory.length) {
+            const merged = [...history, ...inMemory];
             // Remove duplicates by URL keeping the latest entry
             const byUrl = new Map();
             for (const entry of merged) {
@@ -91,9 +30,9 @@ window.addEventListener('DOMContentLoaded', () => {
               byUrl.set(entry.url, entry);
             }
             history = Array.from(byUrl.values());
-          } catch (e) {
-            console.debug('Failed to merge in-memory history into settings view', e);
           }
+        } catch (e) {
+          console.debug('Failed to merge in-memory history into settings view', e);
         }
         history = history.filter(e => {
           if (!e || !e.url) return false;
@@ -303,16 +242,22 @@ window.addEventListener('DOMContentLoaded', () => {
 
     window.electronAPI.onUpdateAvailable((info) => {
       const now = Date.now();
+      if ((window.__updateSilence || 0) > Date.now()) {
+        console.debug('Update notification silenced until', window.__updateSilence);
+        return;
+      }
       if (!updateState.available && (now - updateState.lastNotification > 5000)) {
         showUpdateNotification(`Update v${info.version} found. Downloading...`, 'info');
         updateState.available = true;
         updateState.checking = false;
         updateState.downloading = true;
+        updateState.lastPercent = 0;
         updateState.lastNotification = now;
       }
     });
 
     window.electronAPI.onUpdateNotAvailable(() => {
+      if ((window.__updateSilence || 0) > Date.now()) return;
       if (updateState.checking) {
         showUpdateNotification('You have the latest version!', 'info', 3000);
         updateState = { checking: false, downloading: false, available: false, downloaded: false, lastNotification: Date.now() };
@@ -320,16 +265,21 @@ window.addEventListener('DOMContentLoaded', () => {
     });
 
     window.electronAPI.onUpdateError((message) => {
+      if ((window.__updateSilence || 0) > Date.now()) return;
       console.error('Update error:', message);
       showUpdateNotification(`Update error: ${message}`, 'error');
       updateState = { checking: false, downloading: false, available: false, downloaded: false, lastNotification: Date.now() };
     });
 
+    // Track progress in 10% increments to avoid too many UI updates
     window.electronAPI.onUpdateDownloadProgress((progress) => {
+      if ((window.__updateSilence || 0) > Date.now()) return;
       if (updateState.downloading) {
         const percent = Math.round(progress.percent);
-        // Only update progress every 10% to reduce notification spam
-        if (percent % 10 === 0 || percent === 100) {
+        if (!updateState.lastPercent) updateState.lastPercent = 0;
+        // Only update progress when it increases by at least 10% or reaches 100%
+        if (percent === 100 || percent >= (updateState.lastPercent + 10)) {
+          updateState.lastPercent = percent;
           showUpdateNotification(`Downloading update: ${percent}%`, 'info');
           updateState.lastNotification = Date.now();
         }
@@ -356,8 +306,9 @@ window.addEventListener('DOMContentLoaded', () => {
               });
             }
           );
-          updateState.downloaded = true;
-          updateState.downloading = false;
+            updateState.downloaded = true;
+            updateState.downloading = false;
+            updateState.lastPercent = 100;
           updateState.lastNotification = now;
         }, 1000);
       }
@@ -513,21 +464,37 @@ window.addEventListener('DOMContentLoaded', () => {
   }
 
   function showUpdateNotification(message, type = 'info', duration = 5000, clickHandler = null) {
+    // Respect silence setting set when user dismisses notifications
+    if ((window.__updateSilence || 0) > Date.now()) {
+      console.debug('Update notifications silenced until', window.__updateSilence);
+      return null;
+    }
     // Remove any existing update notification
     const existingNotification = document.querySelector('.update-notification');
     if (existingNotification) {
       existingNotification.remove();
     }
 
-    // Create notification element
+    // Create notification element with accessible DOM nodes (avoid inline handlers)
     const notification = document.createElement('div');
     notification.className = `update-notification update-${type}`;
-    notification.innerHTML = `
-      <div class="update-notification-content">
-        <span class="update-message">${message}</span>
-        <button class="update-close" onclick="this.parentElement.parentElement.remove()">×</button>
-      </div>
-    `;
+    const content = document.createElement('div');
+    content.className = 'update-notification-content';
+    const msg = document.createElement('span');
+    msg.className = 'update-message';
+    msg.textContent = message;
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'update-close';
+    closeBtn.setAttribute('aria-label', 'Close update notification');
+    closeBtn.textContent = '×';
+    closeBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      try { window.__updateSilence = (Date.now() + 60000); } catch (err) {}
+      if (notification.parentNode) notification.remove();
+    });
+    content.appendChild(msg);
+    content.appendChild(closeBtn);
+    notification.appendChild(content);
 
     // Add click handler if provided
     if (clickHandler) {
@@ -557,12 +524,13 @@ window.addEventListener('DOMContentLoaded', () => {
     const tab = tabs.find(t => t.id === currentTabId);
     if (!tab) return;
 
-    // Check if current tab is a settings page
+    // Identify special internal pages (settings/history) so we can hide unnecessary chrome
     const isSettingsPage = tab.url && tab.url.includes('settings.html');
+    const isHistoryPage = tab.url && tab.url.includes('history.html');
     
-    // Hide/show URL bar based on whether it's a settings page
+    // Hide/show URL bar based on whether it's a settings page or history page
     if (controlsDiv) {
-      controlsDiv.style.display = isSettingsPage ? 'none' : 'flex';
+      controlsDiv.style.display = (isSettingsPage || isHistoryPage) ? 'none' : 'flex';
     }
 
     if (tab.url === 'newtab') {
@@ -596,7 +564,20 @@ window.addEventListener('DOMContentLoaded', () => {
           
           // Only navigate if URL is valid and not 'newtab'
           if (tab.url && tab.url !== 'newtab' && tab.url !== '') {
-            window.electronAPI.viewNavigate({ id: tab.id, url: tab.url });
+            // Ensure internal pages are converted to absolute file URLs so they load correctly on restore
+            let navigateUrl = tab.url;
+            try {
+              if (!navigateUrl.startsWith('file://') && (navigateUrl === 'settings.html' || navigateUrl.includes('/settings.html'))) {
+                navigateUrl = new URL('settings.html', window.location.href).href;
+              } else if (!navigateUrl.startsWith('file://') && (navigateUrl === 'history.html' || navigateUrl.includes('/history.html'))) {
+                navigateUrl = new URL('history.html', window.location.href).href;
+              }
+            } catch (e) {
+              // Fallback: leave as-is
+            }
+            window.electronAPI.viewNavigate({ id: tab.id, url: navigateUrl });
+            // Update the stored URL so restore will use a proper absolute value next time
+            tab.url = navigateUrl;
           }
           
           tab.viewCreated = true;
@@ -648,9 +629,30 @@ window.addEventListener('DOMContentLoaded', () => {
         let displayTitle;
         if (tab.url === 'newtab') {
           displayTitle = tab.isIncognito ? 'New Tab (Incognito)' : 'New Tab';
+        } else if (tab.url && tab.url.includes('history.html')) {
+          displayTitle = 'History';
+        } else if (tab.url && tab.url.includes('settings.html')) {
+          displayTitle = 'Settings';
         } else {
-          const baseTitle = (tab.title || tab.url).substring(0, 20) + '...';
-          displayTitle = tab.isIncognito ? `${baseTitle} (Incognito)` : baseTitle;
+          try {
+            // Prefer title when available, fallback to site name or filename
+            if (tab.title && tab.title.length) {
+              displayTitle = tab.title.length > 20 ? tab.title.substring(0, 20) + '...' : tab.title;
+            } else {
+              const u = new URL(tab.url);
+              if (u.protocol === 'file:') {
+                const parts = u.pathname.split('/');
+                const name = parts[parts.length - 1] || 'Local Page';
+                displayTitle = name;
+              } else {
+                displayTitle = (u.hostname || tab.url).substring(0, 20) + '...';
+              }
+            }
+          } catch (e) {
+            const baseTitle = (tab.title || tab.url).substring(0, 20) + '...';
+            displayTitle = baseTitle;
+          }
+          if (tab.isIncognito) displayTitle += ' (Incognito)';
         }
         titleSpan.textContent = displayTitle;
         tabEl.appendChild(titleSpan);
@@ -876,6 +878,14 @@ window.addEventListener('DOMContentLoaded', () => {
         tab.historyIndex = tab.history.length - 1;
       }
       
+      // Ensure internal pages use absolute file URLs
+      try {
+        if (url === 'settings.html' || url.includes('/settings.html')) {
+          url = new URL('settings.html', window.location.href).href;
+        } else if (url === 'history.html' || url.includes('/history.html')) {
+          url = new URL('history.html', window.location.href).href;
+        }
+      } catch(e) {}
       window.electronAPI.viewNavigate({ id: tab.id, url });
       persistTabs();
       updateView();
@@ -1113,6 +1123,13 @@ window.addEventListener('DOMContentLoaded', () => {
     perfStart('renderBookmarkBar');
     // Exit early if bookmark bar doesn't exist (e.g., on settings page)
     if (!bookmarkBar) return;
+    const currentTab = tabs.find(t => t.id === currentTabId);
+    // Hide the bookmark bar for pages that shouldn't show it (settings/history)
+    if (currentTab && currentTab.url && (currentTab.url.includes('settings.html') || currentTab.url.includes('history.html'))) {
+      bookmarkBar.style.display = 'none';
+      perfEnd('renderBookmarkBar');
+      return;
+    }
     
     bookmarkBar.innerHTML = '';
     
@@ -1271,55 +1288,16 @@ window.addEventListener('DOMContentLoaded', () => {
 
     if (isSkippableUrl(url)) return; // Do not store settings/history/newtab entries
 
-    // Use a batched write approach to reduce storage writes for history
-    if (!window.__unsavedHistory) window.__unsavedHistory = JSON.parse(await storage.getItem('browserHistory') || '[]');
-    const unsaved = window.__unsavedHistory;
-    // Avoid duplicate consecutive entries
-    // Avoid duplicates and skip saving if last stored is same
-    if (!unsaved.length || unsaved[unsaved.length-1].url !== url) {
-      // Derive host (site) for easier display
-      let host = url;
-      try { host = new URL(url).hostname.replace(/^www\./, ''); } catch (e) { /* leave as-is */ }
-      console.debug('Pushing url to in-memory history buffer:', url);
-      unsaved.push({
-        url,
-        title: tab.title || url,
-        host,
-        timestamp: Date.now()
-      });
-      // Immediately refresh the settings-panel view if it's visible
+    // Add navigation to history manager (debounced/queued and persisted) — prefer manager over inline buffering
+    try {
+      const host = (() => { try { return (new URL(url)).hostname.replace(/^www\./, ''); } catch(e) { return url; } })();
+      historyManager.addToHistory({ url, title: tab.title || url, host, timestamp: Date.now() });
+      // If settings panel visible, re-render quickly so user sees update
       if (document.getElementById('settings-panel') && document.getElementById('settings-panel').classList.contains('active')) {
         try { renderSettingsHistory(); } catch (e) { /* ignore */ }
       }
-      // Limit history to 500 entries in the in-memory buffer
-      if (unsaved.length > 500) unsaved.splice(0, unsaved.length-500);
-      console.debug('Buffered history entries now:', unsaved.length);
-      // Schedule write to storage to batch frequent navigations
-      if (window.__historyFlushTimeout) clearTimeout(window.__historyFlushTimeout);
-      window.__historyFlushTimeout = setTimeout(async () => {
-        try {
-          const ok = await storage.setItem('browserHistory', JSON.stringify(window.__unsavedHistory || []));
-          window.__historyFlushTimeout = null;
-          if (!ok) {
-            console.warn('storage.setItem returned falsy for browserHistory, falling back to localStorage');
-            try { localStorage.setItem('browserHistory', JSON.stringify(window.__unsavedHistory || [])); } catch (e) { /* ignore */ }
-          }
-          console.debug('Flushed browserHistory to persistent storage, entries:', (window.__unsavedHistory || []).length);
-          // If settings sidebar is showing, update it so users see history immediately
-          if (typeof renderSettingsHistory === 'function') {
-            try { renderSettingsHistory(); } catch (e) { /* ignore */ }
-          }
-          // Notify other windows that history was updated (so history.html can refresh)
-          try { window.electronAPI.broadcastHistoryUpdated(); } catch (e) { /* ignore */ }
-        } catch (err) {
-          console.error('Failed to write browserHistory', err);
-          // Fallback to localStorage so we don't lose entries silently
-          try { localStorage.setItem('browserHistory', JSON.stringify(window.__unsavedHistory || [])); } catch (e) { console.error('localStorage fallback failed', e); }
-          window.__historyFlushTimeout = null;
-        }
-      }, 1000);
-        perfEnd('onViewNavigated');
-    }
+    } catch (e) { console.error('historyManager.addToHistory failed', e); }
+    perfEnd('onViewNavigated');
   });
 
   // Listen for the main process to request a new tab
@@ -1830,14 +1808,8 @@ window.addEventListener('DOMContentLoaded', () => {
   window.addEventListener('beforeunload', () => {
     localStorage.setItem('lastSessionTabs', JSON.stringify(tabs));
     localStorage.setItem('lastCurrentTabId', currentTabId.toString());
-    // Flush any unsaved history to storage before exit
-    if (window.__historyFlushTimeout) {
-      clearTimeout(window.__historyFlushTimeout);
-      window.__historyFlushTimeout = null;
-    }
-    if (window.__unsavedHistory) {
-      try { storage.setItem('browserHistory', JSON.stringify(window.__unsavedHistory)); } catch (err) { /* ignore */ }
-    }
+    // Flush buffered history using the central manager
+    try { historyManager.flush(); } catch (e) { /* ignore */ }
   });
 
   // Enhanced Keyboard Shortcuts (prevent duplicate listeners)
@@ -2824,8 +2796,14 @@ function initializeWindowControls() {
   }
 
   if (closeBtn) {
-    closeBtn.addEventListener('click', () => {
-      window.electronAPI.closeWindow();
+    closeBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      // Close the current window via the main process
+      try {
+        window.electronAPI.closeWindow();
+      } catch (err) {
+        console.error('Failed to close window via electronAPI:', err);
+      }
     });
   }
 
@@ -2848,6 +2826,8 @@ function initializeWindowControls() {
     setTimeout(updateMaximizeButton, 100);
   });
 }
+
+// NOTE: the main DOMContentLoaded listener will be closed at the end of the file
 
 async function updateMaximizeButton() {
   const maximizeBtn = document.getElementById('maximize-btn');
@@ -2975,19 +2955,7 @@ const historyBtn = document.getElementById('history-btn');
   historyBtn.addEventListener('click', async function(e) {
     e.preventDefault();
     // Ensure buffered history is flushed to persistent storage before opening history page
-    try {
-      if (window.__unsavedHistory) {
-        const ok = await storage.setItem('browserHistory', JSON.stringify(window.__unsavedHistory));
-        if (!ok) {
-          try { localStorage.setItem('browserHistory', JSON.stringify(window.__unsavedHistory)); } catch(e){}
-        }
-        console.debug('Flushed history before opening history page, entries:', (window.__unsavedHistory || []).length);
-        try { window.electronAPI.broadcastHistoryUpdated(); } catch (e) { /* ignore */ }
-      }
-    } catch (err) {
-      console.error('Failed to flush history before opening history page', err);
-      try { localStorage.setItem('browserHistory', JSON.stringify(window.__unsavedHistory || [])); } catch(e){}
-    }
+    try { await historyManager.flush(); } catch (err) { console.error('Failed to flush history before opening history page', err); }
     // Open local history.html using a URL relative to the current page
     try {
       const fileUrl = new URL('history.html', window.location.href).href;
