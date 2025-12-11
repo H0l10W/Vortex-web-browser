@@ -1,6 +1,57 @@
 # Vortex Browser - Changelog
 
-## [0.3.4] - 2025-12-10
+## [0.3.6] - 2025-12-11
+
+### ✨ Added
+- Custom window dragging: drag the window from anywhere on the title bar while keeping the entire tab bar as a drop zone for tabs.
+- Double-click title bar to maximize/restore window.
+
+### 🔧 Changed
+- Completely rewrote tab drag-and-drop system for improved reliability and consistency.
+- Tab bar now accepts drops anywhere (left/right of tabs, above tabs, on new tab button) just like Chrome.
+- Improved window closing logic: automatically closes source windows when tabs are reattached.
+- Enhanced drop zone detection using screen coordinates for accurate cross-window tab transfers.
+
+### 🐛 Fixed
+- Fixed tab reattachment: dragging a tab back into the original window now properly reattaches instead of opening a new window.
+- Fixed source window cleanup: empty windows and windows created for drag operations now close automatically when tabs are moved.
+- Fixed drop zone consistency: entire tab bar area now reliably accepts tab drops regardless of cursor position.
+- Fixed transferId synchronization issues that prevented tabs from reattaching correctly.
+- Fixed new tab button being blocked by drop overlay.
+- Fixed window controls blocking drop events on the tab bar.
+
+### ⚡ Performance
+- Optimized drag-and-drop event handling with proper event propagation and passive listeners.
+- Reduced unnecessary IPC calls during drag operations.
+
+---
+
+## [0.3.5] - 2025-12-10
+
+### ✨ Added
+- Force Web Dark Mode: per-view and global toggles with `apply-web-dark-mode` / `apply-web-dark-mode-all` and UI controls.
+- Global toast/notification system (`notifications.notify`) with main/preload forwarding and theme-aware toast CSS.
+- Modular history manager (`renderer-modular/history-manager.js`) and improved `history.html`/`history.js` layout and incremental rendering.
+ - Custom right-click context menu for links in web content (open link in new tab, open in new window, copy link, open in default browser).
+ - Drag-and-drop tabs: reorder tabs within a window, drag a tab out to create a new window, and drag a tab into another window to attach it.
+
+### 🔧 Changed
+- Centralized toast CSS and theme variables in `style.css`/`settings.css`; UI now prefers non-blocking toasts over `alert()`.
+- Optimized history persistence: debounced writes, in-memory buffering, merge with opener windows, and favicon caching.
+- Improved updater UX: throttled progress updates, bottom-left toasts, retries on failures, and a short silence window to reduce spam.
+- Converted scroll listeners to passive and switched large DOM updates to `requestIdleCallback` for smoother UI.
+
+### 🐛 Fixed
+- Fixed history restore after restart and added `did-fail-load` fallback to ensure local pages open reliably.
+- Fixed `clear-history` to clear both memory and persistent storage and added cross-window sync (`request-clear-history`).
+- Prevented Force Web Dark Mode from injecting into internal pages (settings/history) and prevented duplicate CSS inserts.
+- Cleaned up view metadata when BrowserViews are destroyed to avoid memory leaks.
+ - Fixed: 'Open Link in New Window' now opens a standalone window with only the target link (no duplicated tabs/state).
+
+### ⚡ Performance
+- Improved rendering performance on the history page with incremental DOM updates and debounced storage.
+- Reduced UI spam from updater events and heavy DOM work by batching and throttling.
+
 
 ### 🔧 Bug Fixes & Improvements
 - Fixed history & local page restore: `history.html` and `settings.html` now load reliably after restart (converted to platform-safe file:// URLs and fallback to loadFile on failure).
@@ -8,7 +59,7 @@
 - Improved auto-updater UX and reliability: progress updates throttle every 10%, retry on download errors, dismissible notifications with short silence window, and moved notifications to bottom-left.
 - Performance & UX: debounce and batch storage writes, incremental history rendering, favicon caching, and reduced UI spam from progress events.
 - Refactored history buffering & persistence into a modular `renderer-modular/history-manager.js` for clarity and better error handling.
-- Minor fixes: syntax error fixes and several small UI/behavior improvements.
+- Minor fixes: small fixes and several small UI/behavior improvements.
 
 ---
 

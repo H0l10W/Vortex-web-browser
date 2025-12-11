@@ -79,8 +79,16 @@
       }
       // If we are opened from the main window and it has an in-memory buffer, render it too
       try {
-        if (window.opener && window.opener.__unsavedHistory && Array.isArray(window.opener.__unsavedHistory)) {
-          const merged = [...history, ...window.opener.__unsavedHistory];
+        // Prefer calling the opener's historyManager if available; otherwise fall back to __unsavedHistory
+        let openerEntries = null;
+        if (window.opener && window.opener.historyManager && typeof window.opener.historyManager.getAll === 'function') {
+          try { openerEntries = window.opener.historyManager.getAll(); } catch (e) { openerEntries = null; }
+        }
+        if (!openerEntries && window.opener && window.opener.__unsavedHistory && Array.isArray(window.opener.__unsavedHistory)) {
+          openerEntries = window.opener.__unsavedHistory;
+        }
+        if (Array.isArray(openerEntries) && openerEntries.length) {
+          const merged = [...history, ...openerEntries];
           // Remove duplicates by URL, keep latest
           const byUrl = new Map();
           for (const entry of merged) {
@@ -111,10 +119,11 @@
 
       function appendNextPage() {
         if (offset >= entries.length) return;
-        const frag2 = document.createDocumentFragment();
         const next = entries.slice(offset, offset + PAGE_SIZE);
-        console.time('appendHistoryPage');
-        next.forEach(entry => {
+        const doAppend = () => {
+          const frag2 = document.createDocumentFragment();
+          console.time('appendHistoryPage');
+          next.forEach(entry => {
           const item = document.createElement('div');
           item.className = 'history-item';
           item.onclick = () => {
@@ -132,17 +141,37 @@
           favicon.src = getFavicon(entry.url);
           favicon.onerror = function () { this.src = 'icons/newtab.png'; };
 
+          const textContainer = document.createElement('div');
+          textContainer.style.display = 'flex';
+          textContainer.style.flexDirection = 'column';
+          textContainer.style.flex = '1';
           const title = document.createElement('span');
           title.className = 'history-title';
-          title.textContent = (entry.host && entry.host.length) ? (entry.host.charAt(0).toUpperCase() + entry.host.slice(1)) : getSiteName(entry.url);
-
+          title.textContent = entry.title || ((entry.host && entry.host.length) ? (entry.host.charAt(0).toUpperCase() + entry.host.slice(1)) : getSiteName(entry.url));
+          title.style.fontSize = '1.05em';
+          const meta = document.createElement('span');
+          meta.className = 'history-meta';
+          meta.style.fontSize = '0.9em';
+          meta.style.color = 'var(--settings-header-color, #666)';
+          const urlText = entry.url || '';
+          let timeText = '';
+          try { if (entry.timestamp) timeText = new Date(entry.timestamp).toLocaleString(); } catch (e) {}
+          meta.textContent = `${urlText}${timeText ? ' • ' + timeText : ''}`;
+          textContainer.appendChild(title);
+          textContainer.appendChild(meta);
           item.appendChild(favicon);
-          item.appendChild(title);
+          item.appendChild(textContainer);
           frag2.appendChild(item);
         });
-        list.appendChild(frag2);
-        console.timeEnd('appendHistoryPage');
-        offset += PAGE_SIZE;
+          list.appendChild(frag2);
+          console.timeEnd('appendHistoryPage');
+          offset += PAGE_SIZE;
+        };
+        if ('requestIdleCallback' in window) {
+          window.requestIdleCallback(() => doAppend(), { timeout: 200 });
+        } else {
+          setTimeout(doAppend, 0);
+        }
       }
       appendNextPage();
       // listen to scroll to append more
@@ -150,11 +179,22 @@
         if (list.scrollTop + list.clientHeight > list.scrollHeight - 300) {
           appendNextPage();
         }
-      });
+      }, { passive: true });
       console.timeEnd('renderHistory');
     } catch (err) {
       console.error('Error rendering history:', err);
     }
+  }
+
+  // Small helper to show a toast using the global notifications API
+  function showToast(message, type = 'info', duration = 3000) {
+    try {
+      if (window.notifications && typeof window.notifications.notify === 'function') {
+        window.notifications.notify(message, type, duration);
+      } else if (window.electronAPI && typeof window.electronAPI.notify === 'function') {
+        window.electronAPI.notify(message, type, duration);
+      }
+    } catch (e) { console.error('Error requesting global toast:', e); }
   }
 
   // Listen for theme changes (broadcast from main window)
@@ -169,10 +209,52 @@
     window.electronAPI.on('history-updated', () => {
       try { renderHistory(); } catch (e) { /* ignore */ }
     });
+    // When main requests clear for all windows, re-render page
+    window.electronAPI.on('clear-history', () => {
+      try { renderHistory(); } catch (e) {}
+    });
   }
 
   await renderHistory();
   // Manual refresh button
   const refreshBtn = document.getElementById('refresh-history-btn');
   if (refreshBtn) refreshBtn.addEventListener('click', () => { try { renderHistory(); } catch(e) {} });
+
+  // Clear history button (works across popup or opened page)
+  const clearBtn = document.getElementById('clear-history-btn');
+  if (clearBtn) {
+    clearBtn.addEventListener('click', async () => {
+      try {
+        if (!confirm('Are you sure you want to clear all browsing history?')) return;
+        // If this page was opened from the main window, try using the in-memory manager for correctness
+        if (window.opener) {
+          if (window.opener.historyManager && typeof window.opener.historyManager.clear === 'function') {
+          try {
+            await window.opener.historyManager.clear();
+          } catch (err) {
+            console.warn('Failed to clear using opener history manager:', err);
+          }
+          }
+          try { if (Array.isArray(window.opener.__unsavedHistory)) window.opener.__unsavedHistory.length = 0; } catch (e) {}
+        }
+        // Always clear persisted storage and broadcast to other windows
+        try {
+          if (window.electronAPI && window.electronAPI.setStorageItem) {
+            await window.electronAPI.setStorageItem('browserHistory', '[]');
+          } else {
+            localStorage.setItem('browserHistory', '[]');
+          }
+        } catch (err) { try { localStorage.setItem('browserHistory', '[]'); } catch(e) {} }
+        try { if (window.electronAPI && window.electronAPI.broadcastHistoryUpdated) window.electronAPI.broadcastHistoryUpdated(); } catch (err) {}
+        // Ask the main process to broadcast a request to clear all windows' history buffers
+        try { if (window.electronAPI && window.electronAPI.requestClearHistory) window.electronAPI.requestClearHistory(); } catch (err) {}
+        await renderHistory();
+        try {
+          if (window.opener && window.opener.electronAPI && typeof window.opener.electronAPI.notify === 'function') {
+            window.opener.electronAPI.notify('Browsing history cleared successfully.', 'success', 3000);
+          } else { showToast('Browsing history cleared', 'success'); }
+        } catch (e) { showToast('Browsing history cleared', 'success'); }
+      } catch (err) { console.error('Error clearing history page storage:', err); showToast('Failed to clear browsing history.', 'error'); }
+    });
+  }
 })();

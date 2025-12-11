@@ -47,7 +47,19 @@ export function createHistoryManager(electronAPI) {
     try { window.electronAPI.broadcastHistoryUpdated(); } catch (e) {}
   }
 
+  async function clear() {
+    buffer.entries = [];
+    if (flushTimeout) clearTimeout(flushTimeout);
+    try {
+      await storage.setItem('browserHistory', '[]');
+    } catch (e) {
+      try { localStorage.setItem('browserHistory', '[]'); } catch (e) {}
+    }
+    try { window.electronAPI.broadcastHistoryUpdated(); } catch (e) {}
+    // Note: we do not request broadcast clearing from here; UI actions should call requestClearHistory to propagate
+  }
+
   function getAll() { return buffer.entries.slice(); }
 
-  return { init, addToHistory, flush, getAll };
+  return { init, addToHistory, flush, clear, getAll };
 }

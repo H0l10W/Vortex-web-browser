@@ -327,7 +327,7 @@ function getHeaderHeightForUrl(url) {
   return bookmarkBarVisible ? 129 : 92; // Updated values
 }
 
-function createWindow(initialUrl) {
+function createWindow(initialUrl, isFresh = false) {
   const win = new BrowserWindow({
     width: 1200,
     height: 800,
@@ -356,11 +356,25 @@ function createWindow(initialUrl) {
     win,
     views: new Map(),
     activeViewId: null,
+    viewMeta: new Map(),
   };
   windows.set(win.id, windowState);
 
-  // Load the main HTML file
-  win.loadFile('index.html');
+  // Load the main HTML file, optionally with an initial URL for a new-window request
+  try {
+    const indexPath = path.join(__dirname, 'index.html');
+    let indexUrl = pathToFileURL(indexPath).href;
+    const queryParts = [];
+    if (initialUrl) queryParts.push(`newWindowUrl=${encodeURIComponent(initialUrl)}`);
+    if (isFresh) queryParts.push('fresh=1');
+    // Add a windowId so each renderer persists its tabs separately
+    queryParts.push(`windowId=${win.id}`);
+    if (queryParts.length) indexUrl += `?${queryParts.join('&')}`;
+    win.loadURL(indexUrl);
+  } catch (e) {
+    console.error('Error loading initial URL for new window:', e);
+    win.loadFile('index.html');
+  }
 
   // --- Keyboard Shortcuts ---
   win.webContents.on('before-input-event', (event, input) => {
@@ -445,11 +459,7 @@ function createWindow(initialUrl) {
     });
   });
 
-  if (initialUrl) {
-    win.webContents.on('did-finish-load', () => {
-      win.webContents.send('new-window', initialUrl);
-    });
-  }
+  // If an initial URL is used, the renderer will pick it up from the query string
 
   win.on('resize', () => {
     const state = windows.get(win.id);
@@ -654,6 +664,35 @@ ipcMain.removeAllListeners('toggle-devtools');
     win.webContents.send('open-in-new-tab', url);
     return { action: 'deny' };
   });
+
+  // Add context menu handling for links and media
+  view.webContents.on('context-menu', (event, params) => {
+    try {
+      const { Menu, clipboard, shell } = require('electron');
+      const template = [];
+      if (params.linkURL) {
+        template.push({ label: 'Open Link in New Tab', click: () => win.webContents.send('open-in-new-tab', params.linkURL) });
+        template.push({ label: 'Open Link in New Window', click: () => {
+          // Create a new (fresh) window that opens the link directly (no duplication)
+          createWindow(params.linkURL, true);
+        } });
+        template.push({ type: 'separator' });
+        template.push({ label: 'Open Link in Default Browser', click: () => shell.openExternal(params.linkURL) });
+        template.push({ label: 'Copy Link', click: () => clipboard.writeText(params.linkURL) });
+      }
+      // Fallback inspect element for dev
+      if (isDev) {
+        template.push({ type: 'separator' });
+        template.push({ label: 'Inspect Element', click: () => view.webContents.inspectElement(params.x, params.y) });
+      }
+      if (template.length) {
+        const m = Menu.buildFromTemplate(template);
+        m.popup({ window: win });
+      }
+    } catch (err) {
+      console.error('Context menu error:', err);
+    }
+  });
 });
 
 ipcMain.on('view:destroy', (event, id) => {
@@ -706,6 +745,7 @@ ipcMain.on('view:destroy', (event, id) => {
     } finally {
       // Always remove from tracking, even if cleanup failed
       state.views.delete(id);
+      if (state.viewMeta && state.viewMeta.has(id)) state.viewMeta.delete(id);
       
       console.log(`View ${id} destroyed. Remaining views: ${state.views.size}`);
       
@@ -740,6 +780,672 @@ ipcMain.on('view:show', (event, id) => {
     updateTabActivity(id);
     console.log(`Tab ${id} activated - activity tracked`);
   }
+});
+
+// --- Tab drag/drop across windows ---
+let currentTabDrag = null; // { sourceWinId, tab }
+// Tracks pending transfers waiting for destination renderer ack keyed by tabId
+const pendingTransfers = new Map();
+// Also track by transferId (string) for robust matching across windows
+const pendingTransfersByTransferId = new Map();
+const rendererReady = new Map(); // DOMContentLoaded map
+const rendererUIReady = new Map(); // UI initialized map
+
+ipcMain.on('renderer-ready', (event) => {
+  try {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win) return;
+    rendererReady.set(win.id, true);
+    console.log(`Renderer ready for window ${win.id}`);
+    win.once('closed', () => rendererReady.delete(win.id));
+  } catch (e) { console.error('renderer-ready handling failed', e); }
+});
+
+ipcMain.on('renderer-ui-ready', (event) => {
+  try {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win) return;
+    rendererUIReady.set(win.id, true);
+    console.log(`Renderer UI ready for window ${win.id}`);
+    win.once('closed', () => rendererUIReady.delete(win.id));
+  } catch (e) { console.error('renderer-ui-ready handling failed', e); }
+});
+
+ipcMain.on('tab-drag-start', (event, tab) => {
+  try {
+    const srcWin = BrowserWindow.fromWebContents(event.sender);
+    if (!srcWin) return;
+    const state = windows.get(srcWin.id);
+    const tid = Number(tab.id);
+    const viewRef = (state && state.views && state.views.has(tid)) ? state.views.get(tid) : null;
+    
+    // Generate a unique transferId for this drag operation
+    const transferId = `transfer-${srcWin.id}-${tid}-${Date.now()}`;
+    const webContentsId = viewRef && viewRef.webContents ? viewRef.webContents.id : undefined;
+    
+    // Store drag state globally
+    currentTabDrag = {
+      sourceWinId: srcWin.id,
+      tab: { ...tab, id: tid, transferId, webContentsId },
+      viewRef,
+      transferId
+    };
+    
+    // Store in pending transfers map for reliable lookup
+    pendingTransfersByTransferId.set(transferId, {
+      sourceWinId: srcWin.id,
+      viewRef,
+      tid,
+      tab: { ...tab, id: tid, transferId, webContentsId },
+      timeout: setTimeout(() => {
+        pendingTransfersByTransferId.delete(transferId);
+      }, 30000)
+    });
+    
+    console.log('[DND] tab-drag-start:', { sourceWin: srcWin.id, tid, transferId, hasView: !!viewRef, webContentsId });
+    
+    // Broadcast to all other windows
+    const dragPayload = {
+      tabMeta: {
+        id: tid,
+        title: tab.title,
+        url: tab.url,
+        isIncognito: tab.isIncognito,
+        transferId,
+        webContentsId,
+        sourceWinId: srcWin.id
+      }
+    };
+    
+    BrowserWindow.getAllWindows().forEach(w => {
+      if (w.id !== srcWin.id && !w.isDestroyed()) {
+        w.webContents.send('tab-drag-started', dragPayload);
+      }
+    });
+  } catch (e) {
+    console.error('[DND] tab-drag-start failed:', e);
+  }
+});
+
+ipcMain.on('tab-dropped-here', (event, tabMeta) => {
+  try {
+    const destWin = BrowserWindow.fromWebContents(event.sender);
+    if (!destWin) return;
+    
+    console.log('[DND] tab-dropped-here:', { destWin: destWin.id, tabMeta });
+    
+    // Get transferId from metadata
+    const transferId = tabMeta?.transferId;
+    if (!transferId) {
+      console.warn('[DND] No transferId provided, cannot attach tab');
+      BrowserWindow.getAllWindows().forEach(w => w.webContents.send('tab-drag-ended'));
+      currentTabDrag = null;
+      return;
+    }
+    
+    // Look up the pending transfer
+    const pending = pendingTransfersByTransferId.get(transferId);
+    if (!pending) {
+      console.warn('[DND] No pending transfer found for transferId:', transferId);
+      BrowserWindow.getAllWindows().forEach(w => w.webContents.send('tab-drag-ended'));
+      currentTabDrag = null;
+      return;
+    }
+    
+    const { sourceWinId, viewRef, tid, tab } = pending;
+    const sourceState = windows.get(sourceWinId);
+    const destState = windows.get(destWin.id);
+    
+    if (!viewRef || !destState) {
+      console.warn('[DND] Invalid state for attachment:', { hasView: !!viewRef, hasDestState: !!destState });
+      BrowserWindow.getAllWindows().forEach(w => w.webContents.send('tab-drag-ended'));
+      currentTabDrag = null;
+      pendingTransfersByTransferId.delete(transferId);
+      return;
+    }
+    
+    console.log('[DND] Attaching tab:', { sourceWin: sourceWinId, destWin: destWin.id, tid, transferId });
+    // Find which window currently owns the view (might have moved during detach)
+    let currentOwnerWinId = sourceWinId;
+    let currentOwnerState = sourceState;
+    
+    for (const [wId, st] of windows.entries()) {
+      if (st.views && st.views.has(tid)) {
+        currentOwnerWinId = wId;
+        currentOwnerState = st;
+        console.log('[DND] Found view in window:', wId);
+        break;
+      }
+    }
+    
+    const sourceWin = currentOwnerState?.win;
+
+    // Detach from current owner if different from destination
+    if (sourceWin && sourceWin.id !== destWin.id && !sourceWin.isDestroyed()) {
+      try {
+        if (sourceWin.getBrowserView() === viewRef) {
+          sourceWin.setBrowserView(null);
+        }
+      } catch (e) {
+        console.error('[DND] Error detaching view from source:', e);
+      }
+      
+      // Remove from source state
+      if (currentOwnerState && currentOwnerState.views) {
+        currentOwnerState.views.delete(tid);
+        if (currentOwnerState.viewMeta) {
+          const meta = currentOwnerState.viewMeta.get(tid);
+          if (meta) {
+            currentOwnerState.viewMeta.delete(tid);
+            destState.viewMeta.set(tid, meta);
+          }
+        }
+      }
+    }
+
+    // Attach to destination
+    destState.views.set(tid, viewRef);
+    destState.activeViewId = tid;
+    
+    console.log('[DND] View attached to destination state');
+
+    // Finalize attachment - set the BrowserView
+    const finalizeAttachment = () => {
+      try {
+        destWin.setBrowserView(viewRef);
+        const bounds = destWin.getContentBounds();
+        const effectiveHeaderHeight = getHeaderHeightForUrl(viewRef.webContents.getURL());
+        viewRef.setBounds({
+          x: 0,
+          y: effectiveHeaderHeight,
+          width: bounds.width,
+          height: bounds.height - effectiveHeaderHeight
+        });
+        viewRef.setAutoResize({ width: true, height: true });
+        
+        console.log('[DND] View physically attached to window');
+        
+        // Notify renderer that attachment is complete
+        destWin.webContents.send('attach-tab-handled', {
+          tab: {
+            id: tid,
+            url: tabMeta.url || tab?.url,
+            title: tabMeta.title || tab?.title,
+            isIncognito: tabMeta.isIncognito || tab?.isIncognito
+          },
+          viewCreated: true
+        });
+        
+        // Close orphaned source window if it has no more tabs or was created for this drag
+        if (sourceWin && sourceWin.id !== destWin.id && !sourceWin.isDestroyed()) {
+          const srcState = windows.get(sourceWin.id);
+          if (srcState && (srcState.views.size === 0 || srcState.createdForDragTab === tid)) {
+            console.log('[DND] Closing source window (empty or drag-created):', sourceWin.id);
+            setTimeout(() => {
+              if (!sourceWin.isDestroyed()) {
+                sourceWin.close();
+              }
+            }, 100);
+          }
+        }
+        
+        // Also check the current owner window (might be different from source)
+        if (ownerWin && ownerWin.id !== destWin.id && ownerWin.id !== sourceWin?.id && !ownerWin.isDestroyed()) {
+          const ownerState = windows.get(ownerWin.id);
+          if (ownerState && (ownerState.views.size === 0 || ownerState.createdForDragTab === tid)) {
+            console.log('[DND] Closing owner window (empty or drag-created):', ownerWin.id);
+            setTimeout(() => {
+              if (!ownerWin.isDestroyed()) {
+                ownerWin.close();
+              }
+            }, 100);
+          }
+        }
+      } catch (e) {
+        console.error('[DND] Error in finalizeAttachment:', e);
+      }
+    };
+    
+    // Execute attachment immediately if UI is ready, otherwise wait
+    if (rendererUIReady.get(destWin.id)) {
+      finalizeAttachment();
+    } else {
+      const uiReadyListener = (event) => {
+        const w = BrowserWindow.fromWebContents(event.sender);
+        if (w && w.id === destWin.id) {
+          finalizeAttachment();
+          ipcMain.removeListener('renderer-ui-ready', uiReadyListener);
+        }
+      };
+      ipcMain.on('renderer-ui-ready', uiReadyListener);
+    }
+    
+    // Clean up
+    pendingTransfersByTransferId.delete(transferId);
+    BrowserWindow.getAllWindows().forEach(w => {
+      if (!w.isDestroyed()) w.webContents.send('tab-drag-ended');
+    });
+    currentTabDrag = null;
+    
+  } catch (e) {
+    console.error('[DND] tab-dropped-here failed:', e);
+    BrowserWindow.getAllWindows().forEach(w => {
+      if (!w.isDestroyed()) w.webContents.send('tab-drag-ended');
+    });
+    currentTabDrag = null;
+  }
+});
+
+
+
+ipcMain.on('detach-tab', (event, tab) => {
+  try {
+    const srcWin = BrowserWindow.fromWebContents(event.sender);
+    if (!srcWin) return;
+    const srcState = windows.get(srcWin.id);
+    const srcTid = Number(tab.id);
+    
+    console.log('[DND] detach-tab:', { sourceWin: srcWin.id, tabId: srcTid });
+    
+    // Block detach of newtab placeholders
+    if (tab.url === 'newtab') {
+      console.warn('[DND] Blocked detach of newtab placeholder');
+      return;
+    }
+    
+    if (srcState && srcState.views && srcState.views.has(srcTid)) {
+      const view = srcState.views.get(srcTid);
+      if (!view) {
+        console.warn('[DND] detach-tab: view object missing');
+        return;
+      }
+      
+      // Create new window
+      const newWin = createWindow(undefined, true);
+      console.log('[DND] Created new window for detached tab:', newWin.id);
+      
+      // Mark this window as created for drag, track the original tab
+      const newState = windows.get(newWin.id);
+      if (newState) {
+        newState.createdForDragTab = srcTid;
+      }
+      
+      newWin.webContents.once('did-finish-load', () => {
+        const destState = windows.get(newWin.id);
+        if (!destState) return;
+        
+        // Detach from source
+        try {
+          if (!srcWin.isDestroyed() && srcWin.getBrowserView() === view) {
+            srcWin.setBrowserView(null);
+          }
+        } catch (e) {
+          console.error('[DND] Error detaching view:', e);
+        }
+        
+        // Move metadata
+        if (srcState.viewMeta && srcState.viewMeta.has(srcTid)) {
+          const meta = srcState.viewMeta.get(srcTid);
+          srcState.viewMeta.delete(srcTid);
+          destState.viewMeta.set(srcTid, meta);
+        }
+        
+        // Remove from source
+        srcState.views.delete(srcTid);
+        if (srcState.activeViewId === srcTid) srcState.activeViewId = null;
+        
+        // Add to destination
+        destState.views.set(srcTid, view);
+        destState.activeViewId = srcTid;
+        
+        const finalizeDetach = () => {
+          try {
+            newWin.setBrowserView(view);
+            const bounds = newWin.getContentBounds();
+            const effectiveHeaderHeight = getHeaderHeightForUrl(view.webContents.getURL());
+            view.setBounds({
+              x: 0,
+              y: effectiveHeaderHeight,
+              width: bounds.width,
+              height: bounds.height - effectiveHeaderHeight
+            });
+            view.setAutoResize({ width: true, height: true });
+            
+            console.log('[DND] Detach finalized');
+            
+            // Notify new window
+            newWin.webContents.send('attach-tab-handled', {
+              tab: {
+                id: srcTid,
+                url: tab.url,
+                title: tab.title,
+                isIncognito: tab.isIncognito
+              },
+              viewCreated: true
+            });
+            
+            // Notify source to remove tab
+            if (!srcWin.isDestroyed()) {
+              srcWin.webContents.send('remove-tab-record', srcTid);
+            }
+            
+            // Close source window if empty
+            if (srcState.views.size === 0 && !srcWin.isDestroyed()) {
+              console.log('[DND] Closing emptied source window');
+              srcWin.close();
+            }
+          } catch (e) {
+            console.error('[DND] Error in finalizeDetach:', e);
+          }
+        };
+        
+        if (rendererUIReady.get(newWin.id)) {
+          finalizeDetach();
+        } else {
+          const uiReadyListener = (event) => {
+            const w = BrowserWindow.fromWebContents(event.sender);
+            if (w && w.id === newWin.id) {
+              finalizeDetach();
+              ipcMain.removeListener('renderer-ui-ready', uiReadyListener);
+            }
+          };
+          ipcMain.on('renderer-ui-ready', uiReadyListener);
+        }
+      });
+    } else {
+      console.warn('[DND] detach-tab: view not found in source');
+    }
+  } catch (e) {
+    console.error('[DND] detach-tab failed:', e);
+  }
+});
+
+ipcMain.on('tab-drag-end', (event) => {
+  try {
+    console.log('[DEBUG] tab-drag-end called');
+    // Delay clearing drag state briefly to avoid races where drop handlers run slightly after dragend
+    setTimeout(() => {
+      currentTabDrag = null;
+    }, 500);
+    BrowserWindow.getAllWindows().forEach(w => w.webContents.send('tab-drag-ended'));
+  } catch (e) { console.error('tab-drag-end failed', e); }
+});
+
+// Window dragging handlers
+ipcMain.on('move-window', (event, { deltaX, deltaY }) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (win && !win.isDestroyed() && !win.isMaximized()) {
+    const [x, y] = win.getPosition();
+    win.setPosition(x + deltaX, y + deltaY);
+  }
+});
+
+ipcMain.on('toggle-maximize', (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (win && !win.isDestroyed()) {
+    if (win.isMaximized()) {
+      win.unmaximize();
+    } else {
+      win.maximize();
+    }
+  }
+});
+
+// Check if drop position is over another window and attach tab there
+ipcMain.handle('check-drop-target', async (event, { screenX, screenY, tabMeta }) => {
+  try {
+    console.log('[DND] check-drop-target:', { screenX, screenY, tabMeta });
+    
+    const sourceWin = BrowserWindow.fromWebContents(event.sender);
+    if (!sourceWin) return { handled: false };
+    
+    // Find window at screen position
+    const allWindows = BrowserWindow.getAllWindows();
+    let targetWin = null;
+    
+    for (const win of allWindows) {
+      if (win.id === sourceWin.id || win.isDestroyed()) continue;
+      
+      const bounds = win.getBounds();
+      if (screenX >= bounds.x && screenX <= bounds.x + bounds.width &&
+          screenY >= bounds.y && screenY <= bounds.y + bounds.height) {
+        targetWin = win;
+        console.log('[DND] Found target window:', win.id, bounds);
+        break;
+      }
+    }
+    
+    if (!targetWin) {
+      console.log('[DND] No target window found at position');
+      return { handled: false };
+    }
+    
+    // Trigger attach on target window
+    const transferId = tabMeta.transferId;
+    if (!transferId) {
+      console.warn('[DND] No transferId in tabMeta');
+      return { handled: false };
+    }
+    
+    const pending = pendingTransfersByTransferId.get(transferId);
+    if (!pending) {
+      console.warn('[DND] No pending transfer for transferId:', transferId);
+      return { handled: false };
+    }
+    
+    const { sourceWinId, viewRef, tid, tab } = pending;
+    const sourceState = windows.get(sourceWinId);
+    const destState = windows.get(targetWin.id);
+    
+    if (!viewRef || !destState) {
+      console.warn('[DND] Invalid state for attachment');
+      return { handled: false };
+    }
+    
+    console.log('[DND] Attaching tab to target window:', { sourceWin: sourceWinId, targetWin: targetWin.id, tid });
+    
+    // Find current owner
+    let currentOwnerWinId = sourceWinId;
+    let currentOwnerState = sourceState;
+    
+    for (const [wId, st] of windows.entries()) {
+      if (st.views && st.views.has(tid)) {
+        currentOwnerWinId = wId;
+        currentOwnerState = st;
+        break;
+      }
+    }
+    
+    const ownerWin = currentOwnerState?.win;
+    
+    // Detach from current owner
+    if (ownerWin && ownerWin.id !== targetWin.id && !ownerWin.isDestroyed()) {
+      try {
+        if (ownerWin.getBrowserView() === viewRef) {
+          ownerWin.setBrowserView(null);
+        }
+      } catch (e) {
+        console.error('[DND] Error detaching:', e);
+      }
+      
+      if (currentOwnerState && currentOwnerState.views) {
+        currentOwnerState.views.delete(tid);
+        if (currentOwnerState.viewMeta) {
+          const meta = currentOwnerState.viewMeta.get(tid);
+          if (meta) {
+            currentOwnerState.viewMeta.delete(tid);
+            destState.viewMeta.set(tid, meta);
+          }
+        }
+      }
+    }
+    
+    // Attach to target
+    destState.views.set(tid, viewRef);
+    destState.activeViewId = tid;
+    
+    const finalizeAttachment = () => {
+      try {
+        targetWin.setBrowserView(viewRef);
+        const bounds = targetWin.getContentBounds();
+        const effectiveHeaderHeight = getHeaderHeightForUrl(viewRef.webContents.getURL());
+        viewRef.setBounds({
+          x: 0,
+          y: effectiveHeaderHeight,
+          width: bounds.width,
+          height: bounds.height - effectiveHeaderHeight
+        });
+        viewRef.setAutoResize({ width: true, height: true });
+        
+        console.log('[DND] View attached to target window');
+        
+        targetWin.webContents.send('attach-tab-handled', {
+          tab: {
+            id: tid,
+            url: tabMeta.url || tab?.url,
+            title: tabMeta.title || tab?.title,
+            isIncognito: tabMeta.isIncognito || tab?.isIncognito
+          },
+          viewCreated: true
+        });
+        
+        // Close source window if empty OR if it was created for this drag operation
+        if (ownerWin && ownerWin.id !== targetWin.id && !ownerWin.isDestroyed()) {
+          const ownerState = windows.get(ownerWin.id);
+          console.log('[DND] Checking owner window:', { 
+            winId: ownerWin.id, 
+            viewsSize: ownerState?.views.size,
+            createdForDragTab: ownerState?.createdForDragTab,
+            currentTid: tid
+          });
+          
+          // Close if empty or if this was the tab the window was created for
+          if (ownerState && (ownerState.views.size === 0 || ownerState.createdForDragTab === tid)) {
+            console.log('[DND] Closing source window (empty or drag-created)');
+            setTimeout(() => {
+              if (!ownerWin.isDestroyed()) {
+                ownerWin.close();
+              }
+            }, 100);
+          }
+        }
+        
+        // Also check if the original source window (from IPC) is now empty or was drag-created
+        if (sourceWin && sourceWin.id !== targetWin.id && sourceWin.id !== ownerWin?.id && !sourceWin.isDestroyed()) {
+          const srcState = windows.get(sourceWin.id);
+          console.log('[DND] Checking source window:', { 
+            winId: sourceWin.id, 
+            viewsSize: srcState?.views.size,
+            createdForDragTab: srcState?.createdForDragTab,
+            currentTid: tid
+          });
+          
+          if (srcState && (srcState.views.size === 0 || srcState.createdForDragTab === tid)) {
+            console.log('[DND] Closing original source window (empty or drag-created)');
+            setTimeout(() => {
+              if (!sourceWin.isDestroyed()) {
+                sourceWin.close();
+              }
+            }, 100);
+          }
+        }
+      } catch (e) {
+        console.error('[DND] Error in finalizeAttachment:', e);
+      }
+    };
+    
+    if (rendererUIReady.get(targetWin.id)) {
+      finalizeAttachment();
+    } else {
+      const uiReadyListener = (event) => {
+        const w = BrowserWindow.fromWebContents(event.sender);
+        if (w && w.id === targetWin.id) {
+          finalizeAttachment();
+          ipcMain.removeListener('renderer-ui-ready', uiReadyListener);
+        }
+      };
+      ipcMain.on('renderer-ui-ready', uiReadyListener);
+    }
+    
+    // Clean up
+    pendingTransfersByTransferId.delete(transferId);
+    BrowserWindow.getAllWindows().forEach(w => {
+      if (!w.isDestroyed()) w.webContents.send('tab-drag-ended');
+    });
+    
+    return { handled: true, targetWindowId: targetWin.id };
+  } catch (e) {
+    console.error('[DND] check-drop-target failed:', e);
+    return { handled: false };
+  }
+});
+
+// Handle ACK from renderer that a transferred tab has been attached
+ipcMain.on('attach-tab-ack', (event, tabId) => {
+  try {
+    console.log('[DEBUG] attach-tab-ack called', { tabId });
+    const tid = Number(tabId);
+    console.log(`attach-tab-ack received for ${tid}`);
+    if (!pendingTransfers.has(tid)) {
+      console.warn(`attach-tab-ack received but no pending transfer found for ${tid}`);
+      return;
+    }
+    const entry = pendingTransfers.get(tid);
+    if (!entry) return;
+    // Clear timeout
+    if (entry.timeout) clearTimeout(entry.timeout);
+    // Tell source to remove its tab record now that destination is ready
+    const src = windows.get(entry.sourceWinId);
+    if (src && src.win && !src.win.isDestroyed()) src.win.webContents.send('remove-tab-record', tid);
+    // Notify source window that the drop/attach completed successfully
+    try { if (src && src.win && !src.win.isDestroyed()) src.win.webContents.send('tab-drop-complete', tid); } catch (err) { console.error('sending tab-drop-complete failed', err); }
+    try {
+      // Remove view entries from source state so main no longer tracks this view
+      if (src && src.views && src.views.has(tid)) {
+        const viewRef = entry.viewRef;
+        if (src.win && src.win.getBrowserView && src.win.getBrowserView() === viewRef) {
+          try { src.win.setBrowserView(null); } catch (e) {}
+        }
+        src.views.delete(tid);
+      }
+      if (src && src.viewMeta && src.viewMeta.has(tid)) src.viewMeta.delete(tid);
+      if (src && src.activeViewId === tid) src.activeViewId = null;
+    } catch (e) { console.error('attach-tab-ack cleanup of source state failed', e); }
+    pendingTransfers.delete(tid);
+    // Also clear any pendingTransfersByTransferId entries that refer to this tid
+    try {
+      for (const [key, val] of pendingTransfersByTransferId.entries()) {
+        try {
+          if (val && val.tid && Number(val.tid) === tid) {
+            pendingTransfersByTransferId.delete(key);
+            console.log(`attach-tab-ack cleaned pendingTransfersByTransferId ${key} for tid ${tid}`);
+          }
+        } catch (e) {}
+      }
+    } catch (e) {}
+    // Clear any drag visual states
+    BrowserWindow.getAllWindows().forEach(w => w.webContents.send('tab-drag-ended'));
+  } catch (e) { console.error('attach-tab-ack failed', e); }
+});
+
+// Debug logging for pendingTransfers size
+setInterval(() => {
+  try { if (pendingTransfers.size > 0) console.log('Pending transfers:', Array.from(pendingTransfers.keys())); } catch (e) {}
+}, 15000);
+
+ipcMain.on('show-tab-context-menu', (event, tab) => {
+  try {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    const { Menu } = require('electron');
+    const template = [
+      { label: 'Open in New Window', click: () => { createWindow(tab.url, true); } },
+      { label: 'Duplicate Tab', click: () => win.webContents.send('open-in-new-tab', tab.url) },
+      { type: 'separator' },
+      { label: 'Close Tab', click: () => win.webContents.send('remove-tab-by-id', tab.id) }
+    ];
+    const menu = Menu.buildFromTemplate(template);
+    menu.popup({ window: win });
+  } catch (e) { console.error('show-tab-context-menu failed', e); }
 });
 
 ipcMain.on('view:hide', (event) => {
@@ -784,42 +1490,44 @@ ipcMain.on('view:navigate', (event, { id, url }) => {
   const view = state.views.get(id);
   if (view && !view.webContents.isDestroyed()) {
     console.log(`Navigating tab ${id} to: ${url}`);
-    
-    // Add better error handling and navigation
-    view.webContents.loadURL(url, {
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      extraHeaders: 'Accept-Language: en-US,en;q=0.9\r\n'
-    }).then(() => {
-      console.log(`Successfully loaded: ${url}`);
-    }).catch(err => {
-      console.error('Failed to load URL:', url, err);
-      
-      // Enhanced error handling
-      if (err.code === 'ERR_ABORTED') {
-        console.log('Navigation was aborted, this is usually not an error');
-        return; // Don't try fallback for aborted navigations
-      }
-      
-      // Handle other common errors
-      if (err.code === 'ERR_NETWORK_CHANGED' || err.code === 'ERR_INTERNET_DISCONNECTED') {
-        view.webContents.loadURL('data:text/html,<h1>Network Error</h1><p>Check your internet connection and try again.</p>');
-        return;
-      }
-      
-      // Try fallback to HTTP if HTTPS fails (for development or specific sites)
-      if (url.startsWith('https://') && !url.includes('google.com') && !url.includes('search')) {
-        const httpUrl = url.replace('https://', 'http://');
-        console.log(`Trying HTTP fallback: ${httpUrl}`);
-        view.webContents.loadURL(httpUrl).catch(fallbackErr => {
-          console.error('HTTP fallback also failed:', fallbackErr);
-          // Load an error page or show error message
-          view.webContents.loadURL('data:text/html,<h1>Failed to load page</h1><p>Unable to load ' + url + '</p>');
-        });
-      } else {
-        // For search URLs or other critical URLs, show error page
-        view.webContents.loadURL('data:text/html,<h1>Failed to load page</h1><p>Unable to load ' + url + '</p><p>Error: ' + err.message + '</p>');
-      }
-    });
+    // Helper to load URL with a few retries before showing an error page
+    function loadUrlWithRetries(targetUrl, attemptsLeft = 3) {
+      view.webContents.loadURL(targetUrl, {
+        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        extraHeaders: 'Accept-Language: en-US,en;q=0.9\r\n'
+      }).then(() => {
+        console.log(`Successfully loaded: ${targetUrl}`);
+      }).catch(err => {
+        console.error('Failed to load URL:', targetUrl, 'attemptsLeft:', attemptsLeft, err);
+        if (err && err.code === 'ERR_ABORTED') {
+          // Navigation was intentionally aborted (not an error state we care about)
+          console.log('Navigation aborted, ignoring');
+          return;
+        }
+        if (attemptsLeft > 1) {
+          console.log('Retrying load in 1s...');
+          setTimeout(() => loadUrlWithRetries(targetUrl, attemptsLeft - 1), 1000);
+          return;
+        }
+        // Common network errors
+        if (err && (err.code === 'ERR_NETWORK_CHANGED' || err.code === 'ERR_INTERNET_DISCONNECTED')) {
+          view.webContents.loadURL('data:text/html,<h1>Network Error</h1><p>Check your internet connection and try again.</p>');
+          return;
+        }
+        // Try fallback to HTTP for non-google URLs as before
+        if (targetUrl.startsWith('https://') && !targetUrl.includes('google.com') && !targetUrl.includes('search')) {
+          const httpUrl = targetUrl.replace('https://', 'http://');
+          console.log(`Trying HTTP fallback: ${httpUrl}`);
+          view.webContents.loadURL(httpUrl).catch(fallbackErr => {
+            console.error('HTTP fallback also failed:', fallbackErr);
+            view.webContents.loadURL('data:text/html,<h1>Failed to load page</h1><p>Unable to load ' + targetUrl + '</p>');
+          });
+        } else {
+          view.webContents.loadURL('data:text/html,<h1>Failed to load page</h1><p>Unable to load ' + targetUrl + '</p><p>Error: ' + (err && err.message ? err.message : 'Unknown') + '</p>');
+        }
+      });
+    }
+    loadUrlWithRetries(url, 3);
   }
 });
 
@@ -883,6 +1591,20 @@ ipcMain.on('broadcast-widget-settings', (event, data) => {
       win.webContents.send('widget-settings-changed', data);
     }
   });
+});
+
+// Simple notification forwarding so any renderer can show a global toast using the page's UI
+ipcMain.on('notify', (event, { message, type, duration } = {}) => {
+  // Forward to all windows; renderer should render notifications locally
+  BrowserWindow.getAllWindows().forEach(win => {
+    try {
+      if (event && win.webContents !== event.sender) {
+        win.webContents.send('notify', { message, type, duration });
+      }
+    } catch (e) {}
+  });
+  // Also instruct the originating window to show it (in case it's not listening to same events)
+  try { event.sender.send('notify', { message, type, duration }); } catch (e) {}
 });
 
 ipcMain.on('close-app', () => {
@@ -989,10 +1711,99 @@ ipcMain.handle('storage-get-all-keys', () => {
   return Object.keys(storageData);
 });
 
+// Apply or remove web dark mode CSS to a specific BrowserView
+ipcMain.handle('apply-web-dark-mode', async (event, viewId, enabled) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (!win) return false;
+  const state = windows.get(win.id);
+  if (!state || !state.views.has(viewId)) return false;
+  const view = state.views.get(viewId);
+  try {
+    if (!state.viewMeta) state.viewMeta = new Map();
+    const meta = state.viewMeta.get(viewId) || {};
+    const currentUrl = view.webContents.getURL() || '';
+    const skipInternal = currentUrl.startsWith('file://') || currentUrl.includes('settings.html') || currentUrl.includes('history.html');
+    if (skipInternal && enabled) return true; // do not force dark mode on internal pages
+    if (enabled) {
+      if (meta.darkCssKey) return true; // already applied
+      const darkCss = `html, body { background: #121212 !important; color: #e0e0e0 !important; } img, video, svg { filter: none !important; } * { color-scheme: dark !important; }`;
+      const key = await view.webContents.insertCSS(darkCss);
+      meta.darkCssKey = key;
+      state.viewMeta.set(viewId, meta);
+      return true;
+    } else {
+      if (meta.darkCssKey) {
+        const key = meta.darkCssKey;
+        await view.webContents.removeInsertedCSS(key);
+        delete meta.darkCssKey;
+        state.viewMeta.set(viewId, meta);
+      }
+      return true;
+    }
+  } catch (e) {
+    console.error('apply-web-dark-mode handler error:', e);
+    return false;
+  }
+});
+
+// Apply or remove web dark mode to all BrowserViews for a given window (sender)
+ipcMain.handle('apply-web-dark-mode-all', async (event, enabled) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (!win) return false;
+  const state = windows.get(win.id);
+  if (!state) return false;
+  try {
+    const updates = [];
+    for (const [id, view] of state.views) {
+      const urlToCheck = view.webContents.getURL() || '';
+      const skipInternal = (urlToCheck.startsWith('file://') || urlToCheck.includes('settings.html') || urlToCheck.includes('history.html'));
+      if (skipInternal && enabled) {
+        // skip inserting CSS on internal pages
+        continue;
+      }
+      // Use the same handler to insert/remove CSS; ensure we collect promises
+      if (!enabled) {
+        // Remove CSS if present
+        const meta = state.viewMeta && state.viewMeta.get(id);
+        if (meta && meta.darkCssKey) {
+          updates.push(view.webContents.removeInsertedCSS(meta.darkCssKey).then(() => {
+            delete meta.darkCssKey;
+            state.viewMeta.set(id, meta);
+            return true;
+          }).catch(() => false));
+        }
+      } else {
+        const darkCss = `html, body { background: #121212 !important; color: #e0e0e0 !important; } * { color-scheme: dark !important; }`;
+        updates.push(view.webContents.insertCSS(darkCss).then(key => {
+          if (!state.viewMeta) state.viewMeta = new Map();
+          const meta = state.viewMeta.get(id) || {};
+          meta.darkCssKey = key;
+          state.viewMeta.set(id, meta);
+          return true;
+        }).catch(() => false));
+      }
+    }
+    const results = await Promise.all(updates);
+    return results.every(Boolean);
+  } catch (e) {
+    console.error('apply-web-dark-mode-all handler error:', e);
+    return false;
+  }
+});
+
 // Broadcast history updated event
 ipcMain.on('history-updated', (_event) => {
   BrowserWindow.getAllWindows().forEach(win => {
     try { win.webContents.send('history-updated'); } catch (e) {}
+  });
+});
+
+// Request clear history across all windows
+ipcMain.on('request-clear-history', (event) => {
+  const senderWin = BrowserWindow.fromWebContents(event.sender);
+  BrowserWindow.getAllWindows().forEach(win => {
+    if (senderWin && win.id === senderWin.id) return; // Skip origin to avoid loops
+    try { win.webContents.send('clear-history'); } catch (e) {}
   });
 });
 
@@ -1263,6 +2074,7 @@ function createIncognitoWindow() {
     win: incognitoWin,
     views: new Map(),
     activeViewId: null,
+    viewMeta: new Map(),
   };
   windows.set(incognitoWin.id, incognitoState);
 

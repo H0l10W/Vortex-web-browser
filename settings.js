@@ -132,6 +132,38 @@ window.addEventListener('DOMContentLoaded', () => {
     updateSelectedThemeUI(theme);
   });
 
+  // Initialize and bind force web dark toggle
+  const forceWebDarkToggleFull = document.getElementById('force-web-dark-toggle-full');
+  if (forceWebDarkToggleFull) {
+    // Initialize from storage
+    storage.getItem('forceWebDarkMode').then(async value => {
+      const enabled = value === 'true';
+      forceWebDarkToggleFull.checked = enabled;
+      if (window.electronAPI && typeof window.electronAPI.applyWebDarkModeAll === 'function') {
+        try { await window.electronAPI.applyWebDarkModeAll(enabled); } catch (err) { console.error('Failed to apply dark mode at init', err); }
+      }
+    });
+
+    forceWebDarkToggleFull.addEventListener('change', async (e) => {
+      const enabled = !!e.target.checked;
+      try { await storage.setItem('forceWebDarkMode', enabled ? 'true' : 'false'); } catch (err) {}
+      // Ask main to apply CSS to all views
+      if (window.electronAPI && typeof window.electronAPI.applyWebDarkModeAll === 'function') {
+        try { await window.electronAPI.applyWebDarkModeAll(enabled); } catch (err) { console.error('Failed to apply web dark mode to all views', err); }
+      }
+      try { if (window.electronAPI && typeof window.electronAPI.broadcastWidgetSettings === 'function') window.electronAPI.broadcastWidgetSettings('forceWebDark', enabled); } catch (e) {}
+      showToast(enabled ? 'Force web dark mode enabled' : 'Force web dark mode disabled', 'info');
+    });
+    // Listen for broadcasted setting changes from other windows
+    if (window.electronAPI && typeof window.electronAPI.onWidgetSettingsChanged === 'function') {
+      window.electronAPI.onWidgetSettingsChanged((data) => {
+        if (data.widget === 'forceWebDark') {
+          try { forceWebDarkToggleFull.checked = !!data.enabled; } catch (e) {}
+        }
+      });
+    }
+  }
+
   // --- Widget Settings Logic ---
   
   // Widget toggle elements
@@ -316,7 +348,7 @@ window.addEventListener('DOMContentLoaded', () => {
       console.log('Location input value:', location);
       
       if (!location) {
-        alert('Please enter a location');
+        showToast('Please enter a location', 'error');
         return;
       }
       
@@ -334,7 +366,7 @@ window.addEventListener('DOMContentLoaded', () => {
         
       } catch (error) {
         console.error('Error saving to storage:', error);
-        alert('Error saving location: ' + error.message);
+        showToast('Error saving location: ' + error.message, 'error');
         return;
       }
       
@@ -350,7 +382,7 @@ window.addEventListener('DOMContentLoaded', () => {
         console.error('electronAPI.broadcastWidgetSettings not available');
       }
       
-      alert(`Weather location set to: ${location}`);
+      showToast(`Weather location set to: ${location}`, 'success');
     };
   } else {
     console.error('Update weather button not found!');
@@ -368,7 +400,7 @@ window.addEventListener('DOMContentLoaded', () => {
         window.electronAPI.broadcastWidgetSettings('weatherUpdate', true);
       }
       
-      alert('Weather location reset to automatic detection');
+      showToast('Weather location reset to automatic detection', 'success');
     };
   }
 
@@ -376,13 +408,24 @@ window.addEventListener('DOMContentLoaded', () => {
 
   // Clear browsing history
   if (clearHistoryBtn) {
-    clearHistoryBtn.addEventListener('click', () => {
+    clearHistoryBtn.addEventListener('click', async () => {
       if (confirm('Are you sure you want to clear all browsing history?')) {
+        try {
+          // If the settings page is opened in same renderer context, use historyManager if available
+          if (window.historyManager && typeof window.historyManager.clear === 'function') {
+            await window.historyManager.clear();
+          }
+        } catch (err) {
+          console.warn('Failed to clear via historyManager:', err);
+        }
         // Clear persistent browser history used by the main window
-        storage.setItem('browserHistory', '[]');
+        try { await storage.setItem('browserHistory', '[]'); } catch (err) { try { localStorage.setItem('browserHistory', '[]'); } catch(e) {} }
         // Also remove any legacy 'history' key
-        localStorage.removeItem('history');
-        alert('Browsing history cleared successfully.');
+        try { localStorage.removeItem('history'); } catch (e) {}
+        // Broadcast updated history and request all windows to clear their buffers
+        try { if (window.electronAPI && window.electronAPI.broadcastHistoryUpdated) window.electronAPI.broadcastHistoryUpdated(); } catch (e) {}
+        try { if (window.electronAPI && window.electronAPI.requestClearHistory) window.electronAPI.requestClearHistory(); } catch (e) {}
+        showToast('Browsing history cleared', 'success');
       }
     });
   }
@@ -408,9 +451,9 @@ window.addEventListener('DOMContentLoaded', () => {
       if (confirm('Are you sure you want to clear all cookies? This may log you out of websites.')) {
         if (window.electronAPI && typeof window.electronAPI.clearAllCookies === 'function') {
           window.electronAPI.clearAllCookies().then(() => {
-            alert('All cookies cleared successfully.');
+            showToast('All cookies cleared successfully.', 'success');
           }).catch(() => {
-            alert('Failed to clear cookies.');
+            showToast('Failed to clear cookies.', 'error');
           });
         }
       }
@@ -419,7 +462,7 @@ window.addEventListener('DOMContentLoaded', () => {
 
   // Clear all browsing data
   if (clearAllDataBtn) {
-    clearAllDataBtn.addEventListener('click', () => {
+    clearAllDataBtn.addEventListener('click', async () => {
       if (confirm('Are you sure you want to clear ALL browsing data? This includes history, cookies, bookmarks, and quick links. This action cannot be undone.')) {
         // Clear localStorage data
         const themeToKeep = localStorage.getItem('theme');
@@ -433,9 +476,11 @@ window.addEventListener('DOMContentLoaded', () => {
           window.electronAPI.clearAllCookies();
         }
         // Clear persistent browser history as well
-        storage.setItem('browserHistory', '[]');
+          try { await storage.setItem('browserHistory', '[]'); } catch (err) { try { localStorage.setItem('browserHistory', '[]'); } catch(e) {} }
+          try { if (window.electronAPI && window.electronAPI.broadcastHistoryUpdated) window.electronAPI.broadcastHistoryUpdated(); } catch (e) {}
+          try { if (window.electronAPI && window.electronAPI.requestClearHistory) window.electronAPI.requestClearHistory(); } catch (e) {}
         
-        alert('All browsing data cleared successfully.');
+        showToast('All browsing data cleared', 'success');
       }
     });
   }
@@ -485,6 +530,16 @@ window.addEventListener('DOMContentLoaded', () => {
     } else {
       cookiesList.innerHTML = '<p>Cookie management not available.</p>';
     }
+  }
+
+  function showToast(message, type = 'info', duration = 3000) {
+    try {
+      if (window.notifications && typeof window.notifications.notify === 'function') {
+        window.notifications.notify(message, type, duration);
+      } else if (window.electronAPI && typeof window.electronAPI.notify === 'function') {
+        window.electronAPI.notify(message, type, duration);
+      }
+    } catch (e) { console.error('Error requesting global toast from settings:', e); }
   }
 
   // Memory Management Functions

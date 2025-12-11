@@ -24,6 +24,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   broadcastWidgetSettings: (widget, enabled) => ipcRenderer.send('broadcast-widget-settings', { widget, enabled }),
   setBookmarkBarVisibility: (visible) => ipcRenderer.send('set-bookmark-bar-visibility', visible),
   broadcastHistoryUpdated: () => ipcRenderer.send('history-updated'),
+  requestClearHistory: () => ipcRenderer.send('request-clear-history'),
+  // Global notification API
+  notify: (message, type = 'info', duration = 3000) => ipcRenderer.send('notify', { message, type, duration }),
   closeApp: () => ipcRenderer.send('close-app'),
 
   // Cookie management APIs
@@ -39,10 +42,26 @@ contextBridge.exposeInMainWorld('electronAPI', {
   setHomepage: (url) => ipcRenderer.invoke('set-homepage', url),
   setDownloadLocation: (path) => ipcRenderer.invoke('set-download-location', path),
   applyUISettings: (settings) => ipcRenderer.invoke('apply-ui-settings', settings),
+  applyWebDarkMode: (viewId, enabled) => ipcRenderer.invoke('apply-web-dark-mode', viewId, enabled),
+  applyWebDarkModeAll: (enabled) => ipcRenderer.invoke('apply-web-dark-mode-all', enabled),
   setZoomLevel: (zoom) => ipcRenderer.invoke('set-zoom-level', zoom),
   setCloseTabsOnExit: (enabled) => ipcRenderer.invoke('set-close-tabs-on-exit', enabled),
   setTabPreviewsEnabled: (enabled) => ipcRenderer.invoke('set-tab-previews-enabled', enabled),
   on: (channel, callback) => ipcRenderer.on(channel, callback),
+  showTabContextMenu: (tab) => ipcRenderer.send('show-tab-context-menu', tab),
+  // Tab drag/drop APIs
+  tabDragStart: (tab) => ipcRenderer.send('tab-drag-start', tab),
+  // `tabMeta` should include at least `id` and `url`; it may include `webContentsId` and `sourceWinId`.
+  tabDroppedHere: (tabMeta) => ipcRenderer.send('tab-dropped-here', tabMeta),
+  detachTab: (tab) => ipcRenderer.send('detach-tab', tab),
+  tabDragEnd: () => ipcRenderer.send('tab-drag-end'),
+  checkDropTarget: (screenX, screenY, tabMeta) => ipcRenderer.invoke('check-drop-target', { screenX, screenY, tabMeta }),
+  // Acknowledge that the renderer has attached an incoming tab and is ready
+  attachTabAck: (tabId) => ipcRenderer.send('attach-tab-ack', tabId),
+  
+  // Window dragging APIs
+  moveWindow: (deltaX, deltaY) => ipcRenderer.send('move-window', { deltaX, deltaY }),
+  toggleMaximize: () => ipcRenderer.send('toggle-maximize'),
   
   // Persistent storage APIs (to replace localStorage)
   getStorageItem: (key) => ipcRenderer.invoke('storage-get', key),
@@ -84,4 +103,70 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getMemoryUsage: () => ipcRenderer.invoke('get-memory-usage'),
   forceGarbageCollection: () => ipcRenderer.invoke('force-garbage-collection'),
   hibernateInactiveTabs: () => ipcRenderer.invoke('hibernate-inactive-tabs')
+});
+
+// Set up a global notification UI inside the page from the preload context
+function setupGlobalToasts() {
+  try {
+    const styleId = 'global-toast-style';
+    if (!document.getElementById(styleId)) {
+      const s = document.createElement('style');
+      s.id = styleId;
+      s.textContent = `
+      .global-toast-container { position: fixed; left: 16px; bottom: 16px; display: flex; flex-direction: column; gap: 8px; z-index: 99999; }
+      .global-toast { min-width: 220px; max-width: 460px; padding: 12px 16px; border-radius: 8px; color: #fff; font-weight: 500; box-shadow: 0 6px 18px rgba(0,0,0,0.2); transition: transform 0.16s ease, opacity 0.16s ease; }
+      .global-toast-info { background: #333; }
+      .global-toast-success { background: #11a04b; }
+      .global-toast-error { background: #e81123; }
+      .global-toast.hide { opacity: 0; transform: translateY(8px); }`;
+      document.head.appendChild(s);
+    }
+
+    let container = document.getElementById('global-toast-container');
+    if (!container) {
+      container = document.createElement('div');
+      container.id = 'global-toast-container';
+      container.className = 'global-toast-container';
+      document.body.appendChild(container);
+    }
+    return container;
+  } catch (e) {
+    console.error('Failed to setup global toasts in preload:', e);
+    return null;
+  }
+}
+
+// Render a toast locally in this window (preload context)
+function renderLocalToast({ message, type = 'info', duration = 3000 } = {}) {
+  try {
+    const container = setupGlobalToasts();
+    if (!container) return;
+    const t = document.createElement('div');
+    t.className = `global-toast global-toast-${type}`;
+    t.textContent = message;
+    container.appendChild(t);
+    setTimeout(() => { t.classList.add('hide'); setTimeout(() => t.remove(), 200); }, duration);
+  } catch (e) { console.error('Failed to render local toast', e); }
+}
+
+// Listen for notify messages from main and render locally
+ipcRenderer.on('notify', (_event, payload) => {
+  renderLocalToast(payload);
+});
+
+// Inform main that renderer (preload) is ready to receive IPC messages
+window.addEventListener('DOMContentLoaded', () => {
+  try { ipcRenderer.send('renderer-ready'); } catch (e) { }
+});
+
+// Explicit UI ready signal for when renderer has finished initializing state and UI
+contextBridge.exposeInMainWorld('electronUI', {
+  uiReady: () => ipcRenderer.send('renderer-ui-ready')
+});
+
+// Optionally expose a `notifications` API for direct use in renderer code
+contextBridge.exposeInMainWorld('notifications', {
+  notify: (message, type = 'info', duration = 3000) => {
+    try { ipcRenderer.send('notify', { message, type, duration }); } catch (e) {}
+  }
 });

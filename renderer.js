@@ -5,6 +5,11 @@ import { createHistoryManager } from './renderer-modular/history-manager.js';
 const storage = createStorage(window.electronAPI);
 window.storage = storage;
 
+// Add a windowId-based storage prefix so each window persists tabs separately
+const _urlParams = new URLSearchParams(window.location.search || '');
+const _windowId = _urlParams.get('windowId') || 'global';
+const storageKey = (key) => `${_windowId}:${key}`;
+
 // Initialize the history manager to replace inline buffer/flush logic
 const historyManager = createHistoryManager(window.electronAPI);
 historyManager.init().catch(() => {});
@@ -53,9 +58,10 @@ window.addEventListener('DOMContentLoaded', () => {
               let settingsOffset = 0;
               function appendSettingsHistory() {
                 if (settingsOffset >= entries.length) return;
-                const frag2 = document.createDocumentFragment();
                 const next = entries.slice(settingsOffset, settingsOffset + pageSize);
-                next.forEach(entry => {
+                const doAppend = () => {
+                  const frag2 = document.createDocumentFragment();
+                  next.forEach(entry => {
                   const item = document.createElement('div');
                   item.style.display = 'flex';
                   item.style.alignItems = 'center';
@@ -84,8 +90,14 @@ window.addEventListener('DOMContentLoaded', () => {
                   };
                   frag2.appendChild(item);
                 });
-                settingsHistoryList.appendChild(frag2);
-                settingsOffset += pageSize;
+                  settingsHistoryList.appendChild(frag2);
+                  settingsOffset += pageSize;
+                };
+                if ('requestIdleCallback' in window) {
+                  window.requestIdleCallback(() => doAppend(), { timeout: 200 });
+                } else {
+                  setTimeout(doAppend, 0);
+                }
               }
               appendSettingsHistory();
               // load more when scrolled near bottom
@@ -94,25 +106,47 @@ window.addEventListener('DOMContentLoaded', () => {
                 if (settingsHistoryList.scrollTop + settingsHistoryList.clientHeight > settingsHistoryList.scrollHeight - 200) {
                   appendSettingsHistory();
                 }
-              });
+                }, { passive: true });
                 settingsHistoryList._virtualizationListenerAdded = true;
               }
               settingsHistoryList.appendChild(frag);
               perfEnd('renderSettingsHistory');
             }
       }
+      // Expose for other windows and modules to request a re-render
+      window.renderSettingsHistory = renderSettingsHistory;
       // Render on open
       const origOpenSettingsPanel = openSettingsPanel;
       openSettingsPanel = function() {
         renderSettingsHistory();
         origOpenSettingsPanel();
       };
+      // Listen for history updates and re-render the settings history
+      if (window.electronAPI && typeof window.electronAPI.on === 'function') {
+        window.electronAPI.on('history-updated', () => {
+          try { renderSettingsHistory(); } catch (e) {}
+        });
+        // If main process requests a history clear across windows, call the local historyManager.clear() too
+        window.electronAPI.on('clear-history', async () => {
+          try { await historyManager.clear(); renderSettingsHistory(); } catch (e) { }
+        });
+      }
       // Clear history
       clearHistoryBtn.onclick = async () => {
         if (confirm('Are you sure you want to clear all browsing history?')) {
-          await storage.setItem('browserHistory', '[]');
-          renderSettingsHistory();
-          alert('Browsing history cleared successfully.');
+          try {
+            await historyManager.clear();
+            try { if (window.electronAPI && window.electronAPI.broadcastHistoryUpdated) window.electronAPI.broadcastHistoryUpdated(); } catch (e) {}
+            try { if (window.electronAPI && window.electronAPI.requestClearHistory) window.electronAPI.requestClearHistory(); } catch (e) {}
+            renderSettingsHistory();
+            showUpdateNotification('Browsing history cleared successfully.', 'success', 3000);
+          } catch (e) {
+            // Fallback
+            await storage.setItem('browserHistory', '[]');
+            try { localStorage.setItem('browserHistory', '[]'); } catch (err) {}
+            renderSettingsHistory();
+            showUpdateNotification('Browsing history cleared successfully.', 'success', 3000);
+          }
         }
       };
     }
@@ -135,6 +169,38 @@ window.addEventListener('DOMContentLoaded', () => {
       document.documentElement.style.setProperty('--transition-speed', '0.1s');
     }
   });
+  // Force web dark mode toggle handling
+  const forceWebDarkToggle = document.getElementById('force-web-dark-toggle');
+  let forceWebDarkEnabled = false;
+  if (forceWebDarkToggle) {
+    // Initialize from storage
+    storage.getItem('forceWebDarkMode').then(saved => {
+      forceWebDarkEnabled = saved === 'true';
+      try { forceWebDarkToggle.checked = forceWebDarkEnabled; } catch (e) {}
+      try { const icon = document.getElementById('force-web-dark-icon'); if (icon) icon.classList.toggle('active', forceWebDarkEnabled); } catch(e) {}
+      // Apply to all current tabs (will be applied again on navigation for each view)
+      if (forceWebDarkEnabled && window.electronAPI && typeof window.electronAPI.applyWebDarkMode === 'function') {
+        for (const tab of tabs) {
+          try { window.electronAPI.applyWebDarkMode(tab.id, true); } catch (e) {}
+        }
+      }
+    }).catch(() => {});
+
+    forceWebDarkToggle.addEventListener('change', async (e) => {
+      forceWebDarkEnabled = !!e.target.checked;
+      try { await storage.setItem('forceWebDarkMode', forceWebDarkEnabled ? 'true' : 'false'); } catch (err) {}
+      // Apply or remove to all current tabs
+      if (window.electronAPI && typeof window.electronAPI.applyWebDarkMode === 'function') {
+        for (const tab of tabs) {
+          try { window.electronAPI.applyWebDarkMode(tab.id, forceWebDarkEnabled); } catch (err) {}
+        }
+      }
+      try { if (window.electronAPI && typeof window.electronAPI.broadcastWidgetSettings === 'function') window.electronAPI.broadcastWidgetSettings('forceWebDark', forceWebDarkEnabled); } catch (e) {}
+      try { const icon = document.getElementById('force-web-dark-icon'); if (icon) icon.classList.toggle('active', forceWebDarkEnabled); } catch(e) {}
+      // Also ask the main process to apply CSS to all BrowserViews for reliable coverage
+      try { if (window.electronAPI && typeof window.electronAPI.applyWebDarkModeAll === 'function') await window.electronAPI.applyWebDarkModeAll(forceWebDarkEnabled); } catch (e) { console.error('applyWebDarkModeAll failed', e); }
+    });
+  }
   
   // Initialize tab previews setting
   let tabPreviewsEnabled = true; // Default to true
@@ -152,7 +218,35 @@ window.addEventListener('DOMContentLoaded', () => {
   // --- State ---
   // Initialize state asynchronously with persistent storage
   async function initializeState() {
-    let tabs = JSON.parse(await storage.getItem('tabs') || '[]');
+    // Detect if this window should start with a specific URL (opened via Open in New Window)
+    try {
+      const params = new URLSearchParams(window.location.search || '');
+      const newWindowUrl = params.get('newWindowUrl');
+      const isFresh = params.get('fresh') === '1';
+      console.log('initializeState params newWindowUrl=', newWindowUrl, 'fresh=', isFresh);
+      if (newWindowUrl) {
+        const decoded = decodeURIComponent(newWindowUrl);
+        const tabId = Date.now();
+        const tabs = [{ id: tabId, url: decoded, history: [decoded], historyIndex: 0, viewCreated: false }];
+        const currentTabId = tabId;
+        const bookmarks = JSON.parse(await storage.getItem('bookmarks') || '[]');
+        const homepage = await storage.getItem('homepage') || 'https://www.google.com';
+        const quickLinks = JSON.parse(await storage.getItem('quickLinks') || '[]');
+        // Mark this window as intentionally initialized for a single URL so onNewWindow events are ignored
+        try { window._isNewWindowTarget = true; } catch (e) {}
+        if (isFresh) {
+          // keep only the specified URL in this window and avoid loading other saved tabs
+        }
+        return { tabs, currentTabId, bookmarks, homepage, quickLinks };
+      }
+    } catch (err) { /* ignore */ }
+    let tabs = JSON.parse(await storage.getItem(storageKey('tabs')) || '[]');
+    const params = new URLSearchParams(window.location.search || '');
+    const isFresh = params.get('fresh') === '1';
+    if (isFresh) {
+      console.log('initializeState: fresh window — skipping saved tabs');
+      tabs = [{ id: Date.now(), url: 'newtab', history: ['newtab'], historyIndex: 0 }];
+    }
     
     // Validate and clean up tabs
     tabs = tabs.filter(tab => tab && tab.id && typeof tab.url === 'string');
@@ -170,7 +264,7 @@ window.addEventListener('DOMContentLoaded', () => {
       viewCreated: false // Force recreation on restart
     }));
     
-    let currentTabId = parseInt(await storage.getItem('currentTabId') || (tabs.length > 0 ? tabs[0].id : null), 10);
+    let currentTabId = parseInt(await storage.getItem(storageKey('currentTabId')) || (tabs.length > 0 ? tabs[0].id : null), 10);
     
     // Validate currentTabId exists in tabs
     if (!tabs.find(tab => tab.id === currentTabId)) {
@@ -191,6 +285,33 @@ window.addEventListener('DOMContentLoaded', () => {
   let homepage = 'https://www.google.com';
   let quickLinks = [];
   
+  // Global drop zone for cross-window tab drops
+  document.body.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+  }, { passive: false });
+  
+  document.body.addEventListener('drop', (e) => {
+    if (window._externalDraggedTabMeta) {
+      e.preventDefault();
+      e.stopPropagation();
+      
+      // Use the stored transferId to ensure consistency
+      const meta = {
+        ...window._externalDraggedTabMeta,
+        transferId: window._currentDragTransferId
+      };
+      
+      console.log('[DND] body drop handler - external tab with stored transferId:', meta);
+      
+      if (window.electronAPI && window.electronAPI.tabDroppedHere) {
+        window.electronAPI.tabDroppedHere(meta);
+        window._tabDropHandled = true;
+        console.log('[DND] body drop - called tabDroppedHere');
+      }
+    }
+  });
+  
   // Load actual state asynchronously
   initializeState().then(actualState => {
     tabs = actualState.tabs;
@@ -208,6 +329,8 @@ window.addEventListener('DOMContentLoaded', () => {
     renderTabs();
     renderBookmarkBar();
     switchTab(currentTabId);
+    // Notify main that the renderer UI is fully initialized and ready to accept attachments
+    try { if (window.electronUI && typeof window.electronUI.uiReady === 'function') window.electronUI.uiReady(); } catch (err) { }
   }).catch(error => {
     console.error('Error loading persistent state:', error);
   });
@@ -317,6 +440,17 @@ window.addEventListener('DOMContentLoaded', () => {
     // Listen for widget settings changes from other windows (like settings page)
     if (window.electronAPI && window.electronAPI.onWidgetSettingsChanged) {
       window.electronAPI.onWidgetSettingsChanged((data) => {
+        if (data.widget === 'forceWebDark') {
+          try { forceWebDarkToggle.checked = !!data.enabled; forceWebDarkEnabled = !!data.enabled; } catch(e) {}
+          // Apply to all current tabs if enabled/disabled
+          if (window.electronAPI && typeof window.electronAPI.applyWebDarkMode === 'function') {
+            for (const tab of tabs) {
+              try { window.electronAPI.applyWebDarkMode(tab.id, !!data.enabled); } catch (err) {}
+            }
+          }
+          // Update toolbar icon
+          try { const icon = document.getElementById('force-web-dark-icon'); if (icon) icon.classList.toggle('active', !!data.enabled); } catch(e) {}
+        }
         if (data.widget === 'weatherUpdate') {
           // Reload weather widget when location settings change
           const weatherWidget = document.querySelector('#weather-widget');
@@ -351,6 +485,92 @@ window.addEventListener('DOMContentLoaded', () => {
   const controlsDiv = document.getElementById('controls'); // Add controls div reference
   // Ensure clicking anywhere on the controls focuses the URL input (helps recover focus if an overlay briefly steals it)
   try { if (controlsDiv && urlInput) controlsDiv.addEventListener('click', () => { try { urlInput.focus(); } catch (e) {} }); } catch (e) {}
+  
+  // Implement custom window dragging for the title bar
+  const titleBar = document.getElementById('title-bar');
+  if (titleBar) {
+    let isDraggingWindow = false;
+    let dragStartX = 0;
+    let dragStartY = 0;
+    
+    titleBar.addEventListener('mousedown', (e) => {
+      // Only start window drag if clicking on the title bar itself or tabs container background
+      // Don't drag if clicking on tabs, buttons, or other interactive elements
+      const target = e.target;
+      const isTab = target.closest('.tab');
+      const isButton = target.closest('button') || target.tagName === 'BUTTON';
+      const isWindowControl = target.closest('#window-controls');
+      
+      if (!isTab && !isButton && !isWindowControl) {
+        isDraggingWindow = true;
+        dragStartX = e.screenX;
+        dragStartY = e.screenY;
+        e.preventDefault();
+      }
+    });
+    
+    document.addEventListener('mousemove', (e) => {
+      if (isDraggingWindow) {
+        const deltaX = e.screenX - dragStartX;
+        const deltaY = e.screenY - dragStartY;
+        
+        if (Math.abs(deltaX) > 2 || Math.abs(deltaY) > 2) {
+          if (window.electronAPI && typeof window.electronAPI.moveWindow === 'function') {
+            window.electronAPI.moveWindow(deltaX, deltaY);
+            dragStartX = e.screenX;
+            dragStartY = e.screenY;
+          }
+        }
+      }
+    });
+    
+    document.addEventListener('mouseup', () => {
+      isDraggingWindow = false;
+    });
+    
+    // Also handle double-click to maximize/restore
+    titleBar.addEventListener('dblclick', (e) => {
+      const target = e.target;
+      const isTab = target.closest('.tab');
+      const isButton = target.closest('button');
+      
+      if (!isTab && !isButton) {
+        if (window.electronAPI && typeof window.electronAPI.toggleMaximize === 'function') {
+          window.electronAPI.toggleMaximize();
+        }
+      }
+    });
+  }
+  
+  // Make the tabs div itself a drop zone
+  if (tabsDiv) {
+    tabsDiv.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      e.dataTransfer.dropEffect = 'move';
+    }, { passive: false });
+    
+    tabsDiv.addEventListener('drop', (e) => {
+      if (window._externalDraggedTabMeta) {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        const meta = {
+          ...window._externalDraggedTabMeta,
+          transferId: window._currentDragTransferId
+        };
+        
+        console.log('[DND] tabs div drop handler - external tab with stored transferId:', meta);
+        
+        if (window.electronAPI && window.electronAPI.tabDroppedHere) {
+          window.electronAPI.tabDroppedHere(meta);
+          window._tabDropHandled = true;
+          console.log('[DND] tabs div drop - called tabDroppedHere');
+        }
+      }
+    });
+  }
+
 
   // --- App Version Display ---
   const appVersionSpan = document.getElementById('app-version');
@@ -507,6 +727,10 @@ window.addEventListener('DOMContentLoaded', () => {
       });
     }
 
+    // If there is no click handler, prefer to use the global notifications API for a consistent toast
+    if (!clickHandler && window.notifications && typeof window.notifications.notify === 'function') {
+      try { window.notifications.notify(message, type, duration); return null; } catch (e) { /* fallthrough */ }
+    }
     // Add to page
     document.body.appendChild(notification);
 
@@ -609,55 +833,22 @@ window.addEventListener('DOMContentLoaded', () => {
     tabs.forEach((tab) => {
       const tabEl = document.createElement('div');
       let tabClass = 'tab' + (tab.id === currentTabId ? ' active' : '');
-      if (tab.isIncognito) {
-        tabClass += ' incognito';
-      }
+      if (tab.isIncognito) tabClass += ' incognito';
       tabEl.className = tabClass;
-      
-      // Only show favicon and title if tab previews are enabled
+      // Favicon and title
       if (tabPreviewsEnabled) {
         const favicon = document.createElement('img');
-        const host = getHostFromUrl(tab.url);
-        favicon.dataset.faviconHost = host;
         favicon.src = getFavicon(tab.url);
+        favicon.onerror = function() { this.src = 'icons/newtab.png'; };
         favicon.style.width = '16px';
         favicon.style.height = '16px';
-        favicon.onerror = function() { this.src = 'icons/newtab.png'; };
         tabEl.appendChild(favicon);
-
         const titleSpan = document.createElement('span');
-        let displayTitle;
-        if (tab.url === 'newtab') {
-          displayTitle = tab.isIncognito ? 'New Tab (Incognito)' : 'New Tab';
-        } else if (tab.url && tab.url.includes('history.html')) {
-          displayTitle = 'History';
-        } else if (tab.url && tab.url.includes('settings.html')) {
-          displayTitle = 'Settings';
-        } else {
-          try {
-            // Prefer title when available, fallback to site name or filename
-            if (tab.title && tab.title.length) {
-              displayTitle = tab.title.length > 20 ? tab.title.substring(0, 20) + '...' : tab.title;
-            } else {
-              const u = new URL(tab.url);
-              if (u.protocol === 'file:') {
-                const parts = u.pathname.split('/');
-                const name = parts[parts.length - 1] || 'Local Page';
-                displayTitle = name;
-              } else {
-                displayTitle = (u.hostname || tab.url).substring(0, 20) + '...';
-              }
-            }
-          } catch (e) {
-            const baseTitle = (tab.title || tab.url).substring(0, 20) + '...';
-            displayTitle = baseTitle;
-          }
-          if (tab.isIncognito) displayTitle += ' (Incognito)';
-        }
+        let displayTitle = tab.title || tab.url || 'New Tab';
+        if (displayTitle.length > 32) displayTitle = displayTitle.substring(0, 32) + '...';
         titleSpan.textContent = displayTitle;
         tabEl.appendChild(titleSpan);
       } else {
-        // When tab previews are disabled, just show a minimal tab indicator
         const indicator = document.createElement('div');
         indicator.style.width = '8px';
         indicator.style.height = '8px';
@@ -665,34 +856,346 @@ window.addEventListener('DOMContentLoaded', () => {
         indicator.style.backgroundColor = tab.id === currentTabId ? '#4285f4' : '#dadce0';
         indicator.style.margin = 'auto';
         tabEl.appendChild(indicator);
-        
-        // Adjust tab styling for minimal view
         tabEl.style.minWidth = '32px';
         tabEl.style.maxWidth = '32px';
       }
-
+      // Close button
       const closeBtn = document.createElement('div');
       closeBtn.className = 'close';
       closeBtn.textContent = '×';
-      closeBtn.onclick = (e) => {
-        e.stopPropagation();
-        closeTab(tab.id);
-      };
-      
-      // Only show close button if tab previews are enabled or it's the active tab
-      if (tabPreviewsEnabled || tab.id === currentTabId) {
-        tabEl.appendChild(closeBtn);
-      }
-
+      closeBtn.onclick = (e) => { e.stopPropagation(); closeTab(tab.id); };
+      if (tabPreviewsEnabled || tab.id === currentTabId) tabEl.appendChild(closeBtn);
       tabEl.onclick = () => switchTab(tab.id);
+      tabEl.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        try { if (window.electronAPI && window.electronAPI.showTabContextMenu) window.electronAPI.showTabContextMenu({ id: tab.id, url: tab.url, title: tab.title }); } catch (err) { console.error('showTabContextMenu failed', err); }
+      });
+      // --- Modern Drag & Drop ---
+      tabEl.draggable = true;
+      tabEl.addEventListener('dragstart', (e) => {
+        try {
+          const tabId = tab.id;
+          const transferId = `transfer-${_windowId}-${tabId}-${Date.now()}`;
+          
+          e.dataTransfer.setData('application/tab-id', String(tabId));
+          e.dataTransfer.effectAllowed = 'move';
+          tabEl.classList.add('dragging');
+          
+          // Build complete metadata
+          const meta = {
+            id: tabId,
+            url: tab.url,
+            title: tab.title,
+            isIncognito: tab.isIncognito || false,
+            transferId,
+            webContentsId: tab.webContentsId,
+            sourceWinId: _windowId
+          };
+          
+          // Store drag state AND transferId separately
+          window._tabDragState = { tabId, meta };
+          window._currentDragTransferId = transferId; // Store separately to prevent any modification
+          window._tabDropHandled = false;
+          window._externalDraggedTabMeta = meta;
+          tabs._draggingId = tabId;
+          
+          // Notify main process
+          if (window.electronAPI && window.electronAPI.tabDragStart) {
+            window.electronAPI.tabDragStart(meta);
+          }
+          
+          console.log('[DND] dragstart - stored transferId:', transferId);
+          console.log('[DND] dragstart - full meta:', meta);
+        } catch (err) {
+          console.error('[DND] dragstart error:', err);
+        }
+      });
+      tabEl.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        tabEl.classList.add('drag-over');
+      }, { passive: false });
+      tabEl.addEventListener('dragleave', (e) => { tabEl.classList.remove('drag-over'); });
+      tabEl.addEventListener('drop', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        tabEl.classList.remove('drag-over');
+        const data = e.dataTransfer.getData('application/tab-id');
+        
+        console.log('[DND] tab drop event:', { hasData: !!data, hasExternal: !!window._externalDraggedTabMeta });
+        
+        if (data) {
+          // Internal reorder
+          const draggedId = parseInt(data, 10);
+          if (!isNaN(draggedId) && draggedId !== tab.id) {
+            const fromIndex = tabs.findIndex(t => t.id === draggedId);
+            const toIndex = tabs.findIndex(t => t.id === tab.id);
+            if (fromIndex !== -1 && toIndex !== -1) {
+              const [moved] = tabs.splice(fromIndex, 1);
+              tabs.splice(toIndex, 0, moved);
+              persistTabs();
+              renderTabs();
+              window._tabDropHandled = true;
+              console.log('[DND] reorder:', { from: fromIndex, to: toIndex });
+            }
+          }
+        } else if (window._externalDraggedTabMeta) {
+          // External drop - attach tab from another window - use stored transferId
+          const meta = {
+            ...window._externalDraggedTabMeta,
+            transferId: window._currentDragTransferId
+          };
+          console.log('[DND] external drop on tab with stored transferId:', meta);
+          
+          if (window.electronAPI && window.electronAPI.tabDroppedHere) {
+            window.electronAPI.tabDroppedHere(meta);
+            window._tabDropHandled = true;
+            console.log('[DND] called tabDroppedHere with meta:', meta);
+          }
+        }
+      });
+      tabEl.addEventListener('dragend', async (e) => {
+        tabEl.classList.remove('dragging');
+        delete tabs._draggingId;
+        
+        console.log('[DND] dragend fired:', { 
+          clientX: e.clientX, 
+          clientY: e.clientY,
+          screenX: e.screenX,
+          screenY: e.screenY,
+          dropHandled: window._tabDropHandled 
+        });
+        
+        // Block newtab placeholder
+        if (tab.url === 'newtab') {
+          console.log('[DND] Blocked drag of newtab placeholder');
+          if (window.electronAPI && typeof window.electronAPI.tabDragEnd === 'function') {
+            window.electronAPI.tabDragEnd();
+          }
+          return;
+        }
+        
+        // Check if dragged outside tab area
+        const tabsRect = tabsDiv.getBoundingClientRect();
+        const outOfTabArea = e.clientY < tabsRect.top - 40 || e.clientY > tabsRect.bottom + 40 ||
+                            e.clientX < tabsRect.left - 40 || e.clientX > tabsRect.right + 40;
+        
+        console.log('[DND] dragend analysis:', { 
+          outOfTabArea,
+          dropHandled: window._tabDropHandled,
+          screenPos: { x: e.screenX, y: e.screenY }
+        });
+        
+        if (outOfTabArea) {
+          // Wait briefly for any drop events
+          await new Promise(resolve => setTimeout(resolve, 100));
+          
+          // Use screen coordinates to check if dropped on another window
+          if (window.electronAPI && typeof window.electronAPI.checkDropTarget === 'function') {
+            console.log('[DND] dragend - window._currentDragTransferId:', window._currentDragTransferId);
+            console.log('[DND] dragend - window._tabDragState:', window._tabDragState);
+            
+            const dragMeta = {
+              id: tab.id,
+              url: tab.url,
+              title: tab.title,
+              isIncognito: tab.isIncognito || false,
+              transferId: window._currentDragTransferId, // Use the separately stored transferId
+              webContentsId: tab.webContentsId,
+              sourceWinId: _windowId
+            };
+            
+            console.log('[DND] dragend - dragMeta being sent:', dragMeta);
+            
+            const result = await window.electronAPI.checkDropTarget(e.screenX, e.screenY, dragMeta);
+            
+            console.log('[DND] checkDropTarget result:', result);
+            
+            if (result && result.handled) {
+              // Tab was attached to another window
+              console.log('[DND] Tab attached to window:', result.targetWindowId);
+              if (window.electronAPI && typeof window.electronAPI.tabDragEnd === 'function') {
+                window.electronAPI.tabDragEnd();
+              }
+              return;
+            }
+          }
+          
+          // No target window - create new window
+          console.log('[DND] Creating new window for detached tab');
+          
+          // Ensure view exists
+          if (!tab.viewCreated && window.electronAPI && window.electronAPI.viewCreate) {
+            const settings = {
+              javascriptEnabled: localStorage.getItem('javascriptEnabled'),
+              imagesEnabled: localStorage.getItem('imagesEnabled'),
+              popupBlockerEnabled: localStorage.getItem('popupBlockerEnabled'),
+              userAgent: localStorage.getItem('userAgent'),
+              smoothScrolling: localStorage.getItem('smoothScrolling'),
+              reducedAnimations: localStorage.getItem('reducedAnimations'),
+              pageZoom: localStorage.getItem('pageZoom')
+            };
+            window.electronAPI.viewCreate(tab.id, settings);
+            if (tab.url && tab.url !== 'newtab') {
+              window.electronAPI.viewNavigate({ id: tab.id, url: tab.url });
+            }
+            await new Promise(resolve => setTimeout(resolve, 100));
+            tab.viewCreated = true;
+          }
+          
+          if (window.electronAPI && typeof window.electronAPI.detachTab === 'function') {
+            window.electronAPI.detachTab({
+              id: tab.id,
+              url: tab.url,
+              title: tab.title,
+              isIncognito: tab.isIncognito
+            });
+          }
+        }
+        
+        if (window.electronAPI && typeof window.electronAPI.tabDragEnd === 'function') {
+          window.electronAPI.tabDragEnd();
+        }
+      });
       frag.appendChild(tabEl);
     });
     const newTabBtn = document.createElement('button');
     newTabBtn.id = 'new-tab-btn';
     newTabBtn.textContent = '+';
     newTabBtn.onclick = () => newTab();
+    
+    // Make new tab button a drop zone
+    newTabBtn.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      e.dataTransfer.dropEffect = 'move';
+    }, { passive: false });
+    
+    newTabBtn.addEventListener('drop', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      
+      if (window._externalDraggedTabMeta) {
+        const meta = {
+          ...window._externalDraggedTabMeta,
+          transferId: window._currentDragTransferId
+        };
+        
+        console.log('[DND] new tab button drop - external tab with stored transferId:', meta);
+        
+        if (window.electronAPI && window.electronAPI.tabDroppedHere) {
+          window.electronAPI.tabDroppedHere(meta);
+          window._tabDropHandled = true;
+        }
+      }
+    });
+    
     frag.appendChild(newTabBtn);
     tabsDiv.appendChild(frag);
+    
+    // Create an invisible drop zone overlay that covers the entire tabs area including empty space
+    if (!tabsDiv.querySelector('.tabs-drop-overlay')) {
+      const dropOverlay = document.createElement('div');
+      dropOverlay.className = 'tabs-drop-overlay';
+      dropOverlay.style.cssText = `
+        position: absolute; 
+        top: 0; 
+        left: 0; 
+        width: 100%;
+        height: 100%; 
+        z-index: 0;
+        -webkit-app-region: no-drag;
+        pointer-events: none;
+      `;
+      
+      dropOverlay.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        e.dataTransfer.dropEffect = 'move';
+      }, { passive: false });
+      
+      dropOverlay.addEventListener('drop', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        if (window._externalDraggedTabMeta) {
+          const meta = {
+            ...window._externalDraggedTabMeta,
+            transferId: window._currentDragTransferId
+          };
+          
+          console.log('[DND] drop overlay - external tab with stored transferId:', meta);
+          
+          if (window.electronAPI && window.electronAPI.tabDroppedHere) {
+            window.electronAPI.tabDroppedHere(meta);
+            window._tabDropHandled = true;
+          }
+        }
+      });
+      
+      // Enable pointer events only during drag
+      tabsDiv.addEventListener('dragenter', () => {
+        dropOverlay.style.pointerEvents = 'auto';
+      });
+      
+      tabsDiv.addEventListener('dragleave', (e) => {
+        // Only disable if actually leaving the tabs area
+        if (!tabsDiv.contains(e.relatedTarget)) {
+          dropOverlay.style.pointerEvents = 'none';
+        }
+      });
+      
+      tabsDiv.addEventListener('drop', () => {
+        dropOverlay.style.pointerEvents = 'none';
+      });
+      
+      tabsDiv.insertBefore(dropOverlay, tabsDiv.firstChild);
+    }
+    
+    // Allow dropping tabs on the empty tabs area to move to end or attach external tab
+    if (!tabsDiv._dropListenersAdded) {
+      tabsDiv.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+      }, { passive: false });
+      tabsDiv.addEventListener('drop', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const data = e.dataTransfer.getData('application/tab-id');
+        
+        console.log('[DND] tabs area drop:', { hasData: !!data, hasExternal: !!window._externalDraggedTabMeta });
+        
+        if (data) {
+          // Move to end
+          const draggedId = parseInt(data, 10);
+          if (!isNaN(draggedId)) {
+            const fromIndex = tabs.findIndex(t => t.id === draggedId);
+            if (fromIndex !== -1) {
+              const [moved] = tabs.splice(fromIndex, 1);
+              tabs.push(moved);
+              persistTabs();
+              renderTabs();
+              window._tabDropHandled = true;
+              console.log('[DND] moved to end');
+            }
+          }
+        } else if (window._externalDraggedTabMeta) {
+          // External drop on tab area - use the stored transferId
+          const meta = {
+            ...window._externalDraggedTabMeta,
+            transferId: window._currentDragTransferId
+          };
+          console.log('[DND] external drop on tabs area with stored transferId:', meta);
+          
+          if (window.electronAPI && window.electronAPI.tabDroppedHere) {
+            window.electronAPI.tabDroppedHere(meta);
+            window._tabDropHandled = true;
+            console.log('[DND] called tabDroppedHere from tabs area');
+          }
+        }
+      });
+      tabsDiv._dropListenersAdded = true;
+    }
     perfEnd('renderTabs');
   }
 
@@ -822,8 +1325,8 @@ window.addEventListener('DOMContentLoaded', () => {
   function persistTabs() {
     if (_persistTabsTimeout) clearTimeout(_persistTabsTimeout);
     _persistTabsTimeout = setTimeout(() => {
-      storage.setItem('tabs', JSON.stringify(tabs));
-      storage.setItem('currentTabId', currentTabId);
+      storage.setItem(storageKey('tabs'), JSON.stringify(tabs));
+      storage.setItem(storageKey('currentTabId'), currentTabId);
       _persistTabsTimeout = null;
     }, 500);
   }
@@ -886,7 +1389,7 @@ window.addEventListener('DOMContentLoaded', () => {
           url = new URL('history.html', window.location.href).href;
         }
       } catch(e) {}
-      window.electronAPI.viewNavigate({ id: tab.id, url });
+      if (url && url !== 'newtab') window.electronAPI.viewNavigate({ id: tab.id, url });
       persistTabs();
       updateView();
     }
@@ -909,7 +1412,7 @@ window.addEventListener('DOMContentLoaded', () => {
     if (tab.historyIndex > 0) {
       tab.historyIndex--;
       tab.url = tab.history[tab.historyIndex];
-      window.electronAPI.viewNavigate({ id: tab.id, url: tab.url });
+      if (tab.url && tab.url !== 'newtab') window.electronAPI.viewNavigate({ id: tab.id, url: tab.url });
       persistTabs();
       updateView();
     }
@@ -920,7 +1423,7 @@ window.addEventListener('DOMContentLoaded', () => {
     if (tab.historyIndex < tab.history.length - 1) {
       tab.historyIndex++;
       tab.url = tab.history[tab.historyIndex];
-      window.electronAPI.viewNavigate({ id: tab.id, url: tab.url });
+      if (tab.url && tab.url !== 'newtab') window.electronAPI.viewNavigate({ id: tab.id, url: tab.url });
       persistTabs();
       updateView();
     }
@@ -1267,6 +1770,11 @@ window.addEventListener('DOMContentLoaded', () => {
     persistTabs();
     renderTabs(); // Update tab title/favicon
 
+    // Re-apply forced web dark mode to the view that navigated
+    if (forceWebDarkEnabled && window.electronAPI && typeof window.electronAPI.applyWebDarkMode === 'function') {
+      try { window.electronAPI.applyWebDarkMode(id, true); } catch (err) { console.error('applyWebDarkMode error', err); }
+    }
+
     // --- Browser-wide History Saving (exclude internal pages) ---
     function isSkippableUrl(u) {
       if (!u) return true;
@@ -1307,9 +1815,10 @@ window.addEventListener('DOMContentLoaded', () => {
 
   // This is a new window. Clear old state and load the URL.
   window.electronAPI.onNewWindow((url) => {
+      if (window._isNewWindowTarget) return; // Window already opened for a specific URL, ignore
       // Clear the tab state from the previous window
-      localStorage.removeItem('tabs');
-      localStorage.removeItem('currentTabId');
+      try { localStorage.removeItem(storageKey('tabs')); } catch(e) {}
+      try { localStorage.removeItem(storageKey('currentTabId')); } catch(e) {}
 
       // Re-initialize state for the new window
       const newTabId = Date.now();
@@ -1333,6 +1842,141 @@ window.addEventListener('DOMContentLoaded', () => {
       window.electronAPI.viewNavigate({ id: newTabId, url });
       updateView();
       renderTabs();
+  });
+
+  // Inter-window drag/drop support: show visual indicator when other window is dragging a tab
+  // Flag set when main/target signals the drag ended (drop handled)
+  let dropHandled = false;
+  window.electronAPI.on('tab-drag-started', (_event, payload) => {
+    try {
+      const indicator = document.getElementById('tab-drop-indicator');
+      if (!indicator) {
+        const div = document.createElement('div');
+        div.id = 'tab-drop-indicator';
+        div.textContent = 'Drop tab here to attach';
+        div.style.position = 'fixed';
+        div.style.left = '50%';
+        div.style.transform = 'translateX(-50%)';
+        div.style.top = '50%';
+        div.style.marginTop = '-20px';
+        div.style.padding = '12px 24px';
+        div.style.background = 'rgba(66, 133, 244, 0.9)';
+        div.style.color = '#fff';
+        div.style.borderRadius = '8px';
+        div.style.zIndex = '999999';
+        div.style.fontSize = '16px';
+        div.style.fontWeight = 'bold';
+        div.style.pointerEvents = 'none';
+        document.body.appendChild(div);
+      }
+    } catch (err) { /* ignore */ }
+    
+    // Store external drag metadata globally
+    window._externalDraggedTabMeta = payload?.tabMeta || null;
+    window._currentDragTransferId = payload?.tabMeta?.transferId || null; // Also update the stored transferId
+    window._tabDropHandled = false;
+    console.log('[DND] tab-drag-started received:', window._externalDraggedTabMeta, 'transferId:', window._currentDragTransferId);
+  });
+
+  window.electronAPI.on('tab-drag-ended', () => {
+    try {
+      const indicator = document.getElementById('tab-drop-indicator');
+      if (indicator) indicator.remove();
+    } catch (err) {}
+    window._externalDraggedTabMeta = null;
+    window._tabDropHandled = false;
+    console.log('[DND] tab-drag-ended');
+  });
+
+  // Specific signal that a drop for a tab id was successfully attached at destination
+  window.electronAPI.on('tab-drop-complete', (_event, tabId) => {
+    try {
+      console.log('renderer: tab-drop-complete received for', tabId);
+      // Mark this drag as handled — skip detach on source
+      dropHandled = true;
+    } catch (err) { console.error('tab-drop-complete handler failed', err); }
+  });
+
+  // When another window drops a tab onto this window's tab bar, handle the IPC
+  window.electronAPI.on('open-in-new-tab', (url) => {
+    // Ensure not duplicating this listener; renderer already handles open-in-new-tab above.
+  });
+
+  window.electronAPI.on('remove-tab-by-id', (_event, id) => {
+    try { closeTab(id); } catch (err) { console.error('remove-tab-by-id failed', err); }
+  });
+
+  // Remove a tab record without destroying its BrowserView (used for transfers)
+  window.electronAPI.on('remove-tab-record', (_event, id) => {
+    try {
+      const tabIndex = tabs.findIndex(t => t.id === id);
+      if (tabIndex === -1) return;
+
+      // Remove the tab entry but do not call viewDestroy - the BrowserView has been
+      // transferred to another window by the main process and should remain intact.
+      console.log('remove-tab-record: id=', id, 'tabIndex=', tabIndex, 'tabsLenBefore=', tabs.length);
+      tabs.splice(tabIndex, 1);
+
+      // Adjust current tab selection or close window if no tabs remain
+      if (currentTabId === id) {
+        if (tabs.length > 0) {
+          currentTabId = (tabs[tabIndex] ? tabs[tabIndex].id : tabs[tabs.length - 1].id);
+        } else {
+          // No tabs left - if this was a transfer, close the window if only a 'newtab' placeholder would remain
+          if (window._isNewWindowTarget) {
+            setTimeout(() => { window.close(); }, 300);
+            return;
+          }
+          // Otherwise, create a 'newtab' placeholder
+          const newId = Date.now();
+          tabs.push({ id: newId, url: 'newtab', history: ['newtab'], historyIndex: 0, viewCreated: false });
+          currentTabId = newId;
+        }
+      }
+
+      persistTabs();
+      console.log('remove-tab-record: tabsLenAfter=', tabs.length, 'currentTabId=', currentTabId);
+      updateView();
+      renderTabs();
+    } catch (err) { console.error('remove-tab-record failed', err); }
+  });
+
+  // Handler for when a BrowserView has been attached to this window (via main process transfer)
+  window.electronAPI.on('attach-tab-handled', (_event, payload) => {
+    try {
+      const { tab, viewCreated } = payload || {};
+      if (!tab || !tab.id) return;
+      // Remove any placeholder or duplicate tabs
+      let replaced = false;
+      if (tabs.length === 1 && (tabs[0].url === 'newtab' || !tabs[0].viewCreated)) {
+        tabs[0] = { id: tab.id, url: tab.url, history: [tab.url], historyIndex: 0, viewCreated: !!viewCreated };
+        replaced = true;
+      } else {
+        // Remove any 'newtab' placeholder tabs in this window (from a detached window)
+        for (let i = tabs.length - 1; i >= 0; i--) {
+          if (tabs[i].url === 'newtab' && !tabs[i].viewCreated) tabs.splice(i, 1);
+        }
+        // Remove any tabs with the same id (shouldn't happen, but for safety)
+        for (let i = tabs.length - 1; i >= 0; i--) {
+          if (tabs[i].id === tab.id) tabs.splice(i, 1);
+        }
+        tabs.push({ id: tab.id, url: tab.url, history: [tab.url], historyIndex: 0, viewCreated: !!viewCreated });
+      }
+      currentTabId = tab.id;
+      persistTabs();
+      renderTabs();
+      // If view was attached, show it and ack back to main that we're ready
+      if (viewCreated) {
+        updateView();
+        try { if (window.electronAPI && window.electronAPI.attachTabAck) window.electronAPI.attachTabAck(tab.id); } catch (e) {}
+      }
+      // If this window was a detached/orphaned window, and now has no tabs except the reattached one, close it
+      // Only close if this window is not the main/original window and is now empty or only has the reattached tab
+      if (window._isNewWindowTarget && tabs.length === 1 && tabs[0].id === tab.id && replaced) {
+        setTimeout(() => { window.close(); }, 300);
+      }
+      console.log('attach-tab-handled: tabId=', tab.id, 'viewCreated=', viewCreated, 'currentTabs=', tabs.length);
+    } catch (err) { console.error('attach-tab-handled failed', err); }
   });
 
   // --- Quick Links ---
@@ -1400,7 +2044,7 @@ window.addEventListener('DOMContentLoaded', () => {
       let label = newQuickLinkLabelInput.value.trim();
 
       if (!url) {
-          alert("URL is required.");
+          showUpdateNotification("URL is required.", 'error', 3000);
           return;
       }
 
@@ -1424,7 +2068,7 @@ window.addEventListener('DOMContentLoaded', () => {
         newQuickLinkLabelInput.value = '';
         addQuickLinkModal.style.display = 'none';
       } else {
-        alert("This quick link already exists.");
+        showUpdateNotification("This quick link already exists.", 'info', 3000);
       }
     };
   }
@@ -1663,7 +2307,7 @@ window.addEventListener('DOMContentLoaded', () => {
   const manageBookmarkFoldersBtn = document.getElementById('manage-bookmark-folders-btn');
   if (manageBookmarkFoldersBtn) {
     manageBookmarkFoldersBtn.onclick = () => {
-      alert('Bookmark folders management coming soon!');
+      showUpdateNotification('Bookmark folders management coming soon!', 'info', 3000);
     };
   }
 
@@ -1782,7 +2426,7 @@ window.addEventListener('DOMContentLoaded', () => {
       const userAgent = userAgentInput.value.trim();
       localStorage.setItem('userAgent', userAgent);
       // Note: User agent changes require app restart in Electron
-      alert('User agent saved! Restart the browser to apply changes.');
+      showUpdateNotification('User agent saved! Restart the browser to apply changes.', 'success', 3000);
     };
   }
 
@@ -1797,9 +2441,9 @@ window.addEventListener('DOMContentLoaded', () => {
         persistTabs();
         renderTabs();
         updateView();
-        alert('Session restored!');
+        showUpdateNotification('Session restored!', 'success', 3000);
       } else {
-        alert('No previous session found.');
+        showUpdateNotification('No previous session found.', 'info', 3000);
       }
     };
   }

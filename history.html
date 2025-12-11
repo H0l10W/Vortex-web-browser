@@ -8,19 +8,25 @@
   <style>
     body { margin: 0; padding: 0; }
     .history-container {
-      max-width: 600px;
-      margin: 40px auto;
+      max-width: 760px;
+      margin: 48px auto;
       background: var(--settings-bg, #fff);
       border-radius: 12px;
       box-shadow: 0 8px 32px #000a;
       padding: 32px 24px 24px 24px;
     }
     .history-header {
-      font-size: 2em;
-      margin-bottom: 24px;
+      font-size: 1.6em;
+      margin-bottom: 16px;
       color: var(--settings-header-color, #202124);
-      text-align: center;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
     }
+    .history-header .history-title-left { font-weight: 600; }
+    .history-controls { display:flex; gap:8px; align-items:center; }
+    .btn-purple { background: #7b2bc9; color: #fff; border-color: #6521a5; }
     .history-list {
       max-height: 60vh;
       overflow-y: auto;
@@ -49,16 +55,34 @@
       color: var(--settings-header-color, #202124);
       font-weight: 500;
     }
+    .history-meta {
+      color: var(--settings-header-color, #666);
+      font-size: 0.9em;
+      margin-top: 6px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
     .no-history {
       color: #aaa;
       text-align: center;
       margin: 32px 0;
     }
+    .btn-secondary { padding: 8px 12px; border-radius: 6px; background: var(--secondary-background, #f8f9fa); border: 1px solid var(--border-color, #e8eaed); color: var(--text-color, #333); cursor: pointer }
+    .btn-secondary:hover { filter: brightness(0.97); }
+    .btn-secondary.danger { background:#e81123;color:#fff;border-color:#b50a1f }
   </style>
 </head>
 <body>
   <div class="history-container">
-    <div class="history-header">Browsing History <button id="refresh-history-btn" style="float:right; padding:6px 10px;border-radius:6px;border:none;background:var(--accent-color-light);color:#fff;cursor:pointer;">Refresh</button></div>
+    <div class="history-header">
+      <div class="history-title-left">Browsing History</div>
+      <div class="history-controls">
+        <button id="refresh-history-btn" class="btn-secondary btn-purple">Refresh</button>
+        <button id="clear-history-btn" class="btn-secondary danger">Clear</button>
+      </div>
+    </div>
+    <div style="text-align:center;margin-bottom:14px;color:var(--settings-header-color,#888);font-size:0.95em">Click an item to open it in the current tab.</div>
     <div id="history-list" class="history-list"></div>
   </div>
   <script src="history.js"></script>
