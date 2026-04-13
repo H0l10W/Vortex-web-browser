@@ -10,6 +10,7 @@ export function createHistoryManager(electronAPI) {
     try {
       const raw = await storage.getItem('browserHistory') || localStorage.getItem('browserHistory') || '[]';
       buffer.entries = JSON.parse(raw) || [];
+      try { localStorage.setItem('browserHistory', JSON.stringify(buffer.entries || [])); } catch (err) {}
     } catch (e) { buffer.entries = []; }
   }
 
@@ -28,6 +29,7 @@ export function createHistoryManager(electronAPI) {
         perfEnd('flushHistory');
         flushTimeout = null;
         try { window.electronAPI.broadcastHistoryUpdated(); } catch (e) {}
+        try { localStorage.setItem('browserHistory', JSON.stringify(buffer.entries || [])); } catch (e) {}
         if (!ok) { try { localStorage.setItem('browserHistory', JSON.stringify(buffer.entries || [])); } catch (e) {} }
       } catch (err) {
         console.error('Failed to persist browserHistory', err);
@@ -44,6 +46,7 @@ export function createHistoryManager(electronAPI) {
   async function flush() {
     if (flushTimeout) clearTimeout(flushTimeout);
     try { await storage.setItem('browserHistory', JSON.stringify(buffer.entries || [])); } catch (e) { try { localStorage.setItem('browserHistory', JSON.stringify(buffer.entries || [])); } catch (e) {} }
+    try { localStorage.setItem('browserHistory', JSON.stringify(buffer.entries || [])); } catch (e) {}
     try { window.electronAPI.broadcastHistoryUpdated(); } catch (e) {}
   }
 
@@ -52,6 +55,7 @@ export function createHistoryManager(electronAPI) {
     if (flushTimeout) clearTimeout(flushTimeout);
     try {
       await storage.setItem('browserHistory', '[]');
+      try { localStorage.setItem('browserHistory', '[]'); } catch (e) {}
     } catch (e) {
       try { localStorage.setItem('browserHistory', '[]'); } catch (e) {}
     }

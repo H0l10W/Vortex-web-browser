@@ -2,7 +2,11 @@ const { app, BrowserWindow, BrowserView, ipcMain, dialog } = require('electron')
 const { autoUpdater } = require('electron-updater');
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 const { pathToFileURL, fileURLToPath } = require('url');
+
+const DEFAULT_WINDOW_WIDTH = 1200;
+const DEFAULT_WINDOW_HEIGHT = 800;
 
 // Global update state tracking
 let updateInProgress = false;
@@ -61,6 +65,187 @@ function saveStorageData(data) {
 // Global storage object
 let storageData = loadStorageData();
 
+// Apply persisted memory configuration overrides (if present)
+if (storageData && storageData.memoryConfig && typeof storageData.memoryConfig === 'object') {
+  const persistedConfig = storageData.memoryConfig;
+  if (Number.isFinite(Number(persistedConfig.maxInactiveTabs))) {
+    MEMORY_CONFIG.maxInactiveTabs = Math.max(1, Math.min(100, Number(persistedConfig.maxInactiveTabs)));
+  }
+  if (Number.isFinite(Number(persistedConfig.memoryThresholdMB))) {
+    MEMORY_CONFIG.memoryThresholdMB = Math.max(256, Math.min(16384, Number(persistedConfig.memoryThresholdMB)));
+  }
+  if (Number.isFinite(Number(persistedConfig.hibernationDelayMs))) {
+    MEMORY_CONFIG.hibernationDelayMs = Math.max(60000, Math.min(24 * 60 * 60 * 1000, Number(persistedConfig.hibernationDelayMs)));
+  }
+}
+
+// Performance telemetry tracking
+const networkTelemetry = {
+  requestsStarted: 0,
+  requestsCompleted: 0,
+  requestsFailed: 0,
+  bytesDownloaded: 0,
+  activeRequests: new Map(), // requestId -> startTime
+  latencySamples: [], // { ts, ms }
+  requestSamples: [], // { ts }
+  byteSamples: [] // { ts, bytes }
+};
+
+const instrumentedSessions = new WeakSet();
+let previousSystemCpuSample = null;
+let gpuInfoCache = { ts: 0, data: null };
+
+function cleanupTelemetrySamples(now = Date.now()) {
+  networkTelemetry.latencySamples = networkTelemetry.latencySamples.filter(item => now - item.ts <= 60000);
+  networkTelemetry.requestSamples = networkTelemetry.requestSamples.filter(item => now - item.ts <= 60000);
+  networkTelemetry.byteSamples = networkTelemetry.byteSamples.filter(item => now - item.ts <= 10000);
+}
+
+function getSystemCpuPercent() {
+  const cpuTimes = os.cpus().map(core => core.times);
+  const totals = cpuTimes.reduce((accumulator, times) => {
+    const total = times.user + times.nice + times.sys + times.idle + times.irq;
+    accumulator.total += total;
+    accumulator.idle += times.idle;
+    return accumulator;
+  }, { total: 0, idle: 0 });
+
+  const now = Date.now();
+  if (!previousSystemCpuSample) {
+    previousSystemCpuSample = { ...totals, now };
+    return 0;
+  }
+
+  const totalDelta = totals.total - previousSystemCpuSample.total;
+  const idleDelta = totals.idle - previousSystemCpuSample.idle;
+  previousSystemCpuSample = { ...totals, now };
+
+  if (totalDelta <= 0) return 0;
+  const activeDelta = totalDelta - idleDelta;
+  return Math.max(0, Math.min(100, (activeDelta / totalDelta) * 100));
+}
+
+function getHeaderNumber(responseHeaders, headerName) {
+  if (!responseHeaders || typeof responseHeaders !== 'object') return 0;
+  const headerEntry = Object.entries(responseHeaders).find(([key]) => key.toLowerCase() === headerName.toLowerCase());
+  if (!headerEntry) return 0;
+  const value = Array.isArray(headerEntry[1]) ? headerEntry[1][0] : headerEntry[1];
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function attachNetworkTelemetry(sessionInstance) {
+  if (!sessionInstance || instrumentedSessions.has(sessionInstance)) return;
+  instrumentedSessions.add(sessionInstance);
+
+  sessionInstance.webRequest.onBeforeSendHeaders((details, callback) => {
+    const now = Date.now();
+    networkTelemetry.requestsStarted += 1;
+    networkTelemetry.activeRequests.set(details.id, now);
+    networkTelemetry.requestSamples.push({ ts: now });
+    callback({ requestHeaders: details.requestHeaders });
+  });
+
+  sessionInstance.webRequest.onCompleted((details) => {
+    const now = Date.now();
+    const startedAt = networkTelemetry.activeRequests.get(details.id);
+    if (startedAt) {
+      networkTelemetry.latencySamples.push({ ts: now, ms: now - startedAt });
+      networkTelemetry.activeRequests.delete(details.id);
+    }
+
+    networkTelemetry.requestsCompleted += 1;
+    const bytes = getHeaderNumber(details.responseHeaders, 'content-length');
+    if (bytes > 0) {
+      networkTelemetry.bytesDownloaded += bytes;
+      networkTelemetry.byteSamples.push({ ts: now, bytes });
+    }
+  });
+
+  sessionInstance.webRequest.onErrorOccurred((details) => {
+    networkTelemetry.requestsFailed += 1;
+    networkTelemetry.activeRequests.delete(details.id);
+  });
+}
+
+async function getCachedGpuInfo() {
+  const now = Date.now();
+  if (gpuInfoCache.data && now - gpuInfoCache.ts < 30000) {
+    return gpuInfoCache.data;
+  }
+
+  try {
+    const basicInfo = await app.getGPUInfo('basic');
+    gpuInfoCache = { ts: now, data: basicInfo };
+    return basicInfo;
+  } catch (error) {
+    return null;
+  }
+}
+
+async function getSystemMetricsSnapshot() {
+  const now = Date.now();
+  cleanupTelemetrySamples(now);
+
+  const appMetrics = app.getAppMetrics();
+  const browserProcess = appMetrics.find(metric => metric.type === 'Browser');
+  const gpuProcess = appMetrics.find(metric => metric.type === 'GPU');
+  const rendererProcesses = appMetrics.filter(metric => metric.type === 'Tab' || metric.type === 'Renderer');
+
+  const rendererCpuPercent = rendererProcesses.reduce((sum, metric) => sum + (metric.cpu?.percentCPUUsage || 0), 0);
+  const appCpuPercent = (browserProcess?.cpu?.percentCPUUsage || 0) + rendererCpuPercent;
+  const gpuCpuPercent = gpuProcess?.cpu?.percentCPUUsage || 0;
+  const gpuMemoryMB = gpuProcess?.memory?.workingSetSize ? Math.round(gpuProcess.memory.workingSetSize / 1024) : 0;
+
+  const latencyValues = networkTelemetry.latencySamples.map(sample => sample.ms);
+  const averageLatencyMs = latencyValues.length
+    ? Math.round(latencyValues.reduce((sum, value) => sum + value, 0) / latencyValues.length)
+    : 0;
+
+  const bytesInLast10s = networkTelemetry.byteSamples.reduce((sum, sample) => sum + sample.bytes, 0);
+  const avgDownKbps = Math.round((bytesInLast10s * 8) / 10 / 1000);
+
+  const gpuInfo = await getCachedGpuInfo();
+  const gpuFeatureStatus = app.getGPUFeatureStatus();
+  const processMemory = getMemoryUsage();
+
+  return {
+    timestamp: now,
+    cpu: {
+      appPercent: Number(appCpuPercent.toFixed(2)),
+      browserPercent: Number((browserProcess?.cpu?.percentCPUUsage || 0).toFixed(2)),
+      rendererPercent: Number(rendererCpuPercent.toFixed(2)),
+      gpuPercent: Number(gpuCpuPercent.toFixed(2)),
+      systemPercent: Number(getSystemCpuPercent().toFixed(2))
+    },
+    memory: {
+      ...processMemory,
+      systemTotalMB: Math.round(os.totalmem() / 1024 / 1024),
+      systemFreeMB: Math.round(os.freemem() / 1024 / 1024)
+    },
+    gpu: {
+      processCpuPercent: Number(gpuCpuPercent.toFixed(2)),
+      processMemoryMB: gpuMemoryMB,
+      featureStatus: gpuFeatureStatus,
+      adapters: gpuInfo?.gpuDevice?.length || 0
+    },
+    network: {
+      requestsStarted: networkTelemetry.requestsStarted,
+      requestsCompleted: networkTelemetry.requestsCompleted,
+      requestsFailed: networkTelemetry.requestsFailed,
+      activeRequests: networkTelemetry.activeRequests.size,
+      requestsPerMin: networkTelemetry.requestSamples.length,
+      averageLatencyMs,
+      averageDownKbps: avgDownKbps,
+      totalDownloadedMB: Number((networkTelemetry.bytesDownloaded / 1024 / 1024).toFixed(2))
+    },
+    tabs: {
+      totalTabs: Array.from(windows.values()).reduce((sum, state) => sum + state.views.size, 0),
+      hibernatedTabs: Array.from(memoryMonitoring.hibernatedTabs).length
+    }
+  };
+}
+
 // Increase max listeners to prevent memory leak warnings
 require('events').EventEmitter.defaultMaxListeners = 30;
 
@@ -72,13 +257,225 @@ app.commandLine.appendSwitch('enable-features', 'VizDisplayCompositor');
 
 // Add this to track BrowserViews for each window
 const windows = new Map();
+const suggestionsOverlays = new Map();
 
-// Track settings window to prevent multiple instances
-let settingsWindow = null;
+function hideSuggestionsOverlayForWindow(winId) {
+  const overlay = suggestionsOverlays.get(winId);
+  if (!overlay || overlay.isDestroyed()) return;
+  try { overlay.hide(); } catch (_error) {}
+}
 
-// Defer ad blocker initialization
-let adDomains = [];
+function ensureSuggestionsOverlay(parentWin) {
+  if (!parentWin || parentWin.isDestroyed()) return null;
+  const existing = suggestionsOverlays.get(parentWin.id);
+  if (existing && !existing.isDestroyed()) return existing;
+
+  const overlay = new BrowserWindow({
+    parent: parentWin,
+    frame: false,
+    transparent: true,
+    resizable: false,
+    movable: false,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    skipTaskbar: true,
+    show: false,
+    focusable: true,
+    alwaysOnTop: true,
+    hasShadow: false,
+    webPreferences: {
+      preload: path.join(__dirname, 'suggestions-overlay-preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      webSecurity: true,
+      sandbox: true
+    }
+  });
+
+  overlay.setMenuBarVisibility(false);
+  overlay.loadFile('suggestions-overlay.html').catch((error) => {
+    console.error('Failed to load suggestions overlay:', error);
+  });
+
+  overlay.on('closed', () => {
+    suggestionsOverlays.delete(parentWin.id);
+  });
+
+  const repositionOverlay = () => {
+    try {
+      if (overlay.isDestroyed() || !overlay.__lastPayload) return;
+      const parentBounds = parentWin.getBounds();
+      const lastParentBounds = overlay.__lastParentBounds;
+      if (!lastParentBounds) {
+        overlay.__lastParentBounds = parentBounds;
+        return;
+      }
+
+      const deltaX = parentBounds.x - lastParentBounds.x;
+      const deltaY = parentBounds.y - lastParentBounds.y;
+      if (!deltaX && !deltaY) return;
+
+      const currentBounds = overlay.getBounds();
+      const nextBounds = {
+        ...currentBounds,
+        x: currentBounds.x + deltaX,
+        y: currentBounds.y + deltaY
+      };
+      overlay.setBounds(nextBounds, false);
+      overlay.__lastParentBounds = parentBounds;
+
+      if (overlay.__lastPayload && overlay.__lastPayload.bounds) {
+        overlay.__lastPayload.bounds.x = Number(overlay.__lastPayload.bounds.x) + deltaX;
+        overlay.__lastPayload.bounds.y = Number(overlay.__lastPayload.bounds.y) + deltaY;
+      }
+    } catch (_error) {
+      // ignore reposition failures
+    }
+  };
+
+  parentWin.on('move', repositionOverlay);
+  parentWin.on('resize', repositionOverlay);
+  parentWin.on('enter-full-screen', repositionOverlay);
+  parentWin.on('leave-full-screen', repositionOverlay);
+
+  parentWin.on('closed', () => {
+    try {
+      if (!overlay.isDestroyed()) overlay.destroy();
+    } catch (_error) {}
+    suggestionsOverlays.delete(parentWin.id);
+  });
+
+  suggestionsOverlays.set(parentWin.id, overlay);
+  return overlay;
+}
+
+// Ad blocker initialization using @cliqz/adblocker with uBlock Origin filters
+let adblocker = null;
+let blockers = new Map();
 let adBlockEnabled = false;
+let adBlockMode = 'balanced';
+const adBlockInstrumentedSessions = new WeakSet();
+const imageBlockingWebContents = new Map();
+
+async function initAdBlocker() {
+  try {
+    const { FiltersEngine } = require('@cliqz/adblocker');
+    
+    // Try to use cached filters first
+    const cacheDir = path.join(app.getPath('userData'), 'adblock-cache');
+    const filtersCachePath = path.join(cacheDir, 'ublock.txt');
+    
+    try {
+      await fs.promises.mkdir(cacheDir, { recursive: true });
+    } catch (e) {}
+    
+    let filtersData = null;
+    
+    // Try to load from cache
+    try {
+      filtersData = await fs.promises.readFile(filtersCachePath, 'utf-8');
+      console.log('Loaded AdBlock filters from cache');
+    } catch (e) {
+      console.log('Fetching uBlock Origin filter lists...');
+      try {
+        // Fetch uBlock Origin's filter lists
+        const response = await fetch('https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/energy.txt');
+        if (response.ok) {
+          filtersData = await response.text();
+          // Cache the filters
+          try {
+            await fs.promises.writeFile(filtersCachePath, filtersData);
+          } catch (cacheErr) {
+            console.debug('Could not cache filters:', cacheErr);
+          }
+        }
+      } catch (fetchErr) {
+        console.warn('Could not fetch uBlock filters, using fallback');
+        // Fallback: use basic filter format
+        filtersData = `||doubleclick.net^
+||googlesyndication.com^
+||googleadservices.com^
+||adnxs.com^
+||criteo.com^
+||taboola.com^
+||outbrain.com^
+||amazon-adsystem.com^
+||ads.yahoo.com^
+||scorecardresearch.com^
+`;
+      }
+    }
+    
+    if (filtersData) {
+      adblocker = await FiltersEngine.parse(filtersData);
+      console.log('AdBlock engine initialized with uBlock Origin filters');
+    }
+    
+    const persisted = storageData?.adblockEnabled;
+    adBlockEnabled = persisted === true || persisted === 'true';
+    
+    const persistedMode = storageData?.adblockMode;
+    adBlockMode = persistedMode === 'strict' ? 'strict' : 'balanced';
+  } catch (err) {
+    console.error('Failed to initialize adblocker:', err);
+    adblocker = null;
+  }
+}
+
+// Check if a request should be blocked by adblocker
+function shouldBlockAdRequest(details) {
+  if (!adblocker) return false;
+  
+  try {
+    const requestUrl = details.url;
+    const referrer = details.referrer || details.initiator || '';
+    const resourceType = details.resourceType || 'other';
+    
+    const result = adblocker.match({
+      url: requestUrl,
+      sourceUrl: referrer || undefined,
+      type: resourceType
+    });
+    
+    return result && result.match;
+  } catch (err) {
+    console.debug('Error in shouldBlockAdRequest:', err);
+    return false;
+  }
+}
+
+// Setup ad-blocking for a session
+function setupAdBlockerForSession(session) {
+  if (!session || adBlockInstrumentedSessions.has(session)) return;
+  
+  adBlockInstrumentedSessions.add(session);
+  
+  session.webRequest.onBeforeRequest((details, callback) => {
+    // Check if ad-blocking is enabled
+    if (!adBlockEnabled) {
+      callback({ cancel: false });
+      return;
+    }
+    
+    // Check if it's a request that should be blocked
+    if (shouldBlockAdRequest(details)) {
+      console.debug('Blocked ad request:', details.url);
+      callback({ cancel: true });
+      return;
+    }
+    
+    // For image blocking (only in strict mode)
+    if (adBlockMode === 'strict' && details.resourceType === 'image') {
+      if (shouldBlockAdRequest(details)) {
+        callback({ cancel: true });
+        return;
+      }
+    }
+    
+    callback({ cancel: false });
+  });
+}
 
 // Auto-updater configuration
 // Use proper detection for production
@@ -239,6 +636,26 @@ function getMemoryUsage() {
   };
 }
 
+function emitHibernationStateForWindow(win) {
+  try {
+    if (!win || win.isDestroyed()) return;
+    const state = windows.get(win.id);
+    if (!state) return;
+    const hibernatedForWindow = Array.from(memoryMonitoring.hibernatedTabs).filter(tabId => state.views.has(tabId));
+    win.webContents.send('hibernation-state-changed', hibernatedForWindow);
+  } catch (error) {
+    console.debug('Failed to emit hibernation state for window', error);
+  }
+}
+
+function emitHibernationStateForTab(tabId) {
+  for (const [winId, state] of windows) {
+    if (state.views && state.views.has(tabId)) {
+      emitHibernationStateForWindow(state.win);
+    }
+  }
+}
+
 function hibernateTab(tabId, view) {
   if (memoryMonitoring.hibernatedTabs.has(tabId)) return;
   
@@ -254,6 +671,8 @@ function hibernateTab(tabId, view) {
       storages: ['shadercache', 'webrtc', 'appcache']
     }).catch(err => console.log('Hibernation cleanup error:', err));
   }
+
+  emitHibernationStateForTab(tabId);
 }
 
 function wakeUpTab(tabId) {
@@ -262,6 +681,7 @@ function wakeUpTab(tabId) {
   console.log(`Waking up tab ${tabId}`);
   memoryMonitoring.hibernatedTabs.delete(tabId);
   memoryMonitoring.tabLastActivity.set(tabId, Date.now());
+  emitHibernationStateForTab(tabId);
 }
 
 function checkMemoryPressure() {
@@ -277,21 +697,36 @@ function checkMemoryPressure() {
 
 function hibernateInactiveTabs() {
   const now = Date.now();
-  
+
+  const candidates = [];
+
   // Find tabs that haven't been active recently
   for (const [winId, state] of windows) {
     for (const [tabId, view] of state.views) {
       const lastActivity = memoryMonitoring.tabLastActivity.get(tabId) || now;
       const inactiveTime = now - lastActivity;
-      
-      // Hibernate tabs inactive for more than the threshold (except active tab)
-      if (inactiveTime > MEMORY_CONFIG.hibernationDelayMs && 
-          tabId !== state.activeViewId && 
-          !memoryMonitoring.hibernatedTabs.has(tabId)) {
-        hibernateTab(tabId, view);
+
+      // Candidate tabs: inactive beyond threshold, not active, not already hibernated
+      if (
+        inactiveTime > MEMORY_CONFIG.hibernationDelayMs &&
+        tabId !== state.activeViewId &&
+        !memoryMonitoring.hibernatedTabs.has(tabId)
+      ) {
+        candidates.push({ tabId, view, inactiveTime });
       }
     }
   }
+
+  const remainingSlots = Math.max(0, MEMORY_CONFIG.maxInactiveTabs - memoryMonitoring.hibernatedTabs.size);
+  if (remainingSlots <= 0 || candidates.length === 0) return;
+
+  // Hibernate the most inactive tabs first
+  candidates
+    .sort((left, right) => right.inactiveTime - left.inactiveTime)
+    .slice(0, remainingSlots)
+    .forEach(candidate => {
+      hibernateTab(candidate.tabId, candidate.view);
+    });
 }
 
 function updateTabActivity(tabId) {
@@ -299,22 +734,12 @@ function updateTabActivity(tabId) {
   wakeUpTab(tabId); // Wake up if hibernated
 }
 
-// Initialize ad blocker after app ready
-function initAdBlocker() {
-  adDomains = [
-    'doubleclick.net', 'googleadservices.com', 'googlesyndication.com',
-    'facebook.com/tr', 'google-analytics.com', 'googletagmanager.com',
-    'amazon-adsystem.com', 'adsystem.amazon.com', 'ads.twitter.com',
-    'analytics.twitter.com', 'ads.yahoo.com', 'advertising.com'
-  ];
-}
-
 // Define the header height (height of tabs + controls)
-let headerHeight = 129; // Title bar (48px) + Bookmark bar (37px) + Controls (44px)
+let headerHeight = 92; // Title bar (48px) + Controls (44px)
 const headerHeightWithoutBookmarks = 92; // Title bar (48px) + Controls (44px)
 
 // Track bookmark bar visibility globally
-let bookmarkBarVisible = true; // Default to true, will be updated by renderer
+let bookmarkBarVisible = false; // Default to false, renderer will enable when actually visible
 
 // Helper function to get the correct header height based on URL
 function getHeaderHeightForUrl(url) {
@@ -329,8 +754,8 @@ function getHeaderHeightForUrl(url) {
 
 function createWindow(initialUrl, isFresh = false) {
   const win = new BrowserWindow({
-    width: 1200,
-    height: 800,
+    width: DEFAULT_WINDOW_WIDTH,
+    height: DEFAULT_WINDOW_HEIGHT,
     frame: false, // Remove default window frame
     titleBarStyle: 'hidden', // Hide title bar
     icon: path.join(__dirname, 'icons', 'icon.png'), // Add icon for running app
@@ -338,7 +763,7 @@ function createWindow(initialUrl, isFresh = false) {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      webviewTag: false,
+      webviewTag: true,
       nativeWindowOpen: true,
       webSecurity: true,
       allowRunningInsecureContent: false,
@@ -405,13 +830,8 @@ function createWindow(initialUrl, isFresh = false) {
 
   // --- Ad Blocker Implementation ---
   const session = win.webContents.session;
-  if (adBlockEnabled) {
-    session.webRequest.onBeforeRequest((details, callback) => {
-      const url = details.url.toLowerCase();
-      const shouldBlock = adDomains.some(domain => url.includes(domain));
-      callback({ cancel: shouldBlock });
-    });
-  }
+  attachNetworkTelemetry(session);
+  setupAdBlockerForSession(session);
 
   // --- Enhanced Download Handling with Security ---
   session.on('will-download', (event, item, webContents) => {
@@ -462,6 +882,7 @@ function createWindow(initialUrl, isFresh = false) {
   // If an initial URL is used, the renderer will pick it up from the query string
 
   win.on('resize', () => {
+    hideSuggestionsOverlayForWindow(win.id);
     const state = windows.get(win.id);
     if (state && state.activeViewId) {
       const view = state.views.get(state.activeViewId);
@@ -485,6 +906,7 @@ function createWindow(initialUrl, isFresh = false) {
   });
 
   win.on('maximize', () => {
+    hideSuggestionsOverlayForWindow(win.id);
     const state = windows.get(win.id);
     if (state && state.activeViewId) {
       const view = state.views.get(state.activeViewId);
@@ -505,6 +927,7 @@ function createWindow(initialUrl, isFresh = false) {
   });
 
   win.on('restore', () => {
+    hideSuggestionsOverlayForWindow(win.id);
     const state = windows.get(win.id);
     if (state && state.activeViewId) {
       const view = state.views.get(state.activeViewId);
@@ -525,13 +948,16 @@ function createWindow(initialUrl, isFresh = false) {
   });
 
   win.on('unmaximize', () => {
+    hideSuggestionsOverlayForWindow(win.id);
     const state = windows.get(win.id);
     if (state && state.activeViewId) {
       const view = state.views.get(state.activeViewId);
       if (view) {
         setTimeout(() => {
           const bounds = win.getContentBounds();
-          view.setBounds({ x: 0, y: headerHeight, width: bounds.width, height: bounds.height - headerHeight });
+          const currentUrl = view.webContents.getURL();
+          const effectiveHeaderHeight = getHeaderHeightForUrl(currentUrl);
+          view.setBounds({ x: 0, y: effectiveHeaderHeight, width: bounds.width, height: bounds.height - effectiveHeaderHeight });
         }, 10);
       }
     }
@@ -539,6 +965,8 @@ function createWindow(initialUrl, isFresh = false) {
 
   // Clean up IPC listeners when the window is closed
   win.on('closed', () => {
+    hideSuggestionsOverlayForWindow(win.id);
+    windowDragState.delete(win.id);
     const state = windows.get(win.id);
     if (state) {
       state.views.forEach(view => {
@@ -557,233 +985,22 @@ function createWindow(initialUrl, isFresh = false) {
 
 // --- IPC Handlers for BrowserView ---
 // Remove existing listeners to prevent duplicates
-ipcMain.removeAllListeners('view:create');
-ipcMain.removeAllListeners('view:destroy');
-ipcMain.removeAllListeners('view:show');
-ipcMain.removeAllListeners('view:hide');
-ipcMain.removeAllListeners('view:navigate');
-ipcMain.removeAllListeners('view:reload');
-ipcMain.removeAllListeners('view:back');
-ipcMain.removeAllListeners('view:forward');
-ipcMain.removeAllListeners('open-settings-window');
+ipcMain.removeAllListeners('suggestions-overlay:update');
+ipcMain.removeAllListeners('suggestions-overlay:hide');
+ipcMain.removeAllListeners('suggestions-overlay:select');
 ipcMain.removeAllListeners('open-incognito');
 ipcMain.removeAllListeners('broadcast-theme-change');
+ipcMain.removeAllListeners('toggle-adblock');
+ipcMain.removeAllListeners('set-adblock-mode');
 ipcMain.removeAllListeners('toggle-devtools');
-  ipcMain.removeAllListeners('broadcast-widget-settings');
-  ipcMain.removeAllListeners('close-app');ipcMain.on('view:create', async (event, id, settings = {}) => {
-  const win = BrowserWindow.fromWebContents(event.sender);
-  if (!win) return;
-
-  const state = windows.get(win.id);
-  if (!state || state.views.has(id)) return;
-
-  // Get JavaScript setting from settings or default
-  const javascriptEnabled = settings.javascriptEnabled !== 'false';
-  console.log('Creating view with JavaScript enabled:', javascriptEnabled);
-
-  const view = new BrowserView({
-    webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
-      contextIsolation: true,
-      nodeIntegration: false,
-      webSecurity: true,
-      allowRunningInsecureContent: false,
-      experimentalFeatures: false,
-      enableRemoteModule: false,
-      sandbox: true,
-      safeDialogs: true,
-      javascript: javascriptEnabled // Apply JavaScript setting
-    }
-  });
-
-  state.views.set(id, view);
-
-  view.webContents.on('did-navigate', (e, url) => win.webContents.send('view:navigated', { id, url }));
-  view.webContents.on('page-title-updated', (e, title) => win.webContents.send('page-title-updated', { id, title }));
-  
-  // Security: Certificate error handling
-  view.webContents.on('certificate-error', (event, url, error, certificate, callback) => {
-    // Deny invalid certificates for better security
-    console.warn('Certificate error for:', url, error);
-    callback(false);
-  });
-
-  // Security: Permission request handling
-  view.webContents.session.setPermissionRequestHandler((webContents, permission, callback) => {
-    // Allow notifications, fullscreen, and geolocation permissions
-    const allowedPermissions = ['notifications', 'fullscreen', 'geolocation'];
-    const allowed = allowedPermissions.includes(permission);
-    console.log(`Permission request: ${permission} - ${allowed ? 'Allowed' : 'Denied'}`);
-    callback(allowed);
-  });
-  
-  // Handle fullscreen requests from web content (e.g., YouTube, videos)
-  view.webContents.on('enter-html-full-screen', () => {
-    console.log('Entering fullscreen mode');
-    win.setFullScreen(true);
-    // Hide the BrowserView temporarily and show it fullscreen
-    view.setBounds({ x: 0, y: 0, width: win.getBounds().width, height: win.getBounds().height });
-  });
-
-  view.webContents.on('leave-html-full-screen', () => {
-    console.log('Leaving fullscreen mode');
-    win.setFullScreen(false);
-    // Restore normal bounds
-    setTimeout(() => {
-      const bounds = win.getContentBounds();
-      const currentUrl = view.webContents.getURL();
-      const effectiveHeaderHeight = getHeaderHeightForUrl(currentUrl);
-      view.setBounds({ x: 0, y: effectiveHeaderHeight, width: bounds.width, height: bounds.height - effectiveHeaderHeight });
-    }, 100);
-  });
-
-  // Attempt to recover failed loads, particularly file:// pages restored after restart
-  view.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
-    try {
-      console.warn(`View ${id} failed to load: ${validatedURL} (${errorCode}) ${errorDescription}`);
-      if (validatedURL && validatedURL.startsWith('file://')) {
-        // Try loading using loadFile for local file paths
-        try {
-          const localPath = fileURLToPath(validatedURL);
-          console.log(`Attempting to load local file fallback for view ${id}: ${localPath}`);
-          view.webContents.loadFile(localPath).then(() => {
-            console.log(`Successfully loaded fallback local file for view ${id}`);
-          }).catch(err => {
-            console.error(`Fallback loadFile failed for view ${id}:`, err);
-          });
-        } catch (innerErr) {
-          console.error('Error while converting file URL to path for fallback:', innerErr);
-        }
-      }
-    } catch (err) {
-      console.error('Error in did-fail-load handler:', err);
-    }
-  });
-  
-  view.webContents.setWindowOpenHandler(({ url }) => {
-    win.webContents.send('open-in-new-tab', url);
-    return { action: 'deny' };
-  });
-
-  // Add context menu handling for links and media
-  view.webContents.on('context-menu', (event, params) => {
-    try {
-      const { Menu, clipboard, shell } = require('electron');
-      const template = [];
-      if (params.linkURL) {
-        template.push({ label: 'Open Link in New Tab', click: () => win.webContents.send('open-in-new-tab', params.linkURL) });
-        template.push({ label: 'Open Link in New Window', click: () => {
-          // Create a new (fresh) window that opens the link directly (no duplication)
-          createWindow(params.linkURL, true);
-        } });
-        template.push({ type: 'separator' });
-        template.push({ label: 'Open Link in Default Browser', click: () => shell.openExternal(params.linkURL) });
-        template.push({ label: 'Copy Link', click: () => clipboard.writeText(params.linkURL) });
-      }
-      // Fallback inspect element for dev
-      if (isDev) {
-        template.push({ type: 'separator' });
-        template.push({ label: 'Inspect Element', click: () => view.webContents.inspectElement(params.x, params.y) });
-      }
-      if (template.length) {
-        const m = Menu.buildFromTemplate(template);
-        m.popup({ window: win });
-      }
-    } catch (err) {
-      console.error('Context menu error:', err);
-    }
-  });
-});
-
-ipcMain.on('view:destroy', (event, id) => {
-  const win = BrowserWindow.fromWebContents(event.sender);
-  if (!win) return;
-  const state = windows.get(win.id);
-  if (!state || !state.views.has(id)) return;
-
-  const view = state.views.get(id);
-  if (view) {
-    // Enhanced memory cleanup with better error handling
-    console.log(`Destroying view ${id} - Memory cleanup initiated`);
-    
-    try {
-      // Remove from hibernated tabs if present
-      memoryMonitoring.hibernatedTabs.delete(id);
-      memoryMonitoring.tabLastActivity.delete(id);
-      
-      // Detach from window first - with error handling
-      try {
-        if (!win.isDestroyed() && win.getBrowserView() === view) {
-          win.setBrowserView(null);
-        }
-      } catch (err) {
-        console.log('Error detaching view from window:', err.message);
-      }
-      
-      // Clear session data for this view - only if webContents still exists
-      if (view.webContents && !view.webContents.isDestroyed()) {
-        try {
-          const session = view.webContents.session;
-          
-          // Clear cache, cookies, and storage for memory cleanup
-          session.clearStorageData({
-            storages: ['cookies', 'localstorage', 'sessionstorage', 'websql', 'indexdb', 'shadercache']
-          }).catch(err => console.log('Storage cleanup error:', err));
-          
-          // Remove event listeners to prevent memory leaks
-          view.webContents.removeAllListeners();
-          
-          // Destroy web contents
-          view.webContents.destroy();
-        } catch (err) {
-          console.log('Error during webContents cleanup:', err.message);
-        }
-      }
-      
-    } catch (err) {
-      console.log('Error during view destruction:', err.message);
-    } finally {
-      // Always remove from tracking, even if cleanup failed
-      state.views.delete(id);
-      if (state.viewMeta && state.viewMeta.has(id)) state.viewMeta.delete(id);
-      
-      console.log(`View ${id} destroyed. Remaining views: ${state.views.size}`);
-      
-      // Trigger garbage collection if needed
-      try {
-        triggerGarbageCollectionIfNeeded();
-      } catch (err) {
-        console.log('Error during garbage collection:', err.message);
-      }
-    }
-  }
-});
-
-ipcMain.on('view:show', (event, id) => {
-  const win = BrowserWindow.fromWebContents(event.sender);
-  if (!win) return;
-
-  const state = windows.get(win.id);
-  if (!state || !state.views.has(id)) return;
-
-  const view = state.views.get(id);
-  if (view) {
-    win.setBrowserView(view);
-    const bounds = win.getContentBounds();
-    const currentUrl = view.webContents.getURL();
-    const effectiveHeaderHeight = getHeaderHeightForUrl(currentUrl);
-    view.setBounds({ x: 0, y: effectiveHeaderHeight, width: bounds.width, height: bounds.height - effectiveHeaderHeight });
-    view.setAutoResize({ width: true, height: true });
-    state.activeViewId = id;
-    
-    // Track tab activity for memory management
-    updateTabActivity(id);
-    console.log(`Tab ${id} activated - activity tracked`);
-  }
-});
+ipcMain.removeAllListeners('broadcast-widget-settings');
+ipcMain.removeAllListeners('close-app');
+ipcMain.removeAllListeners('start-window-drag');
+ipcMain.removeAllListeners('end-window-drag');
 
 // --- Tab drag/drop across windows ---
 let currentTabDrag = null; // { sourceWinId, tab }
+const windowDragState = new Map(); // winId -> { offsetX, offsetY, lastScreenX, lastScreenY }
 // Tracks pending transfers waiting for destination renderer ack keyed by tabId
 const pendingTransfers = new Map();
 // Also track by transferId (string) for robust matching across windows
@@ -791,12 +1008,40 @@ const pendingTransfersByTransferId = new Map();
 const rendererReady = new Map(); // DOMContentLoaded map
 const rendererUIReady = new Map(); // UI initialized map
 
+function closeWindowFast(win, reason = 'transfer-complete') {
+  if (!win || win.isDestroyed()) return;
+  try {
+    win.hide();
+  } catch (_error) {}
+
+  setTimeout(() => {
+    try {
+      if (!win.isDestroyed()) {
+        console.log(`[DND] Fast-closing window ${win.id} (${reason})`);
+        win.close();
+      }
+    } catch (error) {
+      console.error('[DND] Fast close failed:', error);
+    }
+  }, 0);
+}
+
+function closeDragCreatedSourceWindow(sourceWin, movedTabId, reason = 'logical-transfer') {
+  if (!sourceWin || sourceWin.isDestroyed()) return;
+  const sourceState = windows.get(sourceWin.id);
+  if (!sourceState) return;
+  const dragCreatedMarker = sourceState.createdForDragTab;
+  if (dragCreatedMarker === undefined || dragCreatedMarker === null) return;
+  closeWindowFast(sourceWin, reason);
+}
+
 ipcMain.on('renderer-ready', (event) => {
   try {
     const win = BrowserWindow.fromWebContents(event.sender);
     if (!win) return;
     rendererReady.set(win.id, true);
     console.log(`Renderer ready for window ${win.id}`);
+    emitHibernationStateForWindow(win);
     win.once('closed', () => rendererReady.delete(win.id));
   } catch (e) { console.error('renderer-ready handling failed', e); }
 });
@@ -819,8 +1064,9 @@ ipcMain.on('tab-drag-start', (event, tab) => {
     const tid = Number(tab.id);
     const viewRef = (state && state.views && state.views.has(tid)) ? state.views.get(tid) : null;
     
-    // Generate a unique transferId for this drag operation
-    const transferId = `transfer-${srcWin.id}-${tid}-${Date.now()}`;
+    // Reuse renderer-provided transferId when available to avoid cross-process mismatch
+    const providedTransferId = typeof tab?.transferId === 'string' ? tab.transferId : '';
+    const transferId = providedTransferId || `transfer-${srcWin.id}-${tid}-${Date.now()}`;
     const webContentsId = viewRef && viewRef.webContents ? viewRef.webContents.id : undefined;
     
     // Store drag state globally
@@ -874,33 +1120,114 @@ ipcMain.on('tab-dropped-here', (event, tabMeta) => {
     
     console.log('[DND] tab-dropped-here:', { destWin: destWin.id, tabMeta });
     
+    const sourceWinIdFromMeta = Number(tabMeta?.sourceWinId);
+    const sourceWinFromMeta = BrowserWindow.getAllWindows().find(w => w.id === sourceWinIdFromMeta);
+    const tabIdFromMeta = Number(tabMeta?.id);
+
+    // Handle webview-based transfers directly from metadata when no BrowserView transfer exists.
+    const logicalTransferFromMeta = () => {
+      const movedTab = {
+        id: Number.isFinite(tabIdFromMeta) ? tabIdFromMeta : Date.now(),
+        url: tabMeta?.url,
+        title: tabMeta?.title,
+        isIncognito: !!tabMeta?.isIncognito
+      };
+      if (!movedTab.url) {
+        console.warn('[DND] Missing URL for logical tab transfer');
+        return false;
+      }
+
+      destWin.webContents.send('attach-tab-handled', {
+        tab: movedTab,
+        viewCreated: false,
+        dropTargetTabId: Number.isFinite(Number(tabMeta?.dropTargetTabId)) ? Number(tabMeta.dropTargetTabId) : null
+      });
+
+      if (sourceWinFromMeta && !sourceWinFromMeta.isDestroyed() && sourceWinFromMeta.id !== destWin.id && Number.isFinite(tabIdFromMeta)) {
+        closeDragCreatedSourceWindow(sourceWinFromMeta, tabIdFromMeta, 'tab-dropped-here-logical-from-meta');
+        sourceWinFromMeta.webContents.send('remove-tab-record', tabIdFromMeta);
+      }
+
+      BrowserWindow.getAllWindows().forEach(w => {
+        if (!w.isDestroyed()) w.webContents.send('tab-drag-ended');
+      });
+      currentTabDrag = null;
+      return true;
+    };
+
+    // Ignore self-drops from metadata path.
+    if (Number.isFinite(sourceWinIdFromMeta) && sourceWinIdFromMeta === destWin.id) {
+      BrowserWindow.getAllWindows().forEach(w => {
+        if (!w.isDestroyed()) w.webContents.send('tab-drag-ended');
+      });
+      currentTabDrag = null;
+      return;
+    }
+
     // Get transferId from metadata
     const transferId = tabMeta?.transferId;
     if (!transferId) {
-      console.warn('[DND] No transferId provided, cannot attach tab');
-      BrowserWindow.getAllWindows().forEach(w => w.webContents.send('tab-drag-ended'));
-      currentTabDrag = null;
+      console.warn('[DND] No transferId provided; using logical transfer fallback');
+      logicalTransferFromMeta();
       return;
     }
     
     // Look up the pending transfer
     const pending = pendingTransfersByTransferId.get(transferId);
     if (!pending) {
-      console.warn('[DND] No pending transfer found for transferId:', transferId);
-      BrowserWindow.getAllWindows().forEach(w => w.webContents.send('tab-drag-ended'));
-      currentTabDrag = null;
+      console.warn('[DND] No pending transfer found for transferId; using logical transfer fallback:', transferId);
+      logicalTransferFromMeta();
       return;
     }
     
     const { sourceWinId, viewRef, tid, tab } = pending;
     const sourceState = windows.get(sourceWinId);
     const destState = windows.get(destWin.id);
-    
-    if (!viewRef || !destState) {
-      console.warn('[DND] Invalid state for attachment:', { hasView: !!viewRef, hasDestState: !!destState });
-      BrowserWindow.getAllWindows().forEach(w => w.webContents.send('tab-drag-ended'));
+    const sourceWin = sourceState?.win;
+
+    if (sourceWin && sourceWin.id === destWin.id) {
+      pendingTransfersByTransferId.delete(transferId);
+      BrowserWindow.getAllWindows().forEach(w => {
+        if (!w.isDestroyed()) w.webContents.send('tab-drag-ended');
+      });
+      currentTabDrag = null;
+      return;
+    }
+
+    if (!destState) {
+      console.warn('[DND] Invalid destination state for attachment');
+      BrowserWindow.getAllWindows().forEach(w => {
+        if (!w.isDestroyed()) w.webContents.send('tab-drag-ended');
+      });
       currentTabDrag = null;
       pendingTransfersByTransferId.delete(transferId);
+      return;
+    }
+
+    // Webview-based tabs may not have a BrowserView reference; transfer logically via renderer state.
+    if (!viewRef) {
+      destWin.webContents.send('attach-tab-handled', {
+        tab: {
+          id: tid,
+          url: tabMeta.url || tab?.url,
+          title: tabMeta.title || tab?.title,
+          isIncognito: tabMeta.isIncognito || tab?.isIncognito
+        },
+        viewCreated: false,
+        dropTargetTabId: Number.isFinite(Number(tabMeta?.dropTargetTabId)) ? Number(tabMeta.dropTargetTabId) : null
+      });
+
+      if (sourceWinFromMeta && !sourceWinFromMeta.isDestroyed() && sourceWinFromMeta.id !== destWin.id) {
+        const movedId = Number.isFinite(tabIdFromMeta) ? tabIdFromMeta : tid;
+        closeDragCreatedSourceWindow(sourceWinFromMeta, movedId, 'tab-dropped-here-logical-no-viewref');
+        sourceWinFromMeta.webContents.send('remove-tab-record', movedId);
+      }
+
+      pendingTransfersByTransferId.delete(transferId);
+      BrowserWindow.getAllWindows().forEach(w => {
+        if (!w.isDestroyed()) w.webContents.send('tab-drag-ended');
+      });
+      currentTabDrag = null;
       return;
     }
     
@@ -917,14 +1244,14 @@ ipcMain.on('tab-dropped-here', (event, tabMeta) => {
         break;
       }
     }
-    
-    const sourceWin = currentOwnerState?.win;
+    const ownerWin = currentOwnerState?.win;
+    const viewSourceWin = currentOwnerState?.win;
 
     // Detach from current owner if different from destination
-    if (sourceWin && sourceWin.id !== destWin.id && !sourceWin.isDestroyed()) {
+    if (viewSourceWin && viewSourceWin.id !== destWin.id && !viewSourceWin.isDestroyed()) {
       try {
-        if (sourceWin.getBrowserView() === viewRef) {
-          sourceWin.setBrowserView(null);
+        if (viewSourceWin.getBrowserView() === viewRef) {
+          viewSourceWin.setBrowserView(null);
         }
       } catch (e) {
         console.error('[DND] Error detaching view from source:', e);
@@ -973,32 +1300,25 @@ ipcMain.on('tab-dropped-here', (event, tabMeta) => {
             title: tabMeta.title || tab?.title,
             isIncognito: tabMeta.isIncognito || tab?.isIncognito
           },
-          viewCreated: true
+          viewCreated: true,
+          dropTargetTabId: Number.isFinite(Number(tabMeta?.dropTargetTabId)) ? Number(tabMeta.dropTargetTabId) : null
         });
         
         // Close orphaned source window if it has no more tabs or was created for this drag
-        if (sourceWin && sourceWin.id !== destWin.id && !sourceWin.isDestroyed()) {
-          const srcState = windows.get(sourceWin.id);
+        if (viewSourceWin && viewSourceWin.id !== destWin.id && !viewSourceWin.isDestroyed()) {
+          const srcState = windows.get(viewSourceWin.id);
           if (srcState && (srcState.views.size === 0 || srcState.createdForDragTab === tid)) {
-            console.log('[DND] Closing source window (empty or drag-created):', sourceWin.id);
-            setTimeout(() => {
-              if (!sourceWin.isDestroyed()) {
-                sourceWin.close();
-              }
-            }, 100);
+            console.log('[DND] Closing source window (empty or drag-created):', viewSourceWin.id);
+            closeWindowFast(viewSourceWin, 'source-empty-or-drag-created');
           }
         }
         
         // Also check the current owner window (might be different from source)
-        if (ownerWin && ownerWin.id !== destWin.id && ownerWin.id !== sourceWin?.id && !ownerWin.isDestroyed()) {
+        if (ownerWin && ownerWin.id !== destWin.id && ownerWin.id !== viewSourceWin?.id && !ownerWin.isDestroyed()) {
           const ownerState = windows.get(ownerWin.id);
           if (ownerState && (ownerState.views.size === 0 || ownerState.createdForDragTab === tid)) {
             console.log('[DND] Closing owner window (empty or drag-created):', ownerWin.id);
-            setTimeout(() => {
-              if (!ownerWin.isDestroyed()) {
-                ownerWin.close();
-              }
-            }, 100);
+            closeWindowFast(ownerWin, 'owner-empty-or-drag-created');
           }
         }
       } catch (e) {
@@ -1132,7 +1452,7 @@ ipcMain.on('detach-tab', (event, tab) => {
             // Close source window if empty
             if (srcState.views.size === 0 && !srcWin.isDestroyed()) {
               console.log('[DND] Closing emptied source window');
-              srcWin.close();
+              closeWindowFast(srcWin, 'detach-source-emptied');
             }
           } catch (e) {
             console.error('[DND] Error in finalizeDetach:', e);
@@ -1153,7 +1473,21 @@ ipcMain.on('detach-tab', (event, tab) => {
         }
       });
     } else {
-      console.warn('[DND] detach-tab: view not found in source');
+      // Internal tabs (settings/history/newtab) may not have a BrowserView; detach by opening URL in a fresh window.
+      console.warn('[DND] detach-tab: view not found in source; falling back to URL detach');
+      const fallbackUrl = tab && typeof tab.url === 'string' ? tab.url : null;
+      const detachedWin = fallbackUrl ? createWindow(fallbackUrl, true) : createWindow(undefined, true);
+      try {
+        const detachedState = windows.get(detachedWin.id);
+        if (detachedState) {
+          detachedState.createdForDragTab = srcTid;
+        }
+      } catch (err) {
+        console.error('[DND] Failed to tag fallback detached window with createdForDragTab', err);
+      }
+      try {
+        if (!srcWin.isDestroyed()) srcWin.webContents.send('remove-tab-record', srcTid);
+      } catch (e) {}
     }
   } catch (e) {
     console.error('[DND] detach-tab failed:', e);
@@ -1172,12 +1506,113 @@ ipcMain.on('tab-drag-end', (event) => {
 });
 
 // Window dragging handlers
-ipcMain.on('move-window', (event, { deltaX, deltaY }) => {
+ipcMain.on('start-window-drag', (event, payload = {}) => {
   const win = BrowserWindow.fromWebContents(event.sender);
-  if (win && !win.isDestroyed() && !win.isMaximized()) {
-    const [x, y] = win.getPosition();
-    win.setPosition(x + deltaX, y + deltaY);
+  if (!win || win.isDestroyed()) return;
+
+  const screenX = Number(payload?.screenX);
+  const screenY = Number(payload?.screenY);
+  const anchorRatio = Number(payload?.dragAnchorRatio);
+  if (!Number.isFinite(screenX) || !Number.isFinite(screenY)) return;
+
+  const clampedAnchor = Number.isFinite(anchorRatio)
+    ? Math.max(0, Math.min(1, anchorRatio))
+    : 0.5;
+
+  if (win.isMaximized()) {
+    win.unmaximize();
+    win.setSize(DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT);
+    const restoredBounds = win.getBounds();
+    const nextX = Math.round(screenX - (restoredBounds.width * clampedAnchor));
+    const nextY = Math.round(screenY - 12);
+    if (Number.isFinite(nextX) && Number.isFinite(nextY)) {
+      win.setPosition(nextX, nextY);
+    }
   }
+
+  const [winX, winY] = win.getPosition();
+  windowDragState.set(win.id, {
+    offsetX: Math.max(0, Math.round(screenX - winX)),
+    offsetY: Math.max(0, Math.round(screenY - winY)),
+    lastScreenX: screenX,
+    lastScreenY: screenY
+  });
+});
+
+ipcMain.on('move-window', (event, payload = {}) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (!win || win.isDestroyed()) return;
+
+  let dragState = windowDragState.get(win.id);
+  const screenX = Number(payload?.screenX);
+  const screenY = Number(payload?.screenY);
+
+  if (!dragState && Number.isFinite(screenX) && Number.isFinite(screenY) && !win.isMaximized()) {
+    const [winX, winY] = win.getPosition();
+    dragState = {
+      offsetX: Math.max(0, Math.round(screenX - winX)),
+      offsetY: Math.max(0, Math.round(screenY - winY)),
+      lastScreenX: screenX,
+      lastScreenY: screenY
+    };
+    windowDragState.set(win.id, dragState);
+  }
+
+  if (dragState && Number.isFinite(screenX) && Number.isFinite(screenY)) {
+    const movedX = Math.abs(screenX - dragState.lastScreenX);
+    const movedY = Math.abs(screenY - dragState.lastScreenY);
+    if (movedX < 1 && movedY < 1) return;
+
+    const nextX = Math.round(screenX - dragState.offsetX);
+    const nextY = Math.round(screenY - dragState.offsetY);
+    if (Number.isFinite(nextX) && Number.isFinite(nextY)) {
+      win.setPosition(nextX, nextY);
+    }
+    dragState.lastScreenX = screenX;
+    dragState.lastScreenY = screenY;
+    windowDragState.set(win.id, dragState);
+    return;
+  }
+
+  const deltaX = Number(payload?.deltaX);
+  const deltaY = Number(payload?.deltaY);
+  const pointerScreenX = Number(payload?.screenX);
+  const pointerScreenY = Number(payload?.screenY);
+  const dragAnchorRatio = Number(payload?.dragAnchorRatio);
+
+  if (!Number.isFinite(deltaX) || !Number.isFinite(deltaY)) return;
+
+  if (win.isMaximized()) {
+    win.unmaximize();
+    win.setSize(DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT);
+    const restoredBounds = win.getBounds();
+    if (Number.isFinite(pointerScreenX) && Number.isFinite(pointerScreenY)) {
+      const clampedAnchor = Number.isFinite(dragAnchorRatio)
+        ? Math.max(0, Math.min(1, dragAnchorRatio))
+        : 0.5;
+      const nextX = Math.round(pointerScreenX - (restoredBounds.width * clampedAnchor));
+      const nextY = Math.round(pointerScreenY - Math.min(22, Math.max(8, restoredBounds.height * 0.08)));
+      if (Number.isFinite(nextX) && Number.isFinite(nextY)) {
+        win.setPosition(nextX, nextY);
+      }
+    }
+    return;
+  }
+
+  if (win && !win.isDestroyed()) {
+    const [x, y] = win.getPosition();
+    const nextX = x + deltaX;
+    const nextY = y + deltaY;
+    if (Number.isFinite(nextX) && Number.isFinite(nextY)) {
+      win.setPosition(nextX, nextY);
+    }
+  }
+});
+
+ipcMain.on('end-window-drag', (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (!win || win.isDestroyed()) return;
+  windowDragState.delete(win.id);
 });
 
 ipcMain.on('toggle-maximize', (event) => {
@@ -1222,24 +1657,88 @@ ipcMain.handle('check-drop-target', async (event, { screenX, screenY, tabMeta })
     
     // Trigger attach on target window
     const transferId = tabMeta.transferId;
+    const sourceWinIdFromMeta = Number(tabMeta?.sourceWinId);
+    const sourceWinFromMeta = BrowserWindow.getAllWindows().find(w => w.id === sourceWinIdFromMeta);
+    const tabIdFromMeta = Number(tabMeta?.id);
+
+    const logicalTransferToTarget = () => {
+      const movedTab = {
+        id: Number.isFinite(tabIdFromMeta) ? tabIdFromMeta : Date.now(),
+        url: tabMeta?.url,
+        title: tabMeta?.title,
+        isIncognito: !!tabMeta?.isIncognito
+      };
+      if (!movedTab.url) return { handled: false };
+
+      targetWin.webContents.send('attach-tab-handled', {
+        tab: movedTab,
+        viewCreated: false,
+        dropTargetTabId: Number.isFinite(Number(tabMeta?.dropTargetTabId)) ? Number(tabMeta.dropTargetTabId) : null
+      });
+
+      if (sourceWinFromMeta && !sourceWinFromMeta.isDestroyed() && sourceWinFromMeta.id !== targetWin.id && Number.isFinite(tabIdFromMeta)) {
+        closeDragCreatedSourceWindow(sourceWinFromMeta, tabIdFromMeta, 'check-drop-target-logical-from-meta');
+        sourceWinFromMeta.webContents.send('remove-tab-record', tabIdFromMeta);
+      }
+
+      if (transferId) {
+        const pendingEntry = pendingTransfersByTransferId.get(transferId);
+        if (pendingEntry?.timeout) clearTimeout(pendingEntry.timeout);
+        pendingTransfersByTransferId.delete(transferId);
+      }
+
+      BrowserWindow.getAllWindows().forEach(w => {
+        if (!w.isDestroyed()) w.webContents.send('tab-drag-ended');
+      });
+      currentTabDrag = null;
+      return { handled: true, targetWindowId: targetWin.id };
+    };
+
     if (!transferId) {
-      console.warn('[DND] No transferId in tabMeta');
-      return { handled: false };
+      console.warn('[DND] No transferId in tabMeta; using logical transfer fallback');
+      return logicalTransferToTarget();
     }
     
     const pending = pendingTransfersByTransferId.get(transferId);
     if (!pending) {
-      console.warn('[DND] No pending transfer for transferId:', transferId);
-      return { handled: false };
+      console.warn('[DND] No pending transfer for transferId; using logical transfer fallback:', transferId);
+      return logicalTransferToTarget();
     }
     
     const { sourceWinId, viewRef, tid, tab } = pending;
     const sourceState = windows.get(sourceWinId);
     const destState = windows.get(targetWin.id);
-    
-    if (!viewRef || !destState) {
-      console.warn('[DND] Invalid state for attachment');
+
+    if (!destState) {
+      console.warn('[DND] Invalid destination state for attachment');
       return { handled: false };
+    }
+
+    // Webview-based tabs do not have BrowserView references; transfer logical tab state only.
+    if (!viewRef) {
+      targetWin.webContents.send('attach-tab-handled', {
+        tab: {
+          id: tid,
+          url: tabMeta.url || tab?.url,
+          title: tabMeta.title || tab?.title,
+          isIncognito: tabMeta.isIncognito || tab?.isIncognito
+        },
+        viewCreated: false,
+        dropTargetTabId: Number.isFinite(Number(tabMeta?.dropTargetTabId)) ? Number(tabMeta.dropTargetTabId) : null
+      });
+
+      if (sourceWinFromMeta && !sourceWinFromMeta.isDestroyed() && sourceWinFromMeta.id !== targetWin.id) {
+        const movedId = Number.isFinite(tabIdFromMeta) ? tabIdFromMeta : tid;
+        closeDragCreatedSourceWindow(sourceWinFromMeta, movedId, 'check-drop-target-logical-no-viewref');
+        sourceWinFromMeta.webContents.send('remove-tab-record', movedId);
+      }
+
+      pendingTransfersByTransferId.delete(transferId);
+      BrowserWindow.getAllWindows().forEach(w => {
+        if (!w.isDestroyed()) w.webContents.send('tab-drag-ended');
+      });
+
+      return { handled: true, targetWindowId: targetWin.id };
     }
     
     console.log('[DND] Attaching tab to target window:', { sourceWin: sourceWinId, targetWin: targetWin.id, tid });
@@ -1306,7 +1805,8 @@ ipcMain.handle('check-drop-target', async (event, { screenX, screenY, tabMeta })
             title: tabMeta.title || tab?.title,
             isIncognito: tabMeta.isIncognito || tab?.isIncognito
           },
-          viewCreated: true
+          viewCreated: true,
+          dropTargetTabId: Number.isFinite(Number(tabMeta?.dropTargetTabId)) ? Number(tabMeta.dropTargetTabId) : null
         });
         
         // Close source window if empty OR if it was created for this drag operation
@@ -1322,11 +1822,7 @@ ipcMain.handle('check-drop-target', async (event, { screenX, screenY, tabMeta })
           // Close if empty or if this was the tab the window was created for
           if (ownerState && (ownerState.views.size === 0 || ownerState.createdForDragTab === tid)) {
             console.log('[DND] Closing source window (empty or drag-created)');
-            setTimeout(() => {
-              if (!ownerWin.isDestroyed()) {
-                ownerWin.close();
-              }
-            }, 100);
+            closeWindowFast(ownerWin, 'check-drop-owner-empty-or-drag-created');
           }
         }
         
@@ -1342,11 +1838,7 @@ ipcMain.handle('check-drop-target', async (event, { screenX, screenY, tabMeta })
           
           if (srcState && (srcState.views.size === 0 || srcState.createdForDragTab === tid)) {
             console.log('[DND] Closing original source window (empty or drag-created)');
-            setTimeout(() => {
-              if (!sourceWin.isDestroyed()) {
-                sourceWin.close();
-              }
-            }, 100);
+            closeWindowFast(sourceWin, 'check-drop-source-empty-or-drag-created');
           }
         }
       } catch (e) {
@@ -1448,129 +1940,93 @@ ipcMain.on('show-tab-context-menu', (event, tab) => {
   } catch (e) { console.error('show-tab-context-menu failed', e); }
 });
 
-ipcMain.on('view:hide', (event) => {
-  const win = BrowserWindow.fromWebContents(event.sender);
-  if (win) {
-    win.setBrowserView(null);
-    const state = windows.get(win.id);
-    if (state) state.activeViewId = null;
-  }
-});
+ipcMain.on('suggestions-overlay:update', (event, payload = {}) => {
+  const parentWin = BrowserWindow.fromWebContents(event.sender);
+  if (!parentWin || parentWin.isDestroyed()) return;
 
-ipcMain.on('view:navigate', (event, { id, url }) => {
-  const win = BrowserWindow.fromWebContents(event.sender);
-  if (!win) return;
-  const state = windows.get(win.id);
-  if (!state || !state.views.has(id)) return;
+  const overlay = ensureSuggestionsOverlay(parentWin);
+  if (!overlay || overlay.isDestroyed()) return;
 
-  // Normalize and convert internal file pages to absolute file:// URLs
-  try {
-      if (!url.startsWith('file://')) {
-      if (url === 'settings.html' || url === '/settings.html' || url.endsWith('/settings.html')) {
-        url = pathToFileURL(path.join(__dirname, 'settings.html')).href;
-      } else if (url === 'history.html' || url === '/history.html' || url.endsWith('/history.html')) {
-        url = pathToFileURL(path.join(__dirname, 'history.html')).href;
-      }
-    }
-  } catch (e) {}
+  const bounds = payload?.bounds || {};
+  const x = Number(bounds.x);
+  const y = Number(bounds.y);
+  const width = Number(bounds.width);
+  const height = Number(bounds.height);
 
-  // HTTPS enforcement (except for localhost and special URLs)
-  if (url && !url.startsWith('https://') && !url.startsWith('http://localhost') && 
-      !url.startsWith('http://127.0.0.1') && !url.startsWith('file://') && 
-      !url.includes('settings.html') && url !== 'newtab') {
-    // Convert HTTP to HTTPS for better security
-    if (url.startsWith('http://')) {
-      url = url.replace('http://', 'https://');
-    } else if (!url.includes('://')) {
-      // Add HTTPS to URLs without protocol
-      url = 'https://' + url;
-    }
-  }
-
-  const view = state.views.get(id);
-  if (view && !view.webContents.isDestroyed()) {
-    console.log(`Navigating tab ${id} to: ${url}`);
-    // Helper to load URL with a few retries before showing an error page
-    function loadUrlWithRetries(targetUrl, attemptsLeft = 3) {
-      view.webContents.loadURL(targetUrl, {
-        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        extraHeaders: 'Accept-Language: en-US,en;q=0.9\r\n'
-      }).then(() => {
-        console.log(`Successfully loaded: ${targetUrl}`);
-      }).catch(err => {
-        console.error('Failed to load URL:', targetUrl, 'attemptsLeft:', attemptsLeft, err);
-        if (err && err.code === 'ERR_ABORTED') {
-          // Navigation was intentionally aborted (not an error state we care about)
-          console.log('Navigation aborted, ignoring');
-          return;
-        }
-        if (attemptsLeft > 1) {
-          console.log('Retrying load in 1s...');
-          setTimeout(() => loadUrlWithRetries(targetUrl, attemptsLeft - 1), 1000);
-          return;
-        }
-        // Common network errors
-        if (err && (err.code === 'ERR_NETWORK_CHANGED' || err.code === 'ERR_INTERNET_DISCONNECTED')) {
-          view.webContents.loadURL('data:text/html,<h1>Network Error</h1><p>Check your internet connection and try again.</p>');
-          return;
-        }
-        // Try fallback to HTTP for non-google URLs as before
-        if (targetUrl.startsWith('https://') && !targetUrl.includes('google.com') && !targetUrl.includes('search')) {
-          const httpUrl = targetUrl.replace('https://', 'http://');
-          console.log(`Trying HTTP fallback: ${httpUrl}`);
-          view.webContents.loadURL(httpUrl).catch(fallbackErr => {
-            console.error('HTTP fallback also failed:', fallbackErr);
-            view.webContents.loadURL('data:text/html,<h1>Failed to load page</h1><p>Unable to load ' + targetUrl + '</p>');
-          });
-        } else {
-          view.webContents.loadURL('data:text/html,<h1>Failed to load page</h1><p>Unable to load ' + targetUrl + '</p><p>Error: ' + (err && err.message ? err.message : 'Unknown') + '</p>');
-        }
-      });
-    }
-    loadUrlWithRetries(url, 3);
-  }
-});
-
-ipcMain.on('view:reload', (event, id) => {
-  const win = BrowserWindow.fromWebContents(event.sender);
-  if (!win) return;
-  const state = windows.get(win.id);
-  if (!state || !state.views.has(id)) return;
-  const view = state.views.get(id);
-  if (!view.webContents.isDestroyed()) {
-    view.webContents.reload();
-  }
-});
-
-ipcMain.on('view:back', (event, id) => {
-  const win = BrowserWindow.fromWebContents(event.sender);
-  if (!win) return;
-  const state = windows.get(win.id);
-  if (!state || !state.views.has(id)) return;
-  const view = state.views.get(id);
-  if (!view.webContents.isDestroyed() && view.webContents.canGoBack()) {
-    view.webContents.goBack();
-  }
-});
-
-ipcMain.on('view:forward', (event, id) => {
-  const win = BrowserWindow.fromWebContents(event.sender);
-  if (!win) return;
-  const state = windows.get(win.id);
-  if (!state || !state.views.has(id)) return;
-  const view = state.views.get(id);
-  if (!view.webContents.isDestroyed() && view.webContents.canGoForward()) {
-    view.webContents.goForward();
-  }
-});
-
-ipcMain.on('open-settings-window', () => {
-  // Prevent multiple settings windows
-  if (settingsWindow && !settingsWindow.isDestroyed()) {
-    settingsWindow.focus();
+  if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    hideSuggestionsOverlayForWindow(parentWin.id);
     return;
   }
-  createSettingsWindow();
+
+  const safeBounds = {
+    x: Math.round(x),
+    y: Math.round(y),
+    width: Math.max(120, Math.round(width)),
+    height: Math.max(50, Math.round(height))
+  };
+
+  try {
+    overlay.setBounds(safeBounds, false);
+    overlay.__lastPayload = payload;
+
+    const sendPayload = () => {
+      try {
+        if (!overlay.isDestroyed()) {
+          overlay.webContents.send('overlay-data', overlay.__lastPayload || payload);
+        }
+      } catch (_error) {}
+    };
+
+    if (overlay.webContents.isLoadingMainFrame()) {
+      overlay.webContents.once('did-finish-load', sendPayload);
+    } else {
+      sendPayload();
+    }
+
+    if (!overlay.isVisible()) {
+      if (typeof overlay.showInactive === 'function') overlay.showInactive();
+      else overlay.show();
+    }
+  } catch (error) {
+    console.error('Failed to update suggestions overlay:', error);
+  }
+});
+
+ipcMain.on('suggestions-overlay:hide', (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (!win || win.isDestroyed()) return;
+
+  if (suggestionsOverlays.has(win.id)) {
+    hideSuggestionsOverlayForWindow(win.id);
+    return;
+  }
+
+  const parent = win.getParentWindow();
+  if (parent && !parent.isDestroyed()) {
+    hideSuggestionsOverlayForWindow(parent.id);
+  }
+});
+
+ipcMain.on('suggestions-overlay:select', (event, selectedIndex) => {
+  const overlay = BrowserWindow.fromWebContents(event.sender);
+  if (!overlay || overlay.isDestroyed()) return;
+
+  const parent = overlay.getParentWindow();
+  if (!parent || parent.isDestroyed()) return;
+
+  const numericIndex = Number(selectedIndex);
+  const suggestions = Array.isArray(overlay.__lastPayload?.suggestions)
+    ? overlay.__lastPayload.suggestions
+    : [];
+  const suggestion = Number.isFinite(numericIndex) && numericIndex >= 0 && numericIndex < suggestions.length
+    ? suggestions[numericIndex]
+    : null;
+
+  parent.webContents.send('suggestion-selected', {
+    index: numericIndex,
+    suggestion
+  });
+  hideSuggestionsOverlayForWindow(parent.id);
 });
 
 ipcMain.on('open-incognito', () => {
@@ -1581,6 +2037,36 @@ ipcMain.on('broadcast-theme-change', (event, theme) => {
   BrowserWindow.getAllWindows().forEach(win => {
     if (win.webContents !== event.sender) {
       win.webContents.send('theme-changed', theme);
+    }
+  });
+});
+
+ipcMain.on('toggle-adblock', (_event, enabled) => {
+  adBlockEnabled = !!enabled;
+  storageData.adblockEnabled = adBlockEnabled;
+  saveStorageData(storageData);
+
+  BrowserWindow.getAllWindows().forEach(win => {
+    try {
+      setupAdBlockerForSession(win.webContents.session);
+      win.webContents.send('adblock-state-changed', { enabled: adBlockEnabled, mode: adBlockMode });
+    } catch (_error) {
+      // ignore per-window session setup failures
+    }
+  });
+});
+
+ipcMain.on('set-adblock-mode', (_event, mode) => {
+  adBlockMode = mode === 'strict' ? 'strict' : 'balanced';
+  storageData.adblockMode = adBlockMode;
+  saveStorageData(storageData);
+
+  BrowserWindow.getAllWindows().forEach(win => {
+    try {
+      setupAdBlockerForSession(win.webContents.session);
+      win.webContents.send('adblock-state-changed', { enabled: adBlockEnabled, mode: adBlockMode });
+    } catch (_error) {
+      // ignore per-window session setup failures
     }
   });
 });
@@ -1692,7 +2178,7 @@ ipcMain.handle('delete-cookie', async (event, { name, domain }) => {
 
 // Storage API handlers
 ipcMain.handle('storage-get', (event, key) => {
-  return storageData[key] || null;
+  return Object.prototype.hasOwnProperty.call(storageData, key) ? storageData[key] : null;
 });
 
 ipcMain.handle('storage-set', (event, key, value) => {
@@ -1800,9 +2286,7 @@ ipcMain.on('history-updated', (_event) => {
 
 // Request clear history across all windows
 ipcMain.on('request-clear-history', (event) => {
-  const senderWin = BrowserWindow.fromWebContents(event.sender);
   BrowserWindow.getAllWindows().forEach(win => {
-    if (senderWin && win.id === senderWin.id) return; // Skip origin to avoid loops
     try { win.webContents.send('clear-history'); } catch (e) {}
   });
 });
@@ -1853,18 +2337,9 @@ ipcMain.handle('apply-browser-settings', async (event, viewId, settings) => {
       }
     });
     
-    // Apply images setting
-    if (!imagesEnabled) {
-      view.webContents.session.webRequest.onBeforeRequest(
-        { urls: ['*://*/*.jpg', '*://*/*.jpeg', '*://*/*.png', '*://*/*.gif', '*://*/*.webp', '*://*/*.svg'] },
-        (details, callback) => {
-          callback({ cancel: true });
-        }
-      );
-    } else {
-      // Clear image blocking if previously set
-      view.webContents.session.webRequest.onBeforeRequest(null);
-    }
+    // Apply images setting without resetting global onBeforeRequest handlers
+    imageBlockingWebContents.set(view.webContents.id, !imagesEnabled);
+    setupAdBlockerForSession(view.webContents.session);
     
     // Apply popup blocker setting
     if (popupBlockerEnabled) {
@@ -1904,8 +2379,8 @@ ipcMain.handle('apply-browser-settings', async (event, viewId, settings) => {
       if (settings?.reducedAnimations === 'true') {
         cssToInject += `
           *, *::before, *::after {
-            animation-duration: 0.1s !important;
-            transition-duration: 0.1s !important;
+            animation-duration: 0s !important;
+            transition-duration: 0s !important;
             animation-delay: 0s !important;
           }
         `;
@@ -1973,7 +2448,7 @@ ipcMain.handle('apply-ui-settings', async (event, settings) => {
     
     if (settings.reducedAnimations !== undefined) {
       const reduced = settings.reducedAnimations === 'true';
-      const animationSpeed = reduced ? '0.1s' : '0.3s';
+      const animationSpeed = reduced ? '0s' : '0.12s';
       win.webContents.insertCSS(`
         :root {
           --animation-speed: ${animationSpeed} !important;
@@ -1985,7 +2460,7 @@ ipcMain.handle('apply-ui-settings', async (event, settings) => {
         }
       `);
     }
-    
+
     return true;
   } catch (error) {
     console.error('Error applying UI settings:', error);
@@ -2061,12 +2536,19 @@ function createIncognitoWindow() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      partition: 'incognito'
+      partition: 'incognito',
+      webSecurity: true,
+      allowRunningInsecureContent: false,
+      experimentalFeatures: false,
+      enableRemoteModule: false,
+      sandbox: true,
+      safeDialogs: true
     }
   });
 
   // Remove menu bar
   incognitoWin.setMenuBarVisibility(false);
+  setupAdBlockerForSession(incognitoWin.webContents.session);
 
   incognitoWin.loadFile('index.html');
   
@@ -2081,46 +2563,6 @@ function createIncognitoWindow() {
   return incognitoWin;
 }
 
-function createSettingsWindow() {
-  // Prevent multiple settings windows
-  if (settingsWindow && !settingsWindow.isDestroyed()) {
-    settingsWindow.focus();
-    return;
-  }
-
-  settingsWindow = new BrowserWindow({
-    width: 960,
-    height: 720,
-    title: 'Settings',
-    webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
-      contextIsolation: true,
-      nodeIntegration: false,
-      webSecurity: true,
-      allowRunningInsecureContent: false,
-      experimentalFeatures: false,
-      enableRemoteModule: false,
-      sandbox: true,
-      safeDialogs: true
-    }
-  });
-
-  // Remove menu bar
-  settingsWindow.setMenuBarVisibility(false);
-
-  settingsWindow.loadFile('settings.html');
-  settingsWindow.focus();
-
-  // Clear reference when window is closed
-  settingsWindow.on('closed', () => {
-    // Remove all event listeners from settings window to prevent memory leaks
-    if (settingsWindow) {
-      settingsWindow.removeAllListeners();
-    }
-    settingsWindow = null;
-  });
-}
-
 app.whenReady().then(() => {
   console.log('=== AUTO-UPDATER DEBUG INFO ===');
   console.log('App version:', app.getVersion());
@@ -2128,11 +2570,11 @@ app.whenReady().then(() => {
   console.log('Expected API URL: https://api.github.com/repos/H0l10W/Vortex-web-browser/releases/latest');
   console.log('Auto-updater provider:', autoUpdater.getFeedURL());
   console.log('================================');
+
+  initAdBlocker();
   
   // Initialize non-critical components after window creation
   setImmediate(() => {
-    initAdBlocker();
-    
     // Initialize auto-updater in production (restored from working v0.1.12)
     if (!isDev) { // Using forced production mode
       setTimeout(() => {
@@ -2370,6 +2812,44 @@ app.whenReady().then(() => {
   ipcMain.handle('hibernate-inactive-tabs', () => {
     hibernateInactiveTabs();
     return Array.from(memoryMonitoring.hibernatedTabs);
+  });
+
+  ipcMain.handle('get-system-metrics', async () => {
+    return await getSystemMetricsSnapshot();
+  });
+
+  ipcMain.handle('get-performance-config', () => {
+    return {
+      maxInactiveTabs: MEMORY_CONFIG.maxInactiveTabs,
+      memoryThresholdMB: MEMORY_CONFIG.memoryThresholdMB,
+      hibernationDelayMs: MEMORY_CONFIG.hibernationDelayMs
+    };
+  });
+
+  ipcMain.handle('set-performance-config', (event, config = {}) => {
+    if (config.memoryThresholdMB !== undefined) {
+      MEMORY_CONFIG.memoryThresholdMB = Math.max(256, Math.min(16384, Number(config.memoryThresholdMB) || MEMORY_CONFIG.memoryThresholdMB));
+    }
+
+    if (config.maxInactiveTabs !== undefined) {
+      MEMORY_CONFIG.maxInactiveTabs = Math.max(1, Math.min(100, Number(config.maxInactiveTabs) || MEMORY_CONFIG.maxInactiveTabs));
+    }
+
+    if (config.hibernationDelayMs !== undefined) {
+      MEMORY_CONFIG.hibernationDelayMs = Math.max(60000, Math.min(24 * 60 * 60 * 1000, Number(config.hibernationDelayMs) || MEMORY_CONFIG.hibernationDelayMs));
+    }
+
+    storageData.memoryConfig = {
+      maxInactiveTabs: MEMORY_CONFIG.maxInactiveTabs,
+      memoryThresholdMB: MEMORY_CONFIG.memoryThresholdMB,
+      hibernationDelayMs: MEMORY_CONFIG.hibernationDelayMs
+    };
+    saveStorageData(storageData);
+
+    return {
+      success: true,
+      config: storageData.memoryConfig
+    };
   });
 
   // Start memory monitoring and management

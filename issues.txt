@@ -1,1 +1,1 @@
-go through code and check for deprecated
+double clicking top bar doesnt enlarge window and also makes flash

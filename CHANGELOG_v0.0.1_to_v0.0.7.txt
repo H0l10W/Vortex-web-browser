@@ -242,7 +242,7 @@ DEVELOPER NOTES:
 FUTURE ROADMAP:
 ==============
 
-Planned for v0.1.6+:
+Planned for v1.0.0+:
 • Enhanced ad blocking capabilities
 • Password manager integration
 • Advanced privacy controls

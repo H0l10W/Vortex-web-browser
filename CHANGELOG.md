@@ -1,5 +1,13 @@
 # Vortex Browser - Changelog
 
+## [0.3.7] - 2026-04-12
+
+### 🔧 Changed
+- Polished browser UI styling with cleaner tab chrome, refined title bar appearance, and improved toolbar button layout.
+- Updated tab spacing, hover states, active tab contrast, and subtle divider visuals for a more modern window look.
+- Updated Ad Blocker and made improvements
+- Various fixes and improvements
+
 ## [0.3.6] - 2025-12-11
 
 ### ✨ Added

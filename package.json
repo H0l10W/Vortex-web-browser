@@ -1,10 +1,11 @@
 {
   "name": "vortexwebbrowser",
-  "version": "0.3.6",
+  "version": "0.3.7",
   "description": "A fast, lightweight web browser built with Electron",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
+    "security:test": "node security-test.js",
     "build": "electron-builder --win --publish=never",
     "build:portable": "electron-builder --win portable --publish=never",
     "build:dir": "electron-builder --win --dir",
@@ -22,7 +23,8 @@
     "url": "https://github.com/H0l10W/Vortex-web-browser.git"
   },
   "dependencies": {
-    "electron-updater": "^6.3.9"
+    "electron-updater": "^6.3.9",
+    "@cliqz/adblocker": "^1.26.15"
   },
   "devDependencies": {
     "electron": "^31.0.1",

@@ -61,6 +61,10 @@
             <span class="setting-icon">🔒</span>
             <span class="setting-text">Privacy</span>
           </button>
+          <button class="settings-tab-button" data-tab="performance">
+            <span class="setting-icon">⚡</span>
+            <span class="setting-text">Performance</span>
+          </button>
           <button class="settings-tab-button" data-tab="about">
             <span class="setting-icon">ℹ️</span>
             <span class="setting-text">About</span>
@@ -381,6 +385,19 @@
                   </div>
                 </div>
               </div>
+
+              <div class="setting-group">
+                <div class="toggle-setting">
+                  <label class="toggle-switch">
+                    <input type="checkbox" id="visual-effects-toggle" checked>
+                    <span class="slider"></span>
+                  </label>
+                  <div class="toggle-info">
+                    <span class="toggle-label">Visual Effects (Bloom)</span>
+                    <span class="toggle-description">Enable glow, shadows, and depth effects on UI elements</span>
+                  </div>
+                </div>
+              </div>
               <div class="setting-group">
                 <div class="toggle-setting">
                   <label class="toggle-switch">
@@ -627,6 +644,102 @@
                 <button id="refresh-memory-btn" class="btn-primary">Refresh Memory Info</button>
                 <button id="force-gc-btn" class="btn-secondary">Force Garbage Collection</button>
                 <button id="hibernate-tabs-btn" class="btn-secondary">Hibernate Inactive Tabs</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="settings-card">
+            <div class="card-header">
+              <h4>Developer Monitor</h4>
+              <p>Live CPU, RAM, GPU, and network telemetry for troubleshooting and optimization.</p>
+            </div>
+            <div class="card-content">
+              <div class="info-item">
+                <span class="info-label">App CPU:</span>
+                <span class="info-value" id="perf-cpu-app">Loading...</span>
+              </div>
+              <div class="info-item">
+                <span class="info-label">System CPU:</span>
+                <span class="info-value" id="perf-cpu-system">Loading...</span>
+              </div>
+              <div class="info-item">
+                <span class="info-label">App RAM:</span>
+                <span class="info-value" id="perf-ram-app">Loading...</span>
+              </div>
+              <div class="info-item">
+                <span class="info-label">System RAM:</span>
+                <span class="info-value" id="perf-ram-system">Loading...</span>
+              </div>
+              <div class="info-item">
+                <span class="info-label">GPU:</span>
+                <span class="info-value" id="perf-gpu">Loading...</span>
+              </div>
+              <div class="info-item">
+                <span class="info-label">Network (10s avg):</span>
+                <span class="info-value" id="perf-network-rate">Loading...</span>
+              </div>
+              <div class="info-item">
+                <span class="info-label">Network Latency:</span>
+                <span class="info-value" id="perf-network-latency">Loading...</span>
+              </div>
+              <div class="info-item">
+                <span class="info-label">Requests (1 min):</span>
+                <span class="info-value" id="perf-network-requests">Loading...</span>
+              </div>
+            </div>
+            <div class="card-actions">
+              <div class="button-group">
+                <button id="refresh-monitor-btn" class="btn-primary">Refresh Monitor</button>
+                <button id="toggle-live-monitor-btn" class="btn-secondary">Start Live Monitor</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="settings-card">
+            <div class="card-header">
+              <h4>Live Tuning</h4>
+              <p>Adjust resource behavior live. These values are persisted using your current storage.</p>
+            </div>
+            <div class="card-content">
+              <div class="setting-group">
+                <label for="memory-threshold-slider" class="setting-label">Memory Pressure Threshold</label>
+                <div class="slider-container">
+                  <input type="range" id="memory-threshold-slider" min="512" max="4096" value="1024" step="128" class="range-slider">
+                  <div class="slider-labels">
+                    <span>512 MB</span>
+                    <span id="memory-threshold-value">1024 MB</span>
+                    <span>4096 MB</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="setting-group">
+                <label for="max-inactive-tabs-slider" class="setting-label">Max Hibernated Tabs</label>
+                <div class="slider-container">
+                  <input type="range" id="max-inactive-tabs-slider" min="1" max="30" value="10" step="1" class="range-slider">
+                  <div class="slider-labels">
+                    <span>1</span>
+                    <span id="max-inactive-tabs-value">10</span>
+                    <span>30</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="setting-group">
+                <label for="hibernation-delay-slider" class="setting-label">Hibernate Delay</label>
+                <div class="slider-container">
+                  <input type="range" id="hibernation-delay-slider" min="1" max="60" value="10" step="1" class="range-slider">
+                  <div class="slider-labels">
+                    <span>1 min</span>
+                    <span id="hibernation-delay-value">10 min</span>
+                    <span>60 min</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="card-actions">
+              <div class="button-group">
+                <button id="apply-performance-config-btn" class="btn-primary">Apply Live Tuning</button>
               </div>
             </div>
           </div>

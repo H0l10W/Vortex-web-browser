@@ -1,11 +1,15 @@
 profiles
-add an option to close last tab which will close the browser
-widgets e.g weather, news, stocks ----------------- weather is done
+add an option to close last tab which will close the browser ------------ Done
+widgets e.g weather, news, stocks ----------------- Weather is done News is Done
 themes ------------------ This one is done to a basic standard.
 plugins
 incognito mode --------------- done in the settings page but still need to add a button to the quick bar.
 customizable shortcuts
-dark mode ------------ done
-auto-update
+dark mode ------------ Done
+auto-update --------- Done
 privacy settings
-clear cookies and history options --------- done
+clear cookies and history options --------- Done
+make sure all UI is consistent such as the downloads page ------------ Done
+make the ad blocker better --------- Done
+add search suggestions/ autofill --------- Done
+fix news and weather widget not always saving between restarts -------- Done

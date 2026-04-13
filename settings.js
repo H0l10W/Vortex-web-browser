@@ -1,28 +1,53 @@
 window.addEventListener('DOMContentLoaded', () => {
   // Persistent storage helper to replace localStorage
+  const hasElectronStorage = !!(window.electronAPI && typeof window.electronAPI.getStorageItem === 'function');
   const storage = {
     async getItem(key) {
       try {
-        return await window.electronAPI.getStorageItem(key);
+        if (hasElectronStorage) {
+          const value = await window.electronAPI.getStorageItem(key);
+          if (value !== null && value !== undefined) return value;
+        }
       } catch (error) {
         console.error('Error getting storage item:', key, error);
+      }
+      try {
+        const legacy = localStorage.getItem(key);
+        return legacy !== null ? legacy : null;
+      } catch (_error) {
         return null;
       }
     },
     async setItem(key, value) {
+      let saved = false;
       try {
-        return await window.electronAPI.setStorageItem(key, value);
+        if (hasElectronStorage && typeof window.electronAPI.setStorageItem === 'function') {
+          saved = !!(await window.electronAPI.setStorageItem(key, value));
+        }
       } catch (error) {
         console.error('Error setting storage item:', key, error);
-        return false;
+      }
+      try {
+        localStorage.setItem(key, value);
+        return true;
+      } catch (_error) {
+        return saved;
       }
     },
     async removeItem(key) {
+      let removed = false;
       try {
-        return await window.electronAPI.removeStorageItem(key);
+        if (hasElectronStorage && typeof window.electronAPI.removeStorageItem === 'function') {
+          removed = !!(await window.electronAPI.removeStorageItem(key));
+        }
       } catch (error) {
         console.error('Error removing storage item:', key, error);
-        return false;
+      }
+      try {
+        localStorage.removeItem(key);
+        return true;
+      } catch (_error) {
+        return removed;
       }
     }
   };
@@ -48,6 +73,7 @@ window.addEventListener('DOMContentLoaded', () => {
   const zoomValue = document.getElementById('zoom-value');
   const smoothScrollingToggle = document.getElementById('smooth-scrolling-toggle');
   const reducedAnimationsToggle = document.getElementById('reduced-animations-toggle');
+  const visualEffectsToggle = document.getElementById('visual-effects-toggle');
   const closeTabsOnExitToggle = document.getElementById('close-tabs-on-exit-toggle');
   const showTabPreviewsToggle = document.getElementById('show-tab-previews-toggle');
 
@@ -59,7 +85,7 @@ window.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  function applyTheme(themeClassName) {
+  function applyTheme(themeClassName, { broadcast = true } = {}) {
     const themeClasses = [
       'theme-light', 'theme-dark',
       'theme-light-mint', 'theme-light-sakura', 'theme-light-sunny',
@@ -72,7 +98,7 @@ window.addEventListener('DOMContentLoaded', () => {
     document.body.classList.add(themeClassName);
     
     // Broadcast the change to other windows
-    if (window.electronAPI && typeof window.electronAPI.broadcastThemeChange === 'function') {
+    if (broadcast && window.electronAPI && typeof window.electronAPI.broadcastThemeChange === 'function') {
       window.electronAPI.broadcastThemeChange(themeClassName);
     }
   }
@@ -120,15 +146,16 @@ window.addEventListener('DOMContentLoaded', () => {
   if (window.electronAPI && typeof window.electronAPI.onThemeChanged === 'function') {
     window.electronAPI.onThemeChanged((themeClassName) => {
       localStorage.setItem('theme', themeClassName);
-      applyTheme(themeClassName);
+      storage.setItem('theme', themeClassName);
+      applyTheme(themeClassName, { broadcast: false });
       updateSelectedThemeUI(themeClassName);
     });
   }
 
   // Apply saved theme on initial load
   storage.getItem('theme').then(currentTheme => {
-    const theme = currentTheme || 'theme-light';
-    applyTheme(theme);
+    const theme = currentTheme || localStorage.getItem('theme') || 'theme-light';
+    applyTheme(theme, { broadcast: false });
     updateSelectedThemeUI(theme);
   });
 
@@ -185,14 +212,48 @@ window.addEventListener('DOMContentLoaded', () => {
     updateWeatherBtn: !!updateWeatherBtn,
     resetWeatherBtn: !!resetWeatherBtn
   });
+
+  async function getWidgetSetting(key, fallback = null) {
+    try {
+      const persisted = await storage.getItem(key);
+      if (persisted !== null && persisted !== undefined) return persisted;
+    } catch (error) {
+      console.error(`Error loading widget setting: ${key}`, error);
+    }
+    try {
+      const legacy = localStorage.getItem(key);
+      return legacy !== null ? legacy : fallback;
+    } catch (_error) {
+      return fallback;
+    }
+  }
+
+  async function setWidgetSetting(key, value) {
+    try {
+      await storage.setItem(key, value);
+    } catch (error) {
+      console.error(`Error saving widget setting: ${key}`, error);
+    }
+    try {
+      localStorage.setItem(key, value);
+    } catch (_error) {
+      // ignore localStorage write failures
+    }
+  }
   
 
 
   // Initialize widget settings
   if (weatherToggle) {
-    weatherToggle.checked = localStorage.getItem('showWeatherWidget') !== 'false';
-    weatherToggle.addEventListener('change', (e) => {
-      localStorage.setItem('showWeatherWidget', e.target.checked);
+    getWidgetSetting('showWeatherWidget', 'true').then((value) => {
+      weatherToggle.checked = value !== 'false';
+      if (weatherSettings) {
+        weatherSettings.style.display = weatherToggle.checked ? 'block' : 'none';
+      }
+    });
+
+    weatherToggle.addEventListener('change', async (e) => {
+      await setWidgetSetting('showWeatherWidget', e.target.checked ? 'true' : 'false');
       if (weatherSettings) {
         weatherSettings.style.display = e.target.checked ? 'block' : 'none';
       }
@@ -209,9 +270,15 @@ window.addEventListener('DOMContentLoaded', () => {
   }
 
   if (newsToggle) {
-    newsToggle.checked = localStorage.getItem('showNewsWidget') !== 'false';
-    newsToggle.addEventListener('change', (e) => {
-      localStorage.setItem('showNewsWidget', e.target.checked);
+    getWidgetSetting('showNewsWidget', 'true').then((value) => {
+      newsToggle.checked = value !== 'false';
+      if (newsSettings) {
+        newsSettings.style.display = newsToggle.checked ? 'block' : 'none';
+      }
+    });
+
+    newsToggle.addEventListener('change', async (e) => {
+      await setWidgetSetting('showNewsWidget', e.target.checked ? 'true' : 'false');
       if (newsSettings) {
         newsSettings.style.display = e.target.checked ? 'block' : 'none';
       }
@@ -229,13 +296,14 @@ window.addEventListener('DOMContentLoaded', () => {
 
   // News settings
   if (newsCountrySelect) {
-    const currentCountry = localStorage.getItem('newsCountry') || 'us';
-    newsCountrySelect.value = currentCountry;
+    getWidgetSetting('newsCountry', 'us').then((currentCountry) => {
+      newsCountrySelect.value = currentCountry || 'us';
+    });
 
     
-    newsCountrySelect.onchange = function() {
+    newsCountrySelect.onchange = async function() {
       const newCountry = this.value;
-      localStorage.setItem('newsCountry', newCountry);
+      await setWidgetSetting('newsCountry', newCountry);
       
       if (window.electronAPI && window.electronAPI.broadcastWidgetSettings) {
         window.electronAPI.broadcastWidgetSettings('newsUpdate', true);
@@ -255,10 +323,11 @@ window.addEventListener('DOMContentLoaded', () => {
       
       if (window.opener) {
         try {
+          const currentCategory = await getWidgetSetting('newsCategory', 'general');
           window.opener.postMessage({
             type: 'newsSettingsChanged',
             country: newCountry,
-            category: localStorage.getItem('newsCategory'),
+            category: currentCategory,
             timestamp: Date.now()
           }, '*');
           updateAttempted = true;
@@ -282,12 +351,13 @@ window.addEventListener('DOMContentLoaded', () => {
   }
 
   if (newsCategorySelect) {
-    const currentCategory = localStorage.getItem('newsCategory') || 'general';
-    newsCategorySelect.value = currentCategory;
+    getWidgetSetting('newsCategory', 'general').then((currentCategory) => {
+      newsCategorySelect.value = currentCategory || 'general';
+    });
     
-    newsCategorySelect.onchange = function() {
+    newsCategorySelect.onchange = async function() {
       const newCategory = this.value;
-      localStorage.setItem('newsCategory', newCategory);
+      await setWidgetSetting('newsCategory', newCategory);
       
       if (window.electronAPI && window.electronAPI.broadcastWidgetSettings) {
         window.electronAPI.broadcastWidgetSettings('newsUpdate', true);
@@ -307,10 +377,11 @@ window.addEventListener('DOMContentLoaded', () => {
       
       if (window.opener) {
         try {
+          const currentCountry = await getWidgetSetting('newsCountry', 'us');
           window.opener.postMessage({
             type: 'newsSettingsChanged',
             category: newCategory,
-            country: localStorage.getItem('newsCountry'),
+            country: currentCountry,
             timestamp: Date.now()
           }, '*');
           updateAttempted = true;
@@ -548,6 +619,164 @@ window.addEventListener('DOMContentLoaded', () => {
   const refreshMemoryBtn = document.getElementById('refresh-memory-btn');
   const forceGcBtn = document.getElementById('force-gc-btn');
   const hibernateTabsBtn = document.getElementById('hibernate-tabs-btn');
+  const refreshMonitorBtn = document.getElementById('refresh-monitor-btn');
+  const toggleLiveMonitorBtn = document.getElementById('toggle-live-monitor-btn');
+
+  const perfCpuApp = document.getElementById('perf-cpu-app');
+  const perfCpuSystem = document.getElementById('perf-cpu-system');
+  const perfRamApp = document.getElementById('perf-ram-app');
+  const perfRamSystem = document.getElementById('perf-ram-system');
+  const perfGpu = document.getElementById('perf-gpu');
+  const perfNetworkRate = document.getElementById('perf-network-rate');
+  const perfNetworkLatency = document.getElementById('perf-network-latency');
+  const perfNetworkRequests = document.getElementById('perf-network-requests');
+
+  const memoryThresholdSlider = document.getElementById('memory-threshold-slider');
+  const memoryThresholdValue = document.getElementById('memory-threshold-value');
+  const maxInactiveTabsSlider = document.getElementById('max-inactive-tabs-slider');
+  const maxInactiveTabsValue = document.getElementById('max-inactive-tabs-value');
+  const hibernationDelaySlider = document.getElementById('hibernation-delay-slider');
+  const hibernationDelayValue = document.getElementById('hibernation-delay-value');
+  const applyPerformanceConfigBtn = document.getElementById('apply-performance-config-btn');
+
+  let liveMonitorInterval = null;
+  let liveMonitorEnabled = false;
+
+  function updatePerformanceSliderLabels() {
+    if (memoryThresholdSlider && memoryThresholdValue) {
+      memoryThresholdValue.textContent = `${memoryThresholdSlider.value} MB`;
+    }
+    if (maxInactiveTabsSlider && maxInactiveTabsValue) {
+      maxInactiveTabsValue.textContent = `${maxInactiveTabsSlider.value}`;
+    }
+    if (hibernationDelaySlider && hibernationDelayValue) {
+      hibernationDelayValue.textContent = `${hibernationDelaySlider.value} min`;
+    }
+  }
+
+  async function loadPerformanceConfig() {
+    if (!window.electronAPI || typeof window.electronAPI.getPerformanceConfig !== 'function') return;
+    try {
+      const config = await window.electronAPI.getPerformanceConfig();
+      if (!config) return;
+
+      if (memoryThresholdSlider && config.memoryThresholdMB) {
+        memoryThresholdSlider.value = config.memoryThresholdMB;
+      }
+      if (maxInactiveTabsSlider && config.maxInactiveTabs) {
+        maxInactiveTabsSlider.value = config.maxInactiveTabs;
+      }
+      if (hibernationDelaySlider && config.hibernationDelayMs) {
+        hibernationDelaySlider.value = Math.round(config.hibernationDelayMs / 60000);
+      }
+
+      updatePerformanceSliderLabels();
+    } catch (error) {
+      console.error('Failed to load performance config:', error);
+    }
+  }
+
+  async function applyPerformanceConfig() {
+    if (!window.electronAPI || typeof window.electronAPI.setPerformanceConfig !== 'function') return;
+    try {
+      const payload = {
+        memoryThresholdMB: Number(memoryThresholdSlider?.value || 1024),
+        maxInactiveTabs: Number(maxInactiveTabsSlider?.value || 10),
+        hibernationDelayMs: Number(hibernationDelaySlider?.value || 10) * 60000
+      };
+
+      await window.electronAPI.setPerformanceConfig(payload);
+      showToast('Performance tuning updated live', 'success');
+      await updateSystemMonitor();
+      await updateMemoryDisplay();
+    } catch (error) {
+      console.error('Failed to apply performance config:', error);
+      showToast('Failed to apply performance tuning', 'error');
+    }
+  }
+
+  async function updateSystemMonitor() {
+    if (!window.electronAPI || typeof window.electronAPI.getSystemMetrics !== 'function') return;
+
+    try {
+      const metrics = await window.electronAPI.getSystemMetrics();
+      if (!metrics) return;
+
+      if (perfCpuApp) perfCpuApp.textContent = `${metrics.cpu.appPercent.toFixed(1)}%`;
+      if (perfCpuSystem) perfCpuSystem.textContent = `${metrics.cpu.systemPercent.toFixed(1)}%`;
+      if (perfRamApp) perfRamApp.textContent = `${metrics.memory.rss} MB`;
+      if (perfRamSystem) {
+        const used = Math.max(0, metrics.memory.systemTotalMB - metrics.memory.systemFreeMB);
+        perfRamSystem.textContent = `${used} / ${metrics.memory.systemTotalMB} MB`;
+      }
+      if (perfGpu) {
+        perfGpu.textContent = `${metrics.gpu.processCpuPercent.toFixed(1)}% CPU / ${metrics.gpu.processMemoryMB} MB`;
+      }
+      if (perfNetworkRate) perfNetworkRate.textContent = `${metrics.network.averageDownKbps} kbps`;
+      if (perfNetworkLatency) perfNetworkLatency.textContent = `${metrics.network.averageLatencyMs} ms`;
+      if (perfNetworkRequests) {
+        perfNetworkRequests.textContent = `${metrics.network.requestsPerMin}/min (active ${metrics.network.activeRequests})`;
+      }
+    } catch (error) {
+      console.error('Failed to update system monitor:', error);
+    }
+  }
+
+  function startLiveMonitor() {
+    if (liveMonitorInterval) return;
+    liveMonitorInterval = setInterval(() => {
+      updateSystemMonitor();
+      updateMemoryDisplay();
+    }, 2000);
+  }
+
+  function stopLiveMonitor() {
+    if (liveMonitorInterval) {
+      clearInterval(liveMonitorInterval);
+      liveMonitorInterval = null;
+    }
+  }
+
+  function updateLiveMonitorButton() {
+    if (toggleLiveMonitorBtn) {
+      toggleLiveMonitorBtn.textContent = liveMonitorEnabled ? 'Stop Live Monitor' : 'Start Live Monitor';
+    }
+  }
+
+  if (refreshMonitorBtn) {
+    refreshMonitorBtn.addEventListener('click', async () => {
+      await updateSystemMonitor();
+      await updateMemoryDisplay();
+    });
+  }
+
+  if (toggleLiveMonitorBtn) {
+    toggleLiveMonitorBtn.addEventListener('click', async () => {
+      liveMonitorEnabled = !liveMonitorEnabled;
+      if (liveMonitorEnabled) {
+        startLiveMonitor();
+        await updateSystemMonitor();
+        await updateMemoryDisplay();
+      } else {
+        stopLiveMonitor();
+      }
+      updateLiveMonitorButton();
+    });
+    updateLiveMonitorButton();
+  }
+
+  [memoryThresholdSlider, maxInactiveTabsSlider, hibernationDelaySlider].forEach(slider => {
+    if (!slider) return;
+    slider.addEventListener('input', updatePerformanceSliderLabels);
+    slider.addEventListener('change', applyPerformanceConfig);
+  });
+
+  if (applyPerformanceConfigBtn) {
+    applyPerformanceConfigBtn.addEventListener('click', applyPerformanceConfig);
+  }
+
+  loadPerformanceConfig();
+  updatePerformanceSliderLabels();
   
   async function updateMemoryDisplay() {
     if (window.electronAPI && typeof window.electronAPI.getMemoryUsage === 'function') {
@@ -582,6 +811,7 @@ window.addEventListener('DOMContentLoaded', () => {
   if (refreshMemoryBtn) {
     refreshMemoryBtn.addEventListener('click', () => {
       updateMemoryDisplay();
+      updateSystemMonitor();
     });
   }
   
@@ -629,15 +859,23 @@ window.addEventListener('DOMContentLoaded', () => {
     });
   }
   
-  // Update memory display when Performance tab is first opened
+  // Update memory display when Performance tab is opened and pause monitor otherwise
   settingsTabButtons.forEach(button => {
     button.addEventListener('click', () => {
       if (button.dataset.tab === 'performance') {
         setTimeout(() => {
           updateMemoryDisplay();
+          updateSystemMonitor();
+          if (liveMonitorEnabled) startLiveMonitor();
         }, 100);
+      } else {
+        stopLiveMonitor();
       }
     });
+  });
+
+  window.addEventListener('beforeunload', () => {
+    stopLiveMonitor();
   });
 
   // Close modal when clicking outside
@@ -726,6 +964,10 @@ window.addEventListener('DOMContentLoaded', () => {
       const enabled = e.target.checked;
       await storage.setItem('reducedAnimations', enabled.toString());
       updateAnimationSettings(enabled);
+
+      if (window.electronAPI && typeof window.electronAPI.broadcastWidgetSettings === 'function') {
+        window.electronAPI.broadcastWidgetSettings('reducedAnimations', enabled);
+      }
       
       // Apply to main browser window
       if (window.electronAPI && window.electronAPI.applyUISettings) {
@@ -738,12 +980,37 @@ window.addEventListener('DOMContentLoaded', () => {
 
   function updateAnimationSettings(reduced) {
     if (reduced) {
-      document.documentElement.style.setProperty('--animation-speed', '0.1s');
-      document.documentElement.style.setProperty('--transition-speed', '0.1s');
+      document.body.classList.add('animations-disabled');
+      document.documentElement.style.setProperty('--animation-speed', '0s');
+      document.documentElement.style.setProperty('--transition-speed', '0s');
     } else {
-      document.documentElement.style.removeProperty('--animation-speed');
-      document.documentElement.style.removeProperty('--transition-speed');
+      document.body.classList.remove('animations-disabled');
+      document.documentElement.style.setProperty('--animation-speed', '0.12s');
+      document.documentElement.style.setProperty('--transition-speed', '0.12s');
     }
+  }
+
+  // Visual Effects Toggle (Bloom/Shadows)
+  if (visualEffectsToggle) {
+    storage.getItem('visualEffectsEnabled').then(enabledValue => {
+      const enabled = enabledValue !== 'false';
+      visualEffectsToggle.checked = enabled;
+      updateVisualEffects(enabled);
+    });
+
+    visualEffectsToggle.addEventListener('change', async (e) => {
+      const enabled = e.target.checked;
+      await storage.setItem('visualEffectsEnabled', enabled.toString());
+      updateVisualEffects(enabled);
+
+      if (window.electronAPI && typeof window.electronAPI.broadcastWidgetSettings === 'function') {
+        window.electronAPI.broadcastWidgetSettings('visualEffects', enabled);
+      }
+    });
+  }
+
+  function updateVisualEffects(enabled) {
+    document.body.classList.toggle('effects-disabled', !enabled);
   }
 
   // Close Tabs on Exit Toggle

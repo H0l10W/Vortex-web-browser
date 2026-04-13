@@ -3,22 +3,16 @@ const { contextBridge, ipcRenderer, shell } = require('electron');
 // Expose a secure API to the renderer process
 contextBridge.exposeInMainWorld('electronAPI', {
   // --- Renderer to Main ---
-  viewCreate: (id, settings) => ipcRenderer.send('view:create', id, settings),
-  viewDestroy: (id) => ipcRenderer.send('view:destroy', id),
-  viewNavigate: (args) => ipcRenderer.send('view:navigate', args), // args: { id, url }
-  viewReload: (id) => ipcRenderer.send('view:reload', id),
-  viewBack: (id) => ipcRenderer.send('view:back', id),
-  viewForward: (id) => ipcRenderer.send('view:forward', id),
-  viewShow: (id) => ipcRenderer.send('view:show', id),
-  viewHide: () => ipcRenderer.send('view:hide'),
+  updateSuggestionsOverlay: (payload) => ipcRenderer.send('suggestions-overlay:update', payload),
+  hideSuggestionsOverlay: () => ipcRenderer.send('suggestions-overlay:hide'),
 
   // --- External URL handling ---
   openExternal: (url) => shell.openExternal(url),
 
   // --- New APIs ---
-  openSettingsWindow: () => ipcRenderer.send('open-settings-window'),
   broadcastThemeChange: (theme) => ipcRenderer.send('broadcast-theme-change', theme),
   toggleAdBlock: (enabled) => ipcRenderer.send('toggle-adblock', enabled),
+  setAdBlockMode: (mode) => ipcRenderer.send('set-adblock-mode', mode),
   openIncognitoWindow: () => ipcRenderer.send('open-incognito'),
   toggleDevTools: () => ipcRenderer.send('toggle-devtools'),
   broadcastWidgetSettings: (widget, enabled) => ipcRenderer.send('broadcast-widget-settings', { widget, enabled }),
@@ -60,7 +54,19 @@ contextBridge.exposeInMainWorld('electronAPI', {
   attachTabAck: (tabId) => ipcRenderer.send('attach-tab-ack', tabId),
   
   // Window dragging APIs
-  moveWindow: (deltaX, deltaY) => ipcRenderer.send('move-window', { deltaX, deltaY }),
+  startWindowDrag: (payload = {}) => ipcRenderer.send('start-window-drag', payload),
+  moveWindow: (deltaXOrPayload, deltaY, meta = {}) => {
+    if (deltaXOrPayload && typeof deltaXOrPayload === 'object') {
+      ipcRenderer.send('move-window', deltaXOrPayload);
+      return;
+    }
+    ipcRenderer.send('move-window', {
+      deltaX: deltaXOrPayload,
+      deltaY,
+      ...(meta && typeof meta === 'object' ? meta : {})
+    });
+  },
+  endWindowDrag: () => ipcRenderer.send('end-window-drag'),
   toggleMaximize: () => ipcRenderer.send('toggle-maximize'),
   
   // Persistent storage APIs (to replace localStorage)
@@ -71,10 +77,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   deleteCookie: (name, domain) => ipcRenderer.invoke('delete-cookie', { name, domain }),
 
   // --- Main to Renderer ---
-  onViewNavigated: (callback) => ipcRenderer.on('view:navigated', (event, args) => callback(args)),
   onOpenInNewTab: (callback) => ipcRenderer.on('open-in-new-tab', (event, url) => callback(url)),
   onNewWindow: (callback) => ipcRenderer.on('new-window', (event, url) => callback(url)),
-  onPageTitleUpdated: (callback) => ipcRenderer.on('page-title-updated', (event, args) => callback(args)),
   onThemeChanged: (callback) => ipcRenderer.on('theme-changed', (_event, theme) => callback(theme)),
   onWidgetSettingsChanged: (callback) => ipcRenderer.on('widget-settings-changed', (_event, data) => callback(data)),
   broadcastThemeChange: (theme) => ipcRenderer.send('broadcast-theme-change', theme),
@@ -102,7 +106,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // --- Memory Management APIs ---
   getMemoryUsage: () => ipcRenderer.invoke('get-memory-usage'),
   forceGarbageCollection: () => ipcRenderer.invoke('force-garbage-collection'),
-  hibernateInactiveTabs: () => ipcRenderer.invoke('hibernate-inactive-tabs')
+  hibernateInactiveTabs: () => ipcRenderer.invoke('hibernate-inactive-tabs'),
+  getSystemMetrics: () => ipcRenderer.invoke('get-system-metrics'),
+  getPerformanceConfig: () => ipcRenderer.invoke('get-performance-config'),
+  setPerformanceConfig: (config) => ipcRenderer.invoke('set-performance-config', config)
 });
 
 // Set up a global notification UI inside the page from the preload context

@@ -1,5 +1,52 @@
 // Dedicated history page script
 (async function () {
+  let consumedSnapshotHistory = null;
+
+  function getSnapshotHistoryOnce() {
+    if (consumedSnapshotHistory !== null) return consumedSnapshotHistory;
+    let snapshotHistory = [];
+    try {
+      const hash = window.location.hash || '';
+      const query = hash.startsWith('#') ? hash.slice(1) : hash;
+      const params = new URLSearchParams(query);
+      const encodedSnapshot = params.get('historyData');
+      if (encodedSnapshot) {
+        snapshotHistory = JSON.parse(decodeURIComponent(encodedSnapshot));
+        if (!Array.isArray(snapshotHistory)) snapshotHistory = [];
+        try {
+          history.replaceState(null, document.title, `${window.location.pathname}${window.location.search}`);
+        } catch (_e) {}
+      }
+    } catch (_e) {
+      snapshotHistory = [];
+    }
+    consumedSnapshotHistory = snapshotHistory;
+    return consumedSnapshotHistory;
+  }
+
+  async function clearPersistedHistory() {
+    try {
+      if (window.electronAPI && window.electronAPI.setStorageItem) {
+        const ok = await window.electronAPI.setStorageItem('browserHistory', '[]');
+        if (!ok) return false;
+      } else {
+        localStorage.setItem('browserHistory', '[]');
+      }
+    } catch (_err) {
+      try { localStorage.setItem('browserHistory', '[]'); } catch (_e) {}
+    }
+
+    try {
+      const raw = window.electronAPI && window.electronAPI.getStorageItem
+        ? await window.electronAPI.getStorageItem('browserHistory')
+        : localStorage.getItem('browserHistory');
+      const parsed = JSON.parse(raw || '[]');
+      return Array.isArray(parsed) && parsed.length === 0;
+    } catch (_err) {
+      return false;
+    }
+  }
+
   // Favicon caching for history page
   const __faviconBase64Cache = new Map();
   const __faviconFetchQueue = new Set();
@@ -62,6 +109,7 @@
     try {
       const theme = await window.electronAPI?.getStorageItem?.('theme') || localStorage.getItem('theme') || 'theme-light';
       document.body.className = theme;
+      const snapshotHistory = getSnapshotHistoryOnce();
       let raw = '[]';
       try {
         raw = await window.electronAPI?.getStorageItem?.('browserHistory') || localStorage.getItem('browserHistory') || '[]';
@@ -76,6 +124,15 @@
       } catch (err) {
         console.error('history.js: failed to parse stored browserHistory, using empty array', err);
         history = [];
+      }
+      if (Array.isArray(snapshotHistory) && snapshotHistory.length) {
+        const merged = [...history, ...snapshotHistory];
+        const byUrl = new Map();
+        for (const entry of merged) {
+          if (!entry || !entry.url) continue;
+          byUrl.set(entry.url, entry);
+        }
+        history = Array.from(byUrl.values());
       }
       // If we are opened from the main window and it has an in-memory buffer, render it too
       try {
@@ -131,6 +188,8 @@
               window.opener.document.getElementById('url').value = entry.url;
               window.opener.document.getElementById('url').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
               window.close();
+            } else if (entry.url) {
+              window.location.href = entry.url;
             }
           };
 
@@ -142,17 +201,12 @@
           favicon.onerror = function () { this.src = 'icons/newtab.png'; };
 
           const textContainer = document.createElement('div');
-          textContainer.style.display = 'flex';
-          textContainer.style.flexDirection = 'column';
-          textContainer.style.flex = '1';
+          textContainer.className = 'history-text';
           const title = document.createElement('span');
           title.className = 'history-title';
           title.textContent = entry.title || ((entry.host && entry.host.length) ? (entry.host.charAt(0).toUpperCase() + entry.host.slice(1)) : getSiteName(entry.url));
-          title.style.fontSize = '1.05em';
           const meta = document.createElement('span');
           meta.className = 'history-meta';
-          meta.style.fontSize = '0.9em';
-          meta.style.color = 'var(--settings-header-color, #666)';
           const urlText = entry.url || '';
           let timeText = '';
           try { if (entry.timestamp) timeText = new Date(entry.timestamp).toLocaleString(); } catch (e) {}
@@ -238,13 +292,12 @@
           try { if (Array.isArray(window.opener.__unsavedHistory)) window.opener.__unsavedHistory.length = 0; } catch (e) {}
         }
         // Always clear persisted storage and broadcast to other windows
-        try {
-          if (window.electronAPI && window.electronAPI.setStorageItem) {
-            await window.electronAPI.setStorageItem('browserHistory', '[]');
-          } else {
-            localStorage.setItem('browserHistory', '[]');
-          }
-        } catch (err) { try { localStorage.setItem('browserHistory', '[]'); } catch(e) {} }
+        consumedSnapshotHistory = [];
+        const cleared = await clearPersistedHistory();
+        if (!cleared) {
+          showToast('Failed to clear browsing history.', 'error');
+          return;
+        }
         try { if (window.electronAPI && window.electronAPI.broadcastHistoryUpdated) window.electronAPI.broadcastHistoryUpdated(); } catch (err) {}
         // Ask the main process to broadcast a request to clear all windows' history buffers
         try { if (window.electronAPI && window.electronAPI.requestClearHistory) window.electronAPI.requestClearHistory(); } catch (err) {}

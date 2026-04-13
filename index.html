@@ -38,6 +38,7 @@
     </div>
   </div>
   <div id="main-content">
+    <webview id="content-webview" allowpopups></webview>
     <div id="newtab">
       <div id="widgets-container">
         <div id="weather-widget">
@@ -85,7 +86,7 @@
       <button id="close-settings" class="close-panel">&times;</button>
     </div>
     <div class="settings-content">
-      <div class="settings-section">
+      <div class="settings-section non-collapsible" id="quick-actions-section">
         <h3>🚀 Quick Actions</h3>
         <button id="all-settings-btn" class="settings-button">Open Full Settings</button>
       </div>
@@ -126,6 +127,13 @@
         </div>
         <div class="settings-row">
           <label class="toggle-switch">
+            <input type="checkbox" id="adblock-strict-toggle">
+            <span class="slider"></span>
+          </label>
+          <span class="toggle-label">Strict Ad Blocking</span>
+        </div>
+        <div class="settings-row">
+          <label class="toggle-switch">
             <input type="checkbox" id="force-web-dark-toggle">
             <span class="slider"></span>
           </label>
@@ -142,11 +150,11 @@
 
       <div class="settings-section" id="history-section">
         <h3>🕑 Browsing History</h3>
-        <div id="settings-history-list" style="max-height:200px;overflow-y:auto;margin-bottom:10px;"></div>
-        <button id="clear-history-btn" class="settings-button danger-btn" style="margin-top:8px;">Clear Browsing History</button>
+        <div id="settings-history-list"></div>
+        <button id="clear-history-btn" class="settings-button danger-btn">Clear Browsing History</button>
       </div>
 
-      <div class="settings-section">
+      <div class="settings-section non-collapsible" id="about-section">
         <h3>ℹ️ About</h3>
         <p class="app-info">Vortex Browser</p>
         <p class="version-info">Version: <span id="app-version">1.0.0</span></p>
@@ -155,8 +163,19 @@
           Check for Updates
         </button>
       </div>
-      </div>
-      <div class="settings-section">
+    </div>
+  </div>
+
+  <!-- Quick History Panel (Right Side) -->
+  <div id="quick-history-panel" class="side-panel">
+    <div class="settings-header">
+      <h2>Recent History</h2>
+      <button id="close-quick-history" class="close-panel">&times;</button>
+    </div>
+    <div class="settings-content quick-history-content">
+      <div id="quick-history-list" class="quick-history-list"></div>
+      <div class="quick-history-actions">
+        <button id="view-all-history-btn" class="settings-button">View All History</button>
       </div>
     </div>
   </div>

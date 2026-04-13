@@ -5,10 +5,10 @@ import { createHistoryManager } from './renderer-modular/history-manager.js';
 const storage = createStorage(window.electronAPI);
 window.storage = storage;
 
-// Add a windowId-based storage prefix so each window persists tabs separately
+// Persist tabs under a stable scope so they survive app restarts
 const _urlParams = new URLSearchParams(window.location.search || '');
 const _windowId = _urlParams.get('windowId') || 'global';
-const storageKey = (key) => `${_windowId}:${key}`;
+const storageKey = (key) => `global:${key}`;
 
 // Initialize the history manager to replace inline buffer/flush logic
 const historyManager = createHistoryManager(window.electronAPI);
@@ -126,10 +126,6 @@ window.addEventListener('DOMContentLoaded', () => {
         window.electronAPI.on('history-updated', () => {
           try { renderSettingsHistory(); } catch (e) {}
         });
-        // If main process requests a history clear across windows, call the local historyManager.clear() too
-        window.electronAPI.on('clear-history', async () => {
-          try { await historyManager.clear(); renderSettingsHistory(); } catch (e) { }
-        });
       }
       // Clear history
       clearHistoryBtn.onclick = async () => {
@@ -164,10 +160,21 @@ window.addEventListener('DOMContentLoaded', () => {
   });
   
   storage.getItem('reducedAnimations').then(reducedAnimations => {
-    if (reducedAnimations === 'true') {
-      document.documentElement.style.setProperty('--animation-speed', '0.1s');
-      document.documentElement.style.setProperty('--transition-speed', '0.1s');
+    const reduced = reducedAnimations === 'true';
+    if (reduced) {
+      document.body.classList.add('animations-disabled');
+      document.documentElement.style.setProperty('--animation-speed', '0s');
+      document.documentElement.style.setProperty('--transition-speed', '0s');
+    } else {
+      document.body.classList.remove('animations-disabled');
+      document.documentElement.style.setProperty('--animation-speed', '0.12s');
+      document.documentElement.style.setProperty('--transition-speed', '0.12s');
     }
+  });
+
+  storage.getItem('visualEffectsEnabled').then(visualEffectsEnabled => {
+    const effectsEnabled = visualEffectsEnabled !== 'false';
+    document.body.classList.toggle('effects-disabled', !effectsEnabled);
   });
   // Force web dark mode toggle handling
   const forceWebDarkToggle = document.getElementById('force-web-dark-toggle');
@@ -284,28 +291,56 @@ window.addEventListener('DOMContentLoaded', () => {
   let bookmarks = [];
   let homepage = 'https://www.google.com';
   let quickLinks = [];
+  let hibernatedTabIds = new Set();
+
+  function setHibernatedTabIds(ids = []) {
+    const nextIds = new Set((Array.isArray(ids) ? ids : []).map(id => Number(id)));
+    const changed = nextIds.size !== hibernatedTabIds.size || Array.from(nextIds).some(id => !hibernatedTabIds.has(id));
+    hibernatedTabIds = nextIds;
+    if (changed) {
+      renderTabs();
+    }
+  }
+
+  async function refreshHibernationState() {
+    if (!window.electronAPI || typeof window.electronAPI.getMemoryUsage !== 'function') return;
+    try {
+      const memoryInfo = await window.electronAPI.getMemoryUsage();
+      setHibernatedTabIds(memoryInfo?.hibernatedTabs || []);
+    } catch (error) {
+      console.debug('Failed to refresh hibernation state', error);
+    }
+  }
   
   // Global drop zone for cross-window tab drops
   document.body.addEventListener('dragover', (e) => {
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
   }, { passive: false });
+
+  function getExternalDragMetaForDrop() {
+    const meta = window._externalDraggedTabMeta;
+    if (!meta) return null;
+    const sourceWinId = Number(meta.sourceWinId);
+    const thisWinId = Number(_windowId);
+    if (Number.isFinite(sourceWinId) && Number.isFinite(thisWinId) && sourceWinId === thisWinId) {
+      return null;
+    }
+    return {
+      ...meta,
+      transferId: window._currentDragTransferId || meta.transferId
+    };
+  }
   
   document.body.addEventListener('drop', (e) => {
-    if (window._externalDraggedTabMeta) {
+    const externalMeta = getExternalDragMetaForDrop();
+    if (externalMeta) {
       e.preventDefault();
       e.stopPropagation();
-      
-      // Use the stored transferId to ensure consistency
-      const meta = {
-        ...window._externalDraggedTabMeta,
-        transferId: window._currentDragTransferId
-      };
-      
-      console.log('[DND] body drop handler - external tab with stored transferId:', meta);
+      console.log('[DND] body drop handler - external tab with stored transferId:', externalMeta);
       
       if (window.electronAPI && window.electronAPI.tabDroppedHere) {
-        window.electronAPI.tabDroppedHere(meta);
+        window.electronAPI.tabDroppedHere(externalMeta);
         window._tabDropHandled = true;
         console.log('[DND] body drop - called tabDroppedHere');
       }
@@ -329,6 +364,7 @@ window.addEventListener('DOMContentLoaded', () => {
     renderTabs();
     renderBookmarkBar();
     switchTab(currentTabId);
+    refreshHibernationState();
     // Notify main that the renderer UI is fully initialized and ready to accept attachments
     try { if (window.electronUI && typeof window.electronUI.uiReady === 'function') window.electronUI.uiReady(); } catch (err) { }
   }).catch(error => {
@@ -345,6 +381,10 @@ window.addEventListener('DOMContentLoaded', () => {
   };
 
   if (window.electronAPI) {
+    window.electronAPI.on('hibernation-state-changed', (_event, ids) => {
+      setHibernatedTabIds(ids || []);
+    });
+
     // Listen for debug info from main process
     window.electronAPI.onAutoUpdaterDebugInfo((debugInfo) => {
       // Debug info received - could be logged to dev console if needed
@@ -436,6 +476,22 @@ window.addEventListener('DOMContentLoaded', () => {
         }, 1000);
       }
     });
+
+    window.electronAPI.on('adblock-state-changed', (_event, enabled) => {
+      const normalized = typeof enabled === 'object' && enabled !== null
+        ? { enabled: !!enabled.enabled, mode: enabled.mode === 'strict' ? 'strict' : 'balanced' }
+        : { enabled: !!enabled, mode: localStorage.getItem('adblockMode') === 'strict' ? 'strict' : 'balanced' };
+
+      try {
+        localStorage.setItem('adblockEnabled', normalized.enabled ? 'true' : 'false');
+        localStorage.setItem('adblockMode', normalized.mode);
+      } catch (_error) {}
+
+      const toggle = document.getElementById('adblock-toggle');
+      if (toggle) toggle.checked = normalized.enabled;
+      const strictToggle = document.getElementById('adblock-strict-toggle');
+      if (strictToggle) strictToggle.checked = normalized.mode === 'strict';
+    });
     
     // Listen for widget settings changes from other windows (like settings page)
     if (window.electronAPI && window.electronAPI.onWidgetSettingsChanged) {
@@ -450,6 +506,16 @@ window.addEventListener('DOMContentLoaded', () => {
           }
           // Update toolbar icon
           try { const icon = document.getElementById('force-web-dark-icon'); if (icon) icon.classList.toggle('active', !!data.enabled); } catch(e) {}
+        }
+        if (data.widget === 'reducedAnimations') {
+          const reduced = !!data.enabled;
+          document.body.classList.toggle('animations-disabled', reduced);
+          document.documentElement.style.setProperty('--animation-speed', reduced ? '0s' : '0.12s');
+          document.documentElement.style.setProperty('--transition-speed', reduced ? '0s' : '0.12s');
+        }
+        if (data.widget === 'visualEffects') {
+          const effectsEnabled = !!data.enabled;
+          document.body.classList.toggle('effects-disabled', !effectsEnabled);
         }
         if (data.widget === 'weatherUpdate') {
           // Reload weather widget when location settings change
@@ -479,55 +545,459 @@ window.addEventListener('DOMContentLoaded', () => {
   const tabsDiv = document.getElementById('tabs');
   const setHomeBtn = document.getElementById('set-home');
   const newTabPage = document.getElementById('newtab');
+  const contentWebview = document.getElementById('content-webview');
+  const mainContent = document.getElementById('main-content');
   const quickLinksDiv = document.getElementById('quick-links');
   const reloadBtn = document.getElementById('reload');
   const settingsBtn = document.getElementById('settings');
+  const historyBtn = document.getElementById('history-btn');
   const controlsDiv = document.getElementById('controls'); // Add controls div reference
-  // Ensure clicking anywhere on the controls focuses the URL input (helps recover focus if an overlay briefly steals it)
-  try { if (controlsDiv && urlInput) controlsDiv.addEventListener('click', () => { try { urlInput.focus(); } catch (e) {} }); } catch (e) {}
+  // Recover URL focus only when clicking non-interactive empty space in controls.
+  try {
+    if (controlsDiv && urlInput) {
+      controlsDiv.addEventListener('click', (event) => {
+        const target = event.target;
+        if (target === urlInput) return;
+        if (target && typeof target.closest === 'function') {
+          const interactiveTarget = target.closest('button, input, select, textarea, a, [role="button"], .url-suggestions-popup');
+          if (interactiveTarget) return;
+        }
+        try { urlInput.focus(); } catch (e) {}
+      });
+    }
+  } catch (e) {}
+
+  function isSkippableHistoryUrl(u) {
+    if (!u) return true;
+    try {
+      const parsed = new URL(u);
+      const pathname = parsed.pathname || '';
+      if (pathname.endsWith('/settings.html') || pathname.endsWith('/history.html')) return true;
+      if (u.includes('settings.html') || u.includes('history.html')) return true;
+    } catch (e) {
+      if (u === 'newtab' || u === 'settings.html' || u === 'history.html') return true;
+    }
+    return u === 'newtab';
+  }
+
+  function isInternalAppPageUrl(url) {
+    if (!url || typeof url !== 'string') return false;
+    try {
+      const parsed = new URL(url, window.location.href);
+      const path = (parsed.pathname || '').toLowerCase();
+      return path.endsWith('/settings.html') || path.endsWith('/history.html');
+    } catch (_error) {
+      const lower = url.toLowerCase();
+      return lower === 'settings.html' || lower === 'history.html' || lower.includes('settings.html') || lower.includes('history.html');
+    }
+  }
+
+  const tabWebviews = new Map();
+
+  function getActiveWebview() {
+    return tabWebviews.get(currentTabId) || null;
+  }
+
+  function showOnlyTabWebview(tabId) {
+    tabWebviews.forEach((webview, id) => {
+      webview.style.display = id === tabId ? 'flex' : 'none';
+    });
+  }
+
+  function removeTabWebview(tabId) {
+    const webview = tabWebviews.get(tabId);
+    if (!webview) return;
+    tabWebviews.delete(tabId);
+    if (webview === contentWebview) {
+      try { webview.setAttribute('src', 'about:blank'); } catch (e) {}
+      webview.style.display = 'none';
+      return;
+    }
+    try { webview.remove(); } catch (e) {}
+  }
+
+  function bindWebviewEvents(webview, tabId) {
+    if (!webview || webview._listenersBound) return;
+
+    webview.addEventListener('did-navigate', (event) => {
+      const url = event.url;
+      const tab = tabs.find(t => t.id === tabId);
+      if (!tab) return;
+
+      tab.url = url;
+      if (tab.history[tab.historyIndex] !== url) {
+        tab.history.push(url);
+        tab.historyIndex++;
+      }
+
+      if (tab.id === currentTabId) {
+        urlInput.value = url;
+      }
+
+      persistTabs();
+      renderTabs();
+
+      if (!isSkippableHistoryUrl(url)) {
+        try {
+          const host = (() => { try { return (new URL(url)).hostname.replace(/^www\./, ''); } catch(e) { return url; } })();
+          historyManager.addToHistory({ url, title: tab.title || url, host, timestamp: Date.now() });
+          if (document.getElementById('settings-panel') && document.getElementById('settings-panel').classList.contains('active')) {
+            try { renderSettingsHistory(); } catch (e) {}
+          }
+        } catch (e) {
+          console.error('historyManager.addToHistory failed (webview)', e);
+        }
+      }
+    });
+
+    webview.addEventListener('page-title-updated', (event) => {
+      const tab = tabs.find(t => t.id === tabId);
+      if (!tab || tab.url === 'newtab') return;
+      tab.title = event.title;
+      persistTabs();
+      renderTabs();
+    });
+
+    webview.addEventListener('new-window', (event) => {
+      if (!event.url) return;
+      newTab(event.url);
+    });
+
+    webview.addEventListener('mousedown', () => {
+      closeSettingsPanelIfOpen({ restoreUrlFocus: false });
+      closeQuickHistoryPanelIfOpen({ restoreUrlFocus: false });
+    }, { passive: true });
+
+    webview.addEventListener('focus', () => {
+      closeSettingsPanelIfOpen({ restoreUrlFocus: false });
+      closeQuickHistoryPanelIfOpen({ restoreUrlFocus: false });
+    });
+
+    webview._listenersBound = true;
+  }
+
+  function ensureTabWebview(tab, { forceLoadUrl = false } = {}) {
+    if (!tab || !tab.id || !tab.url || tab.url === 'newtab') return null;
+
+    let webview = tabWebviews.get(tab.id);
+    if (!webview) {
+      if (tabWebviews.size === 0 && contentWebview) {
+        webview = contentWebview;
+      } else {
+        webview = document.createElement('webview');
+        webview.setAttribute('allowpopups', '');
+        webview.style.position = 'absolute';
+        webview.style.inset = '0';
+        webview.style.width = '100%';
+        webview.style.height = '100%';
+        webview.style.display = 'none';
+        webview.style.border = 'none';
+        webview.style.zIndex = '0';
+        if (mainContent) mainContent.appendChild(webview);
+      }
+      tabWebviews.set(tab.id, webview);
+      bindWebviewEvents(webview, tab.id);
+    }
+
+    const shouldUseInternalPreload = isInternalAppPageUrl(tab.url);
+    const internalPreloadUrl = new URL('preload.js', window.location.href).href;
+    if (shouldUseInternalPreload) {
+      if (webview.getAttribute('preload') !== internalPreloadUrl) {
+        webview.setAttribute('preload', internalPreloadUrl);
+      }
+    } else if (webview.hasAttribute('preload')) {
+      webview.removeAttribute('preload');
+    }
+
+    const hasSrc = !!webview.getAttribute('src');
+    if ((forceLoadUrl || !hasSrc) && webview.getAttribute('src') !== tab.url) {
+      webview.setAttribute('src', tab.url);
+    }
+
+    return webview;
+  }
+
+  const MAX_OMNIBOX_SUGGESTIONS = 8;
+  let omniboxSuggestions = [];
+  let omniboxSelectedIndex = -1;
+  let omniboxHideTimer = null;
+
+  const omniboxSuggestionsEl = document.createElement('div');
+  omniboxSuggestionsEl.id = 'url-suggestions';
+  omniboxSuggestionsEl.className = 'url-suggestions-popup';
+  omniboxSuggestionsEl.style.display = 'none';
+  document.body.appendChild(omniboxSuggestionsEl);
+
+  function getOmniboxOverlayPayload() {
+    const rect = urlInput.getBoundingClientRect();
+    const maxPopupHeight = Math.min(320, Math.max(90, window.innerHeight - rect.bottom - 10));
+    return {
+      bounds: {
+        x: Math.round(window.screenX + rect.left),
+        y: Math.round(window.screenY + rect.bottom + 4),
+        width: Math.round(rect.width),
+        height: Math.round(maxPopupHeight)
+      },
+      themeClassName: document.body.className || '',
+      suggestions: omniboxSuggestions,
+      selectedIndex: omniboxSelectedIndex
+    };
+  }
+
+  function hideOmniboxSuggestions() {
+    omniboxSuggestions = [];
+    omniboxSelectedIndex = -1;
+    omniboxSuggestionsEl.style.display = 'none';
+    try {
+      if (window.electronAPI && typeof window.electronAPI.hideSuggestionsOverlay === 'function') {
+        window.electronAPI.hideSuggestionsOverlay();
+      }
+    } catch (e) {
+      console.debug('Failed to hide suggestions overlay', e);
+    }
+  }
+
+  function positionOmniboxSuggestions() {
+    if (!omniboxSuggestions.length) return;
+    try {
+      if (window.electronAPI && typeof window.electronAPI.updateSuggestionsOverlay === 'function') {
+        window.electronAPI.updateSuggestionsOverlay(getOmniboxOverlayPayload());
+      }
+    } catch (e) {
+      console.debug('Failed to reposition suggestions overlay', e);
+    }
+  }
+
+  function getOmniboxCandidates() {
+    const candidateMap = new Map();
+    const addCandidate = (url, label = '', source = 'history', timestamp = 0) => {
+      if (!url || url === 'newtab') return;
+      const normalizedUrl = String(url).trim();
+      if (!normalizedUrl) return;
+      if (normalizedUrl.includes('settings.html') || normalizedUrl.includes('history.html')) return;
+      const key = normalizedUrl.toLowerCase();
+      const existing = candidateMap.get(key);
+      if (!existing) {
+        candidateMap.set(key, { url: normalizedUrl, label: String(label || ''), source, timestamp: Number(timestamp) || 0 });
+        return;
+      }
+      if ((Number(timestamp) || 0) > existing.timestamp) {
+        existing.timestamp = Number(timestamp) || existing.timestamp;
+      }
+      if (!existing.label && label) existing.label = String(label);
+      const sourcePriority = { history: 1, quicklink: 2, bookmark: 3, tab: 4 };
+      if ((sourcePriority[source] || 0) > (sourcePriority[existing.source] || 0)) {
+        existing.source = source;
+      }
+    };
+
+    try {
+      const historyEntries = historyManager.getAll();
+      if (Array.isArray(historyEntries)) {
+        historyEntries.forEach(entry => {
+          if (!entry || !entry.url) return;
+          addCandidate(entry.url, entry.title || entry.host || '', 'history', entry.timestamp || 0);
+        });
+      }
+    } catch (e) {
+      console.debug('Unable to read history suggestions', e);
+    }
+
+    try {
+      (Array.isArray(bookmarks) ? bookmarks : []).forEach(entry => {
+        const entryUrl = entry?.url || entry;
+        const entryLabel = entry?.label || '';
+        addCandidate(entryUrl, entryLabel, 'bookmark', 0);
+      });
+    } catch (e) {
+      console.debug('Unable to read bookmark suggestions', e);
+    }
+
+    try {
+      (Array.isArray(quickLinks) ? quickLinks : []).forEach(entry => {
+        addCandidate(entry?.url, entry?.label || '', 'quicklink', 0);
+      });
+    } catch (e) {
+      console.debug('Unable to read quick link suggestions', e);
+    }
+
+    try {
+      (Array.isArray(tabs) ? tabs : []).forEach(tab => {
+        if (!tab || !tab.url) return;
+        addCandidate(tab.url, tab.title || '', 'tab', 0);
+      });
+    } catch (e) {
+      console.debug('Unable to read tab suggestions', e);
+    }
+
+    return Array.from(candidateMap.values());
+  }
+
+  function scoreOmniboxCandidate(candidate, queryLower) {
+    const urlLower = candidate.url.toLowerCase();
+    const labelLower = String(candidate.label || '').toLowerCase();
+    const sourceBoost = { history: 8, quicklink: 12, bookmark: 16, tab: 10 };
+
+    let score = sourceBoost[candidate.source] || 0;
+    if (!queryLower) {
+      score += Math.min((candidate.timestamp || 0) / 1000000000000, 10);
+      return score;
+    }
+    if (urlLower.startsWith(queryLower)) score += 120;
+    else if (urlLower.includes(queryLower)) score += 60;
+    if (labelLower.startsWith(queryLower)) score += 70;
+    else if (labelLower.includes(queryLower)) score += 35;
+
+    if (!urlLower.includes(queryLower) && !labelLower.includes(queryLower)) return -1;
+
+    const timeBoost = Math.min((candidate.timestamp || 0) / 1000000000000, 8);
+    return score + timeBoost;
+  }
+
+  function buildOmniboxSuggestions(rawQuery) {
+    const query = String(rawQuery || '').trim();
+    const queryLower = query.toLowerCase();
+    const candidates = getOmniboxCandidates();
+    const scored = candidates
+      .map(candidate => ({ ...candidate, score: scoreOmniboxCandidate(candidate, queryLower), isSearch: false }))
+      .filter(candidate => candidate.score >= 0)
+      .sort((a, b) => (b.score - a.score) || (b.timestamp - a.timestamp));
+
+    const topMatches = scored.slice(0, MAX_OMNIBOX_SUGGESTIONS);
+    if (query && topMatches.length < MAX_OMNIBOX_SUGGESTIONS) {
+      topMatches.push({
+        url: query,
+        label: `Search for "${query}"`,
+        source: 'search',
+        timestamp: Date.now(),
+        score: 0,
+        isSearch: true
+      });
+    }
+    return topMatches;
+  }
+
+  function renderOmniboxSuggestions() {
+    omniboxSuggestionsEl.innerHTML = '';
+    if (!omniboxSuggestions.length) {
+      hideOmniboxSuggestions();
+      return;
+    }
+
+    const fragment = document.createDocumentFragment();
+    omniboxSuggestions.forEach((suggestion, index) => {
+      const item = document.createElement('button');
+      item.type = 'button';
+      item.className = 'url-suggestion-item';
+      if (index === omniboxSelectedIndex) item.classList.add('active');
+
+      const source = document.createElement('span');
+      source.className = 'url-suggestion-source';
+      source.textContent = suggestion.isSearch ? 'Search' : suggestion.source;
+
+      const main = document.createElement('span');
+      main.className = 'url-suggestion-main';
+      main.textContent = suggestion.isSearch ? suggestion.label : suggestion.url;
+
+      const meta = document.createElement('span');
+      meta.className = 'url-suggestion-meta';
+      meta.textContent = suggestion.isSearch ? '' : (suggestion.label || '');
+
+      item.appendChild(source);
+      item.appendChild(main);
+      item.appendChild(meta);
+
+      item.addEventListener('mouseenter', () => {
+        omniboxSelectedIndex = index;
+        renderOmniboxSuggestions();
+      });
+
+      item.addEventListener('mousedown', (event) => {
+        event.preventDefault();
+        if (omniboxHideTimer) clearTimeout(omniboxHideTimer);
+        const selected = omniboxSuggestions[index];
+        if (!selected) return;
+        urlInput.value = selected.url;
+        hideOmniboxSuggestions();
+        navigate(selected.url);
+      });
+
+      fragment.appendChild(item);
+    });
+
+    omniboxSuggestionsEl.appendChild(fragment);
+    omniboxSuggestionsEl.style.display = 'none';
+
+    try {
+      if (window.electronAPI && typeof window.electronAPI.updateSuggestionsOverlay === 'function') {
+        window.electronAPI.updateSuggestionsOverlay(getOmniboxOverlayPayload());
+        return;
+      }
+    } catch (e) {
+      console.debug('Failed to render suggestions overlay', e);
+    }
+
+    // Fallback to in-page popup if overlay API is unavailable
+    omniboxSuggestionsEl.style.display = 'block';
+    const rect = urlInput.getBoundingClientRect();
+    omniboxSuggestionsEl.style.left = `${rect.left}px`;
+    omniboxSuggestionsEl.style.top = `${rect.bottom + 4}px`;
+    omniboxSuggestionsEl.style.width = `${rect.width}px`;
+    omniboxSuggestionsEl.style.maxHeight = `${Math.min(320, Math.max(90, window.innerHeight - rect.bottom - 10))}px`;
+  }
+
+  function refreshOmniboxSuggestions() {
+    omniboxSuggestions = buildOmniboxSuggestions(urlInput.value);
+    omniboxSelectedIndex = omniboxSuggestions.length ? 0 : -1;
+    renderOmniboxSuggestions();
+  }
+
+  function applyOmniboxSuggestion({ navigateToSuggestion = false } = {}) {
+    if (!omniboxSuggestions.length) return false;
+    const idx = omniboxSelectedIndex >= 0 ? omniboxSelectedIndex : 0;
+    const suggestion = omniboxSuggestions[idx];
+    if (!suggestion) return false;
+    urlInput.value = suggestion.url;
+    hideOmniboxSuggestions();
+    if (navigateToSuggestion) navigate(suggestion.url);
+    return true;
+  }
+
+  window.addEventListener('resize', positionOmniboxSuggestions);
+  window.addEventListener('scroll', positionOmniboxSuggestions, true);
+
+  document.addEventListener('mousedown', (event) => {
+    if (event.target === urlInput || omniboxSuggestionsEl.contains(event.target)) return;
+    hideOmniboxSuggestions();
+  });
+
+  if (window.electronAPI && typeof window.electronAPI.on === 'function') {
+    window.electronAPI.on('suggestion-selected', (_event, selectionPayload) => {
+      const payload = (selectionPayload && typeof selectionPayload === 'object')
+        ? selectionPayload
+        : { index: selectionPayload };
+      const index = Number(payload.index);
+      const payloadSuggestion = payload?.suggestion && typeof payload.suggestion.url === 'string'
+        ? payload.suggestion
+        : null;
+
+      if (Number.isFinite(index) && index >= 0 && index < omniboxSuggestions.length) {
+        omniboxSelectedIndex = index;
+        applyOmniboxSuggestion({ navigateToSuggestion: true });
+        return;
+      }
+
+      if (payloadSuggestion) {
+        urlInput.value = payloadSuggestion.url;
+        hideOmniboxSuggestions();
+        navigate(payloadSuggestion.url);
+      }
+    });
+  }
   
   // Implement custom window dragging for the title bar
   const titleBar = document.getElementById('title-bar');
   if (titleBar) {
-    let isDraggingWindow = false;
-    let dragStartX = 0;
-    let dragStartY = 0;
-    
-    titleBar.addEventListener('mousedown', (e) => {
-      // Only start window drag if clicking on the title bar itself or tabs container background
-      // Don't drag if clicking on tabs, buttons, or other interactive elements
-      const target = e.target;
-      const isTab = target.closest('.tab');
-      const isButton = target.closest('button') || target.tagName === 'BUTTON';
-      const isWindowControl = target.closest('#window-controls');
-      
-      if (!isTab && !isButton && !isWindowControl) {
-        isDraggingWindow = true;
-        dragStartX = e.screenX;
-        dragStartY = e.screenY;
-        e.preventDefault();
-      }
-    });
-    
-    document.addEventListener('mousemove', (e) => {
-      if (isDraggingWindow) {
-        const deltaX = e.screenX - dragStartX;
-        const deltaY = e.screenY - dragStartY;
-        
-        if (Math.abs(deltaX) > 2 || Math.abs(deltaY) > 2) {
-          if (window.electronAPI && typeof window.electronAPI.moveWindow === 'function') {
-            window.electronAPI.moveWindow(deltaX, deltaY);
-            dragStartX = e.screenX;
-            dragStartY = e.screenY;
-          }
-        }
-      }
-    });
-    
-    document.addEventListener('mouseup', () => {
-      isDraggingWindow = false;
-    });
-    
     // Also handle double-click to maximize/restore
     titleBar.addEventListener('dblclick', (e) => {
       const target = e.target;
@@ -551,19 +1021,14 @@ window.addEventListener('DOMContentLoaded', () => {
     }, { passive: false });
     
     tabsDiv.addEventListener('drop', (e) => {
-      if (window._externalDraggedTabMeta) {
+      const externalMeta = getExternalDragMetaForDrop();
+      if (externalMeta) {
         e.preventDefault();
         e.stopPropagation();
-        
-        const meta = {
-          ...window._externalDraggedTabMeta,
-          transferId: window._currentDragTransferId
-        };
-        
-        console.log('[DND] tabs div drop handler - external tab with stored transferId:', meta);
+        console.log('[DND] tabs div drop handler - external tab with stored transferId:', externalMeta);
         
         if (window.electronAPI && window.electronAPI.tabDroppedHere) {
-          window.electronAPI.tabDroppedHere(meta);
+          window.electronAPI.tabDroppedHere(externalMeta);
           window._tabDropHandled = true;
           console.log('[DND] tabs div drop - called tabDroppedHere');
         }
@@ -758,63 +1223,16 @@ window.addEventListener('DOMContentLoaded', () => {
     }
 
     if (tab.url === 'newtab') {
-      window.electronAPI.viewHide();
+      showOnlyTabWebview(null);
       newTabPage.classList.add('active');
       urlInput.value = '';
       // Update button states based on history, even for newtab
       backBtn.disabled = tab.historyIndex <= 0;
       forwardBtn.disabled = tab.historyIndex >= tab.history.length - 1;
     } else {
-      // Check if this is a restored tab (after browser restart) that needs view recreation
-      const needsViewRecreation = !tab.viewCreated;
-      
-      if (needsViewRecreation) {
-        try {
-          console.log('Restoring tab:', tab.id, 'URL:', tab.url);
-          
-          // Get browser settings for restored tab
-          const settings = {
-            javascriptEnabled: localStorage.getItem('javascriptEnabled'),
-            imagesEnabled: localStorage.getItem('imagesEnabled'),
-            popupBlockerEnabled: localStorage.getItem('popupBlockerEnabled'),
-            userAgent: localStorage.getItem('userAgent'),
-            smoothScrolling: localStorage.getItem('smoothScrolling'),
-            reducedAnimations: localStorage.getItem('reducedAnimations'),
-            pageZoom: localStorage.getItem('pageZoom')
-          };
-          
-          // For any tab that needs restoration after restart (including settings)
-          window.electronAPI.viewCreate(tab.id, settings);
-          
-          // Only navigate if URL is valid and not 'newtab'
-          if (tab.url && tab.url !== 'newtab' && tab.url !== '') {
-            // Ensure internal pages are converted to absolute file URLs so they load correctly on restore
-            let navigateUrl = tab.url;
-            try {
-              if (!navigateUrl.startsWith('file://') && (navigateUrl === 'settings.html' || navigateUrl.includes('/settings.html'))) {
-                navigateUrl = new URL('settings.html', window.location.href).href;
-              } else if (!navigateUrl.startsWith('file://') && (navigateUrl === 'history.html' || navigateUrl.includes('/history.html'))) {
-                navigateUrl = new URL('history.html', window.location.href).href;
-              }
-            } catch (e) {
-              // Fallback: leave as-is
-            }
-            window.electronAPI.viewNavigate({ id: tab.id, url: navigateUrl });
-            // Update the stored URL so restore will use a proper absolute value next time
-            tab.url = navigateUrl;
-          }
-          
-          tab.viewCreated = true;
-        } catch (error) {
-          console.error('Error restoring tab:', tab.id, error);
-          // If restoration fails, reset to newtab
-          tab.url = 'newtab';
-          tab.history = ['newtab'];
-          tab.historyIndex = 0;
-        }
-      }
-      
-      window.electronAPI.viewShow(tab.id);
+      const activeWebview = ensureTabWebview(tab);
+      showOnlyTabWebview(tab.id);
+      if (activeWebview) activeWebview.style.display = 'flex';
       newTabPage.classList.remove('active');
       urlInput.value = tab.url;
       backBtn.disabled = tab.historyIndex <= 0;
@@ -832,8 +1250,10 @@ window.addEventListener('DOMContentLoaded', () => {
     const frag = document.createDocumentFragment();
     tabs.forEach((tab) => {
       const tabEl = document.createElement('div');
+      let currentDragTransferId = null;
       let tabClass = 'tab' + (tab.id === currentTabId ? ' active' : '');
       if (tab.isIncognito) tabClass += ' incognito';
+      if (hibernatedTabIds.has(Number(tab.id))) tabClass += ' hibernated';
       tabEl.className = tabClass;
       // Favicon and title
       if (tabPreviewsEnabled) {
@@ -848,6 +1268,14 @@ window.addEventListener('DOMContentLoaded', () => {
         if (displayTitle.length > 32) displayTitle = displayTitle.substring(0, 32) + '...';
         titleSpan.textContent = displayTitle;
         tabEl.appendChild(titleSpan);
+
+        if (hibernatedTabIds.has(Number(tab.id))) {
+          const hibernatedBadge = document.createElement('span');
+          hibernatedBadge.className = 'tab-hibernate-badge';
+          hibernatedBadge.textContent = '💤';
+          hibernatedBadge.title = 'Tab is hibernated to save memory';
+          tabEl.appendChild(hibernatedBadge);
+        }
       } else {
         const indicator = document.createElement('div');
         indicator.style.width = '8px';
@@ -876,6 +1304,7 @@ window.addEventListener('DOMContentLoaded', () => {
         try {
           const tabId = tab.id;
           const transferId = `transfer-${_windowId}-${tabId}-${Date.now()}`;
+          currentDragTransferId = transferId;
           
           e.dataTransfer.setData('application/tab-id', String(tabId));
           e.dataTransfer.effectAllowed = 'move';
@@ -896,7 +1325,7 @@ window.addEventListener('DOMContentLoaded', () => {
           window._tabDragState = { tabId, meta };
           window._currentDragTransferId = transferId; // Store separately to prevent any modification
           window._tabDropHandled = false;
-          window._externalDraggedTabMeta = meta;
+          window._externalDraggedTabMeta = null;
           tabs._draggingId = tabId;
           
           // Notify main process
@@ -939,18 +1368,17 @@ window.addEventListener('DOMContentLoaded', () => {
               console.log('[DND] reorder:', { from: fromIndex, to: toIndex });
             }
           }
-        } else if (window._externalDraggedTabMeta) {
+        } else {
+          const externalMeta = getExternalDragMetaForDrop();
+          if (!externalMeta) return;
           // External drop - attach tab from another window - use stored transferId
-          const meta = {
-            ...window._externalDraggedTabMeta,
-            transferId: window._currentDragTransferId
-          };
-          console.log('[DND] external drop on tab with stored transferId:', meta);
+          const metaWithTarget = { ...externalMeta, dropTargetTabId: tab.id };
+          console.log('[DND] external drop on tab with stored transferId:', metaWithTarget);
           
           if (window.electronAPI && window.electronAPI.tabDroppedHere) {
-            window.electronAPI.tabDroppedHere(meta);
+            window.electronAPI.tabDroppedHere(metaWithTarget);
             window._tabDropHandled = true;
-            console.log('[DND] called tabDroppedHere with meta:', meta);
+            console.log('[DND] called tabDroppedHere with meta:', metaWithTarget);
           }
         }
       });
@@ -979,16 +1407,34 @@ window.addEventListener('DOMContentLoaded', () => {
         const tabsRect = tabsDiv.getBoundingClientRect();
         const outOfTabArea = e.clientY < tabsRect.top - 40 || e.clientY > tabsRect.bottom + 40 ||
                             e.clientX < tabsRect.left - 40 || e.clientX > tabsRect.right + 40;
+        const hasScreenCoords = Number.isFinite(e.screenX) && Number.isFinite(e.screenY);
+        const outOfWindowByScreen = hasScreenCoords && (
+          e.screenX < window.screenX - 8 ||
+          e.screenX > window.screenX + window.outerWidth + 8 ||
+          e.screenY < window.screenY - 8 ||
+          e.screenY > window.screenY + window.outerHeight + 8
+        );
+        const shouldDetachFromDragEnd = outOfTabArea || outOfWindowByScreen;
         
         console.log('[DND] dragend analysis:', { 
           outOfTabArea,
+          outOfWindowByScreen,
+          shouldDetachFromDragEnd,
           dropHandled: window._tabDropHandled,
           screenPos: { x: e.screenX, y: e.screenY }
         });
         
-        if (outOfTabArea) {
+        if (shouldDetachFromDragEnd) {
           // Wait briefly for any drop events
           await new Promise(resolve => setTimeout(resolve, 100));
+
+          if (window._tabDropHandled) {
+            if (window.electronAPI && typeof window.electronAPI.tabDragEnd === 'function') {
+              window.electronAPI.tabDragEnd();
+            }
+            currentDragTransferId = null;
+            return;
+          }
           
           // Use screen coordinates to check if dropped on another window
           if (window.electronAPI && typeof window.electronAPI.checkDropTarget === 'function') {
@@ -1000,7 +1446,7 @@ window.addEventListener('DOMContentLoaded', () => {
               url: tab.url,
               title: tab.title,
               isIncognito: tab.isIncognito || false,
-              transferId: window._currentDragTransferId, // Use the separately stored transferId
+              transferId: currentDragTransferId || window._currentDragTransferId,
               webContentsId: tab.webContentsId,
               sourceWinId: _windowId
             };
@@ -1024,25 +1470,6 @@ window.addEventListener('DOMContentLoaded', () => {
           // No target window - create new window
           console.log('[DND] Creating new window for detached tab');
           
-          // Ensure view exists
-          if (!tab.viewCreated && window.electronAPI && window.electronAPI.viewCreate) {
-            const settings = {
-              javascriptEnabled: localStorage.getItem('javascriptEnabled'),
-              imagesEnabled: localStorage.getItem('imagesEnabled'),
-              popupBlockerEnabled: localStorage.getItem('popupBlockerEnabled'),
-              userAgent: localStorage.getItem('userAgent'),
-              smoothScrolling: localStorage.getItem('smoothScrolling'),
-              reducedAnimations: localStorage.getItem('reducedAnimations'),
-              pageZoom: localStorage.getItem('pageZoom')
-            };
-            window.electronAPI.viewCreate(tab.id, settings);
-            if (tab.url && tab.url !== 'newtab') {
-              window.electronAPI.viewNavigate({ id: tab.id, url: tab.url });
-            }
-            await new Promise(resolve => setTimeout(resolve, 100));
-            tab.viewCreated = true;
-          }
-          
           if (window.electronAPI && typeof window.electronAPI.detachTab === 'function') {
             window.electronAPI.detachTab({
               id: tab.id,
@@ -1056,6 +1483,7 @@ window.addEventListener('DOMContentLoaded', () => {
         if (window.electronAPI && typeof window.electronAPI.tabDragEnd === 'function') {
           window.electronAPI.tabDragEnd();
         }
+        currentDragTransferId = null;
       });
       frag.appendChild(tabEl);
     });
@@ -1075,16 +1503,12 @@ window.addEventListener('DOMContentLoaded', () => {
       e.preventDefault();
       e.stopPropagation();
       
-      if (window._externalDraggedTabMeta) {
-        const meta = {
-          ...window._externalDraggedTabMeta,
-          transferId: window._currentDragTransferId
-        };
-        
-        console.log('[DND] new tab button drop - external tab with stored transferId:', meta);
+      const externalMeta = getExternalDragMetaForDrop();
+      if (externalMeta) {
+        console.log('[DND] new tab button drop - external tab with stored transferId:', externalMeta);
         
         if (window.electronAPI && window.electronAPI.tabDroppedHere) {
-          window.electronAPI.tabDroppedHere(meta);
+          window.electronAPI.tabDroppedHere(externalMeta);
           window._tabDropHandled = true;
         }
       }
@@ -1105,6 +1529,7 @@ window.addEventListener('DOMContentLoaded', () => {
         height: 100%; 
         z-index: 0;
         -webkit-app-region: no-drag;
+        display: none;
         pointer-events: none;
       `;
       
@@ -1118,16 +1543,12 @@ window.addEventListener('DOMContentLoaded', () => {
         e.preventDefault();
         e.stopPropagation();
         
-        if (window._externalDraggedTabMeta) {
-          const meta = {
-            ...window._externalDraggedTabMeta,
-            transferId: window._currentDragTransferId
-          };
-          
-          console.log('[DND] drop overlay - external tab with stored transferId:', meta);
+        const externalMeta = getExternalDragMetaForDrop();
+        if (externalMeta) {
+          console.log('[DND] drop overlay - external tab with stored transferId:', externalMeta);
           
           if (window.electronAPI && window.electronAPI.tabDroppedHere) {
-            window.electronAPI.tabDroppedHere(meta);
+            window.electronAPI.tabDroppedHere(externalMeta);
             window._tabDropHandled = true;
           }
         }
@@ -1135,6 +1556,7 @@ window.addEventListener('DOMContentLoaded', () => {
       
       // Enable pointer events only during drag
       tabsDiv.addEventListener('dragenter', () => {
+        dropOverlay.style.display = 'block';
         dropOverlay.style.pointerEvents = 'auto';
       });
       
@@ -1142,11 +1564,18 @@ window.addEventListener('DOMContentLoaded', () => {
         // Only disable if actually leaving the tabs area
         if (!tabsDiv.contains(e.relatedTarget)) {
           dropOverlay.style.pointerEvents = 'none';
+          dropOverlay.style.display = 'none';
         }
       });
       
       tabsDiv.addEventListener('drop', () => {
         dropOverlay.style.pointerEvents = 'none';
+        dropOverlay.style.display = 'none';
+      });
+
+      tabsDiv.addEventListener('dragend', () => {
+        dropOverlay.style.pointerEvents = 'none';
+        dropOverlay.style.display = 'none';
       });
       
       tabsDiv.insertBefore(dropOverlay, tabsDiv.firstChild);
@@ -1179,16 +1608,14 @@ window.addEventListener('DOMContentLoaded', () => {
               console.log('[DND] moved to end');
             }
           }
-        } else if (window._externalDraggedTabMeta) {
+        } else {
+          const externalMeta = getExternalDragMetaForDrop();
+          if (!externalMeta) return;
           // External drop on tab area - use the stored transferId
-          const meta = {
-            ...window._externalDraggedTabMeta,
-            transferId: window._currentDragTransferId
-          };
-          console.log('[DND] external drop on tabs area with stored transferId:', meta);
+          console.log('[DND] external drop on tabs area with stored transferId:', externalMeta);
           
           if (window.electronAPI && window.electronAPI.tabDroppedHere) {
-            window.electronAPI.tabDroppedHere(meta);
+            window.electronAPI.tabDroppedHere(externalMeta);
             window._tabDropHandled = true;
             console.log('[DND] called tabDroppedHere from tabs area');
           }
@@ -1213,7 +1640,6 @@ window.addEventListener('DOMContentLoaded', () => {
         if (tab.url === 'newtab') {
             tab.history = [url];
             tab.historyIndex = 0;
-            window.electronAPI.viewNavigate({ id: tab.id, url });
         } else {
             tab.history = tab.history.slice(0, tab.historyIndex + 1);
             tab.history.push(url);
@@ -1226,32 +1652,6 @@ window.addEventListener('DOMContentLoaded', () => {
         const newTabObj = { id: newTabId, url, history: [url], historyIndex: 0, viewCreated: true };
         tabs.push(newTabObj);
         currentTabId = newTabId;
-        
-        // Get browser settings before creating view
-        const settings = {
-          javascriptEnabled: localStorage.getItem('javascriptEnabled'),
-          imagesEnabled: localStorage.getItem('imagesEnabled'),
-          popupBlockerEnabled: localStorage.getItem('popupBlockerEnabled'),
-          userAgent: localStorage.getItem('userAgent'),
-          smoothScrolling: localStorage.getItem('smoothScrolling'),
-          reducedAnimations: localStorage.getItem('reducedAnimations'),
-          pageZoom: localStorage.getItem('pageZoom')
-        };
-        
-        console.log('Creating new tab with settings:', settings);
-        window.electronAPI.viewCreate(newTabId, settings);
-        
-        // Apply other settings after view creation
-        setTimeout(async () => {
-          if (window.electronAPI.applyBrowserSettings) {
-            console.log('Applying additional settings to new tab:', settings);
-            await window.electronAPI.applyBrowserSettings(newTabId, settings);
-          }
-        }, 100);
-        
-        if (url !== 'newtab') {
-          window.electronAPI.viewNavigate({ id: newTabId, url });
-        }
     }
     
     persistTabs();
@@ -1309,8 +1709,8 @@ window.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
-    window.electronAPI.viewDestroy(id);
     tabs.splice(tabIndex, 1);
+    removeTabWebview(id);
 
     if (currentTabId === id) {
       currentTabId = tabs.length > 0 ? (tabs[tabIndex] ? tabs[tabIndex].id : tabs[tabs.length - 1].id) : null;
@@ -1338,8 +1738,10 @@ window.addEventListener('DOMContentLoaded', () => {
     // Handle empty input
     if (!url) return;
     
-    // Check if it's already a complete URL
-    if (/^https?:\/\//i.test(url)) {
+    // Keep file URLs unchanged (internal pages)
+    if (/^file:\/\//i.test(url)) {
+      // Already a file URL, use as is
+    } else if (/^https?:\/\//i.test(url)) {
       // Already has protocol, use as is
     } else if (/^[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]*\.(com|org|net|edu|gov|mil|int|co|uk|de|fr|jp|au|ca|br|in|cn|ru|nl|it|es|se|no|dk|fi|pl|ch|at|be|cz|gr|hu|ie|pt|ro|sk|bg|hr|ee|lv|lt|lu|mt|si|cy|is|li|mc|ad|sm|va|md|me|rs|mk|al|ba|by|ua|am|az|ge|kz|kg|tj|tm|uz|af|bd|bt|bn|kh|cn|hk|id|in|ir|iq|il|jo|jp|kw|la|lb|my|mv|mn|mm|np|kp|kr|om|pk|ph|qa|sa|sg|lk|sy|tw|th|tl|tr|ae|uz|vn|ye)$/i.test(url)) {
       // Looks like a domain name, add https://
@@ -1389,21 +1791,82 @@ window.addEventListener('DOMContentLoaded', () => {
           url = new URL('history.html', window.location.href).href;
         }
       } catch(e) {}
-      if (url && url !== 'newtab') window.electronAPI.viewNavigate({ id: tab.id, url });
+      if (url && url !== 'newtab') {
+        ensureTabWebview(tab, { forceLoadUrl: true });
+      }
       persistTabs();
       updateView();
     }
   }
 
   urlInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') navigate(urlInput.value);
+    if (e.key === 'ArrowDown') {
+      if (!omniboxSuggestions.length) {
+        refreshOmniboxSuggestions();
+      }
+      if (omniboxSuggestions.length) {
+        e.preventDefault();
+        omniboxSelectedIndex = (omniboxSelectedIndex + 1 + omniboxSuggestions.length) % omniboxSuggestions.length;
+        renderOmniboxSuggestions();
+      }
+      return;
+    }
+
+    if (e.key === 'ArrowUp' && omniboxSuggestions.length) {
+      e.preventDefault();
+      omniboxSelectedIndex = (omniboxSelectedIndex - 1 + omniboxSuggestions.length) % omniboxSuggestions.length;
+      renderOmniboxSuggestions();
+      return;
+    }
+
+    if (e.key === 'Tab' && omniboxSuggestions.length) {
+      e.preventDefault();
+      applyOmniboxSuggestion({ navigateToSuggestion: false });
+      return;
+    }
+
+    if (e.key === 'Escape') {
+      hideOmniboxSuggestions();
+      return;
+    }
+
+    if (e.key === 'Enter') {
+      if (omniboxSuggestions.length && omniboxSelectedIndex >= 0) {
+        e.preventDefault();
+        applyOmniboxSuggestion({ navigateToSuggestion: true });
+        return;
+      }
+      hideOmniboxSuggestions();
+      navigate(urlInput.value);
+    }
   });
 
   // Debug focus and click events to detect any blocking overlays or lost focus issues
   try {
-    urlInput.addEventListener('focus', () => { console.debug('URL input focused'); });
-    urlInput.addEventListener('click', () => { console.debug('URL input clicked'); });
-    urlInput.addEventListener('input', () => { /* no-op, keeps input interactive; used for debugging */ });
+    urlInput.addEventListener('focus', () => {
+      console.debug('URL input focused');
+      if (omniboxHideTimer) clearTimeout(omniboxHideTimer);
+      refreshOmniboxSuggestions();
+    });
+    urlInput.addEventListener('click', () => {
+      console.debug('URL input clicked');
+      if (omniboxHideTimer) clearTimeout(omniboxHideTimer);
+      refreshOmniboxSuggestions();
+    });
+    urlInput.addEventListener('input', () => {
+      if (omniboxHideTimer) clearTimeout(omniboxHideTimer);
+      refreshOmniboxSuggestions();
+    });
+    urlInput.addEventListener('blur', () => {
+      if (omniboxHideTimer) clearTimeout(omniboxHideTimer);
+      omniboxHideTimer = setTimeout(() => hideOmniboxSuggestions(), 120);
+    });
+    window.addEventListener('blur', () => {
+      hideOmniboxSuggestions();
+    });
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) hideOmniboxSuggestions();
+    });
   } catch (e) { /* ignore errors if element not present */ }
 
   // --- Back/Forward Button Logic ---
@@ -1412,7 +1875,7 @@ window.addEventListener('DOMContentLoaded', () => {
     if (tab.historyIndex > 0) {
       tab.historyIndex--;
       tab.url = tab.history[tab.historyIndex];
-      if (tab.url && tab.url !== 'newtab') window.electronAPI.viewNavigate({ id: tab.id, url: tab.url });
+      if (tab.url && tab.url !== 'newtab') ensureTabWebview(tab, { forceLoadUrl: true });
       persistTabs();
       updateView();
     }
@@ -1423,7 +1886,7 @@ window.addEventListener('DOMContentLoaded', () => {
     if (tab.historyIndex < tab.history.length - 1) {
       tab.historyIndex++;
       tab.url = tab.history[tab.historyIndex];
-      if (tab.url && tab.url !== 'newtab') window.electronAPI.viewNavigate({ id: tab.id, url: tab.url });
+      if (tab.url && tab.url !== 'newtab') ensureTabWebview(tab, { forceLoadUrl: true });
       persistTabs();
       updateView();
     }
@@ -1437,13 +1900,188 @@ window.addEventListener('DOMContentLoaded', () => {
   const saveHomepageBtn = document.getElementById('save-homepage-btn');
   const overlay = document.getElementById('overlay');
   const allSettingsBtn = document.getElementById('all-settings-btn');
+  const quickHistoryPanel = document.getElementById('quick-history-panel');
+  const closeQuickHistoryBtn = document.getElementById('close-quick-history');
+  const quickHistoryList = document.getElementById('quick-history-list');
+  const viewAllHistoryBtn = document.getElementById('view-all-history-btn');
   const checkUpdatesBtn = document.getElementById('check-updates');
+  const adblockToggle = document.getElementById('adblock-toggle');
+  const adblockStrictToggle = document.getElementById('adblock-strict-toggle');
+
+  async function openFullHistoryPage() {
+    try { await historyManager.flush(); } catch (err) { console.error('Failed to flush history before opening history page', err); }
+    try {
+      const fileUrl = new URL('history.html', window.location.href).href;
+      const snapshotEntries = await getRecentHistoryEntries(120);
+      const compactEntries = snapshotEntries.map(entry => ({
+        url: entry.url,
+        title: entry.title || '',
+        host: entry.host || '',
+        timestamp: Number(entry.timestamp) || Date.now()
+      }));
+      const snapshot = encodeURIComponent(JSON.stringify(compactEntries));
+      newTab(`${fileUrl}#historyData=${snapshot}`);
+    } catch (err) {
+      newTab('history.html');
+    }
+  }
+
+  async function getRecentHistoryEntries(limit = 18) {
+    let persisted = [];
+    try {
+      persisted = JSON.parse(await storage.getItem('browserHistory') || '[]');
+      if (!Array.isArray(persisted)) persisted = [];
+    } catch (error) {
+      persisted = [];
+    }
+
+    let inMemory = [];
+    try {
+      inMemory = historyManager.getAll();
+      if (!Array.isArray(inMemory)) inMemory = [];
+    } catch (error) {
+      inMemory = [];
+    }
+
+    const merged = [...persisted, ...inMemory];
+    const byUrl = new Map();
+    merged.forEach((entry) => {
+      if (!entry || !entry.url) return;
+      if (isSkippableHistoryUrl(entry.url)) return;
+      const key = String(entry.url).trim();
+      if (!key) return;
+      const existing = byUrl.get(key);
+      if (!existing || (Number(entry.timestamp) || 0) >= (Number(existing.timestamp) || 0)) {
+        byUrl.set(key, {
+          ...entry,
+          url: key,
+          timestamp: Number(entry.timestamp) || Date.now()
+        });
+      }
+    });
+
+    return Array.from(byUrl.values())
+      .sort((a, b) => (Number(b.timestamp) || 0) - (Number(a.timestamp) || 0))
+      .slice(0, limit);
+  }
+
+  async function renderQuickHistoryPanel() {
+    if (!quickHistoryList) return;
+    quickHistoryList.innerHTML = '';
+
+    const entries = await getRecentHistoryEntries(18);
+    if (!entries.length) {
+      quickHistoryList.innerHTML = '<div class="quick-history-empty">No recent history yet.</div>';
+      return;
+    }
+
+    const frag = document.createDocumentFragment();
+    entries.forEach((entry) => {
+      const item = document.createElement('button');
+      item.type = 'button';
+      item.className = 'quick-history-item';
+
+      const favicon = document.createElement('img');
+      favicon.src = getFavicon(entry.url);
+      favicon.onerror = function() { this.src = 'icons/newtab.png'; };
+
+      const textWrap = document.createElement('div');
+      textWrap.className = 'quick-history-item-text';
+
+      const title = document.createElement('div');
+      title.className = 'quick-history-item-title';
+      title.textContent = entry.title || getSiteName(entry.url);
+
+      const meta = document.createElement('div');
+      meta.className = 'quick-history-item-meta';
+      meta.textContent = entry.url;
+
+      textWrap.appendChild(title);
+      textWrap.appendChild(meta);
+      item.appendChild(favicon);
+      item.appendChild(textWrap);
+
+      item.addEventListener('click', () => {
+        closeQuickHistoryPanel({ restoreUrlFocus: false });
+        navigate(entry.url);
+      });
+
+      frag.appendChild(item);
+    });
+
+    quickHistoryList.appendChild(frag);
+  }
+
+  function openQuickHistoryPanel() {
+    closeSettingsPanelIfOpen({ restoreUrlFocus: false });
+    renderQuickHistoryPanel().catch((error) => {
+      console.error('Failed to render quick history panel', error);
+    });
+
+    if (!quickHistoryPanel || !overlay) return;
+    quickHistoryPanel.style.visibility = 'visible';
+    overlay.classList.add('active');
+    void quickHistoryPanel.offsetWidth;
+    quickHistoryPanel.classList.add('active');
+    document.body.style.overflow = 'hidden';
+    document.body.appendChild(overlay);
+    document.body.appendChild(quickHistoryPanel);
+    try { urlInput && urlInput.blur(); } catch (e) {}
+  }
+
+  function closeQuickHistoryPanel({ restoreUrlFocus = true } = {}) {
+    if (!quickHistoryPanel || !overlay) return;
+    quickHistoryPanel.classList.remove('active');
+    overlay.classList.remove('active');
+
+    setTimeout(() => {
+      quickHistoryPanel.style.visibility = 'hidden';
+      overlay.style.visibility = 'hidden';
+      document.body.style.overflow = '';
+      if (restoreUrlFocus) {
+        try { urlInput && urlInput.focus(); } catch (e) {}
+      } else {
+        hideOmniboxSuggestions();
+      }
+    }, 300);
+  }
+
+  function closeQuickHistoryPanelIfOpen(options = {}) {
+    if (quickHistoryPanel && quickHistoryPanel.classList.contains('active')) {
+      closeQuickHistoryPanel(options);
+    }
+  }
+
+  if (window.electronAPI && typeof window.electronAPI.on === 'function' && !window.__historyClearListenerBound) {
+    window.__historyClearListenerBound = true;
+    window.electronAPI.on('clear-history', async () => {
+      try { await historyManager.clear(); } catch (e) {}
+      try {
+        if (typeof window.renderSettingsHistory === 'function') {
+          window.renderSettingsHistory();
+        }
+      } catch (e) {}
+      try {
+        if (quickHistoryPanel && quickHistoryPanel.classList.contains('active')) {
+          renderQuickHistoryPanel();
+        }
+      } catch (e) {}
+    });
+  }
   
   // Settings button click handler
   if (settingsBtn) {
     settingsBtn.addEventListener('click', function(e) {
       e.stopPropagation();
+      closeQuickHistoryPanelIfOpen({ restoreUrlFocus: false });
       openSettingsPanel();
+    });
+  }
+
+  if (historyBtn) {
+    historyBtn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      openQuickHistoryPanel();
     });
   }
 
@@ -1461,12 +2099,56 @@ window.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  if (adblockToggle) {
+    storage.getItem('adblockEnabled').then((saved) => {
+      const enabled = saved === 'true';
+      adblockToggle.checked = enabled;
+      try { localStorage.setItem('adblockEnabled', enabled ? 'true' : 'false'); } catch (_error) {}
+      try { if (window.electronAPI && typeof window.electronAPI.toggleAdBlock === 'function') window.electronAPI.toggleAdBlock(enabled); } catch (_error) {}
+    }).catch(() => {
+      adblockToggle.checked = localStorage.getItem('adblockEnabled') === 'true';
+    });
+
+    adblockToggle.addEventListener('change', async (event) => {
+      const enabled = !!event.target.checked;
+      localStorage.setItem('adblockEnabled', enabled ? 'true' : 'false');
+      await storage.setItem('adblockEnabled', enabled ? 'true' : 'false');
+      if (window.electronAPI && typeof window.electronAPI.toggleAdBlock === 'function') {
+        window.electronAPI.toggleAdBlock(enabled);
+      }
+      showUpdateNotification(enabled ? 'Ad blocker enabled' : 'Ad blocker disabled', 'info', 2000);
+    });
+  }
+
+  if (adblockStrictToggle) {
+    storage.getItem('adblockMode').then((savedMode) => {
+      const mode = savedMode === 'strict' ? 'strict' : 'balanced';
+      adblockStrictToggle.checked = mode === 'strict';
+      try { localStorage.setItem('adblockMode', mode); } catch (_error) {}
+      try { if (window.electronAPI && typeof window.electronAPI.setAdBlockMode === 'function') window.electronAPI.setAdBlockMode(mode); } catch (_error) {}
+    }).catch(() => {
+      adblockStrictToggle.checked = localStorage.getItem('adblockMode') === 'strict';
+    });
+
+    adblockStrictToggle.addEventListener('change', async (event) => {
+      const mode = event.target.checked ? 'strict' : 'balanced';
+      localStorage.setItem('adblockMode', mode);
+      await storage.setItem('adblockMode', mode);
+      if (window.electronAPI && typeof window.electronAPI.setAdBlockMode === 'function') {
+        window.electronAPI.setAdBlockMode(mode);
+      }
+      showUpdateNotification(mode === 'strict' ? 'Ad blocker mode: strict' : 'Ad blocker mode: balanced', 'info', 2000);
+    });
+  }
+
   // All Settings button click handler
   if (allSettingsBtn) {
     allSettingsBtn.addEventListener('click', function(e) {
       e.stopPropagation();
-      // Open settings page in a new tab instead of a new window
-      const settingsPath = window.location.protocol + '//' + window.location.host + window.location.pathname.replace('index.html', 'settings.html');
+      let settingsPath = 'settings.html';
+      try {
+        settingsPath = new URL('settings.html', window.location.href).href;
+      } catch (err) {}
       newTab(settingsPath);
       closeSettingsPanel(); // Close the settings panel when opening full settings
     });
@@ -1476,7 +2158,22 @@ window.addEventListener('DOMContentLoaded', () => {
   if (closeSettingsBtn) {
     closeSettingsBtn.addEventListener('click', function(e) {
       e.stopPropagation();
-      closeSettingsPanel();
+      closeSettingsPanel({ restoreUrlFocus: false });
+    });
+  }
+
+  if (closeQuickHistoryBtn) {
+    closeQuickHistoryBtn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      closeQuickHistoryPanel({ restoreUrlFocus: false });
+    });
+  }
+
+  if (viewAllHistoryBtn) {
+    viewAllHistoryBtn.addEventListener('click', async function(e) {
+      e.stopPropagation();
+      closeQuickHistoryPanel({ restoreUrlFocus: false });
+      await openFullHistoryPage();
     });
   }
   
@@ -1504,16 +2201,88 @@ window.addEventListener('DOMContentLoaded', () => {
   
   // Overlay click handler - close settings when clicking outside
   if (overlay) {
-    overlay.addEventListener('click', closeSettingsPanel);
+    overlay.addEventListener('click', () => {
+      closeQuickHistoryPanelIfOpen({ restoreUrlFocus: false });
+      closeSettingsPanelIfOpen({ restoreUrlFocus: false });
+    });
     // Ensure overlay is not blocking interaction by default
     try {
       overlay.classList.remove('active');
       overlay.style.visibility = overlay.style.visibility || 'hidden';
     } catch (e) { /* ignore */ }
   }
+
+  // Quick Settings Sidebar Accordion
+  async function initializeSettingsAccordion() {
+    const sections = document.querySelectorAll('#settings-panel .settings-section');
+    if (!sections || sections.length === 0) return;
+
+    let savedState = {};
+    try {
+      const rawState = await storage.getItem('quickSettingsAccordionState');
+      savedState = rawState ? JSON.parse(rawState) : {};
+    } catch (error) {
+      console.debug('No saved quick settings accordion state found', error);
+      savedState = {};
+    }
+
+    const persistState = () => {
+      try {
+        storage.setItem('quickSettingsAccordionState', JSON.stringify(savedState));
+      } catch (error) {
+        console.debug('Failed to persist quick settings accordion state', error);
+      }
+    };
+
+    sections.forEach((section, index) => {
+      const heading = section.querySelector('h3');
+      if (!heading || heading.dataset.accordionReady === 'true') return;
+
+      if (section.classList.contains('non-collapsible')) {
+        section.classList.remove('collapsed');
+        heading.removeAttribute('role');
+        heading.removeAttribute('tabindex');
+        heading.removeAttribute('aria-expanded');
+        return;
+      }
+
+      const sectionKey = section.id || `section-${index}`;
+      const isSavedCollapsed = typeof savedState[sectionKey] === 'boolean' ? savedState[sectionKey] : null;
+      const shouldStartOpen = isSavedCollapsed === null ? index < 3 : !isSavedCollapsed;
+      section.classList.toggle('collapsed', !shouldStartOpen);
+
+      heading.setAttribute('role', 'button');
+      heading.setAttribute('tabindex', '0');
+      heading.setAttribute('aria-expanded', shouldStartOpen ? 'true' : 'false');
+
+      const toggleSection = () => {
+        const collapsed = section.classList.toggle('collapsed');
+        heading.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+        savedState[sectionKey] = collapsed;
+        persistState();
+      };
+
+      heading.addEventListener('click', (event) => {
+        event.stopPropagation();
+        toggleSection();
+      });
+
+      heading.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          toggleSection();
+        }
+      });
+
+      heading.dataset.accordionReady = 'true';
+    });
+  }
+
+  initializeSettingsAccordion();
   
   // Open the settings panel
   function openSettingsPanel() {
+    initializeSettingsAccordion();
     // Set all current setting values before showing
     if (homepageInput) {
       homepageInput.value = homepage || '';
@@ -1545,18 +2314,17 @@ window.addEventListener('DOMContentLoaded', () => {
       startPageSelect.value = localStorage.getItem('startPage') || 'homepage';
     }
     
-    const adblockToggle = document.getElementById('adblock-toggle');
     if (adblockToggle) {
       adblockToggle.checked = localStorage.getItem('adblockEnabled') === 'true';
+    }
+    if (adblockStrictToggle) {
+      adblockStrictToggle.checked = localStorage.getItem('adblockMode') === 'strict';
     }
     
     const userAgentInput = document.getElementById('user-agent-input');
     if (userAgentInput) {
       userAgentInput.value = localStorage.getItem('userAgent') || '';
     }
-
-    // Hide BrowserView so settings panel overlays correctly
-    window.electronAPI.viewHide();
 
     // Apply current theme to settings panel
     const currentTheme = localStorage.getItem('theme') || 'light';
@@ -1585,7 +2353,7 @@ window.addEventListener('DOMContentLoaded', () => {
   }
   
   // Close the settings panel
-  function closeSettingsPanel() {
+  function closeSettingsPanel({ restoreUrlFocus = true } = {}) {
     // Remove the active class first to trigger the animation
     settingsPanel.classList.remove('active');
     overlay.classList.remove('active');
@@ -1598,20 +2366,40 @@ window.addEventListener('DOMContentLoaded', () => {
       
       // Restore scrolling
       document.body.style.overflow = '';
-
-      // Show BrowserView again if not on newtab page
-      const tab = tabs.find(t => t.id === currentTabId);
-      if (tab && tab.url !== 'newtab') {
-        window.electronAPI.viewShow(tab.id);
+      if (restoreUrlFocus) {
+        try { urlInput && urlInput.focus(); } catch (e) {}
+      } else {
+        hideOmniboxSuggestions();
       }
-      try { urlInput && urlInput.focus(); } catch (e) {}
     }, 300);
+  }
+
+  function closeSettingsPanelIfOpen(options = {}) {
+    if (settingsPanel && settingsPanel.classList.contains('active')) {
+      closeSettingsPanel(options);
+    }
+  }
+
+  // Webview can sit above DOM overlays in Electron; close quick settings on direct webview interaction.
+  if (contentWebview && !contentWebview._settingsCloseListenersBound) {
+    contentWebview.addEventListener('mousedown', () => {
+      closeSettingsPanelIfOpen({ restoreUrlFocus: false });
+      closeQuickHistoryPanelIfOpen({ restoreUrlFocus: false });
+    }, { passive: true });
+
+    contentWebview.addEventListener('focus', () => {
+      closeSettingsPanelIfOpen({ restoreUrlFocus: false });
+      closeQuickHistoryPanelIfOpen({ restoreUrlFocus: false });
+    });
+
+    contentWebview._settingsCloseListenersBound = true;
   }
   
   // Handle escape key to close the panel (prevent duplicate listeners)
   if (!document.escapeKeyListenerAdded) {
     document.addEventListener('keydown', function(e) {
       if (e.key === 'Escape') {
+        closeQuickHistoryPanelIfOpen({ restoreUrlFocus: false });
         // Check if the settings panel is visible
         if (settingsPanel && settingsPanel.classList.contains('active')) {
           closeSettingsPanel();
@@ -1662,7 +2450,7 @@ window.addEventListener('DOMContentLoaded', () => {
       btn.className = 'bookmark-btn';
       btn.onclick = () => {
         const tab = tabs.find(t => t.id === currentTabId);
-        const url = b.url || b;
+        let url = b.url || b;
         
         if (tab) {
           // Navigate in current tab
@@ -1673,8 +2461,8 @@ window.addEventListener('DOMContentLoaded', () => {
           tab.history = tab.history || [];
           tab.history.push(url);
           tab.historyIndex = tab.history.length - 1;
-          
-          window.electronAPI.viewNavigate({ id: tab.id, url: url });
+
+          ensureTabWebview(tab, { forceLoadUrl: true });
           persistTabs();
           updateView();
         }
@@ -1745,68 +2533,14 @@ window.addEventListener('DOMContentLoaded', () => {
         tab.history.push(url);
         tab.historyIndex = tab.history.length - 1;
         
-        window.electronAPI.viewNavigate({ id: tab.id, url: url });
+        ensureTabWebview(tab, { forceLoadUrl: true });
         persistTabs();
         updateView();
       }
     }
   };
 
-  // --- BrowserView Events ---
-
-  window.electronAPI.onViewNavigated(async ({ id, url }) => {
-    perfStart('onViewNavigated');
-    const tab = tabs.find(t => t.id === id);
-    if (!tab) return;
-
-    tab.url = url;
-    if (tab.history[tab.historyIndex] !== url) {
-      tab.history.push(url);
-      tab.historyIndex++;
-    }
-    if (id === currentTabId) {
-      urlInput.value = url;
-    }
-    persistTabs();
-    renderTabs(); // Update tab title/favicon
-
-    // Re-apply forced web dark mode to the view that navigated
-    if (forceWebDarkEnabled && window.electronAPI && typeof window.electronAPI.applyWebDarkMode === 'function') {
-      try { window.electronAPI.applyWebDarkMode(id, true); } catch (err) { console.error('applyWebDarkMode error', err); }
-    }
-
-    // --- Browser-wide History Saving (exclude internal pages) ---
-    function isSkippableUrl(u) {
-      if (!u) return true;
-      // Normalize
-      try {
-        const parsed = new URL(u);
-        const pathname = parsed.pathname || '';
-        const hostname = parsed.hostname || '';
-        if (pathname.endsWith('/settings.html') || pathname.endsWith('/history.html')) return true;
-        if (u.includes('settings.html') || u.includes('history.html')) return true;
-      } catch (e) {
-        // If not a valid URL, check simple strings
-        if (u === 'newtab' || u === 'settings.html' || u === 'history.html') return true;
-      }
-      // Legacy 'newtab' page string
-      if (u === 'newtab') return true;
-      return false;
-    }
-
-    if (isSkippableUrl(url)) return; // Do not store settings/history/newtab entries
-
-    // Add navigation to history manager (debounced/queued and persisted) — prefer manager over inline buffering
-    try {
-      const host = (() => { try { return (new URL(url)).hostname.replace(/^www\./, ''); } catch(e) { return url; } })();
-      historyManager.addToHistory({ url, title: tab.title || url, host, timestamp: Date.now() });
-      // If settings panel visible, re-render quickly so user sees update
-      if (document.getElementById('settings-panel') && document.getElementById('settings-panel').classList.contains('active')) {
-        try { renderSettingsHistory(); } catch (e) { /* ignore */ }
-      }
-    } catch (e) { console.error('historyManager.addToHistory failed', e); }
-    perfEnd('onViewNavigated');
-  });
+  // --- Webview events handled near DOM initialization ---
 
   // Listen for the main process to request a new tab
   window.electronAPI.onOpenInNewTab((url) => {
@@ -1825,21 +2559,8 @@ window.addEventListener('DOMContentLoaded', () => {
       tabs = [{ id: newTabId, url: url, history: [url], historyIndex: 0 }];
       currentTabId = newTabId;
       
-      // Get browser settings for new window
-      const settings = {
-        javascriptEnabled: localStorage.getItem('javascriptEnabled'),
-        imagesEnabled: localStorage.getItem('imagesEnabled'),
-        popupBlockerEnabled: localStorage.getItem('popupBlockerEnabled'),
-        userAgent: localStorage.getItem('userAgent'),
-        smoothScrolling: localStorage.getItem('smoothScrolling'),
-        reducedAnimations: localStorage.getItem('reducedAnimations'),
-        pageZoom: localStorage.getItem('pageZoom')
-      };
-      
       // Persist the new state and update the UI
       persistTabs();
-      window.electronAPI.viewCreate(newTabId, settings);
-      window.electronAPI.viewNavigate({ id: newTabId, url });
       updateView();
       renderTabs();
   });
@@ -1872,8 +2593,16 @@ window.addEventListener('DOMContentLoaded', () => {
     } catch (err) { /* ignore */ }
     
     // Store external drag metadata globally
-    window._externalDraggedTabMeta = payload?.tabMeta || null;
-    window._currentDragTransferId = payload?.tabMeta?.transferId || null; // Also update the stored transferId
+    const incomingMeta = payload?.tabMeta || null;
+    const incomingSourceWinId = Number(incomingMeta?.sourceWinId);
+    const thisWinId = Number(_windowId);
+    if (incomingMeta && Number.isFinite(incomingSourceWinId) && Number.isFinite(thisWinId) && incomingSourceWinId !== thisWinId) {
+      window._externalDraggedTabMeta = incomingMeta;
+      window._currentDragTransferId = incomingMeta.transferId || null;
+    } else {
+      window._externalDraggedTabMeta = null;
+      window._currentDragTransferId = null;
+    }
     window._tabDropHandled = false;
     console.log('[DND] tab-drag-started received:', window._externalDraggedTabMeta, 'transferId:', window._currentDragTransferId);
   });
@@ -1884,7 +2613,8 @@ window.addEventListener('DOMContentLoaded', () => {
       if (indicator) indicator.remove();
     } catch (err) {}
     window._externalDraggedTabMeta = null;
-    window._tabDropHandled = false;
+    window._currentDragTransferId = null;
+    window._tabDropHandled = true;
     console.log('[DND] tab-drag-ended');
   });
 
@@ -1916,6 +2646,7 @@ window.addEventListener('DOMContentLoaded', () => {
       // transferred to another window by the main process and should remain intact.
       console.log('remove-tab-record: id=', id, 'tabIndex=', tabIndex, 'tabsLenBefore=', tabs.length);
       tabs.splice(tabIndex, 1);
+      removeTabWebview(id);
 
       // Adjust current tab selection or close window if no tabs remain
       if (currentTabId === id) {
@@ -1944,12 +2675,27 @@ window.addEventListener('DOMContentLoaded', () => {
   // Handler for when a BrowserView has been attached to this window (via main process transfer)
   window.electronAPI.on('attach-tab-handled', (_event, payload) => {
     try {
-      const { tab, viewCreated } = payload || {};
+      const { tab, viewCreated, dropTargetTabId } = payload || {};
       if (!tab || !tab.id) return;
+      const normalizedDropTargetId = Number.isFinite(Number(dropTargetTabId)) ? Number(dropTargetTabId) : null;
+      let incomingTabId = Number(tab.id);
+      if (!Number.isFinite(incomingTabId)) incomingTabId = Date.now();
+      if (!viewCreated) {
+        while (tabs.some(existingTab => existingTab && existingTab.id === incomingTabId)) {
+          incomingTabId += 1;
+        }
+      }
+      const incomingTabRecord = {
+        id: incomingTabId,
+        url: tab.url,
+        history: [tab.url],
+        historyIndex: 0,
+        viewCreated: !!viewCreated
+      };
       // Remove any placeholder or duplicate tabs
       let replaced = false;
-      if (tabs.length === 1 && (tabs[0].url === 'newtab' || !tabs[0].viewCreated)) {
-        tabs[0] = { id: tab.id, url: tab.url, history: [tab.url], historyIndex: 0, viewCreated: !!viewCreated };
+      if (tabs.length === 1 && tabs[0].url === 'newtab') {
+        tabs[0] = incomingTabRecord;
         replaced = true;
       } else {
         // Remove any 'newtab' placeholder tabs in this window (from a detached window)
@@ -1958,24 +2704,35 @@ window.addEventListener('DOMContentLoaded', () => {
         }
         // Remove any tabs with the same id (shouldn't happen, but for safety)
         for (let i = tabs.length - 1; i >= 0; i--) {
-          if (tabs[i].id === tab.id) tabs.splice(i, 1);
+          if (tabs[i].id === incomingTabId) tabs.splice(i, 1);
         }
-        tabs.push({ id: tab.id, url: tab.url, history: [tab.url], historyIndex: 0, viewCreated: !!viewCreated });
+        const targetIndex = normalizedDropTargetId !== null ? tabs.findIndex(existingTab => existingTab.id === normalizedDropTargetId) : -1;
+        if (targetIndex >= 0) tabs.splice(targetIndex + 1, 0, incomingTabRecord);
+        else tabs.push(incomingTabRecord);
       }
-      currentTabId = tab.id;
+      currentTabId = incomingTabId;
       persistTabs();
       renderTabs();
-      // If view was attached, show it and ack back to main that we're ready
+      const activeIncomingTab = tabs.find(existingTab => existingTab.id === incomingTabId);
+      if (!viewCreated && activeIncomingTab && activeIncomingTab.url && activeIncomingTab.url !== 'newtab') {
+        try {
+          ensureTabWebview(activeIncomingTab, { forceLoadUrl: true });
+          activeIncomingTab.viewCreated = true;
+        } catch (error) {
+          console.error('attach-tab-handled: failed to prepare incoming webview', error);
+        }
+      }
+      updateView();
+      // If a BrowserView was attached by main, ack back that renderer is ready
       if (viewCreated) {
-        updateView();
-        try { if (window.electronAPI && window.electronAPI.attachTabAck) window.electronAPI.attachTabAck(tab.id); } catch (e) {}
+        try { if (window.electronAPI && window.electronAPI.attachTabAck) window.electronAPI.attachTabAck(incomingTabId); } catch (e) {}
       }
       // If this window was a detached/orphaned window, and now has no tabs except the reattached one, close it
       // Only close if this window is not the main/original window and is now empty or only has the reattached tab
-      if (window._isNewWindowTarget && tabs.length === 1 && tabs[0].id === tab.id && replaced) {
+      if (window._isNewWindowTarget && tabs.length === 1 && tabs[0].id === incomingTabId && replaced) {
         setTimeout(() => { window.close(); }, 300);
       }
-      console.log('attach-tab-handled: tabId=', tab.id, 'viewCreated=', viewCreated, 'currentTabs=', tabs.length);
+      console.log('attach-tab-handled: tabId=', incomingTabId, 'viewCreated=', viewCreated, 'currentTabs=', tabs.length, 'dropTargetTabId=', normalizedDropTargetId);
     } catch (err) { console.error('attach-tab-handled failed', err); }
   });
 
@@ -2077,26 +2834,13 @@ window.addEventListener('DOMContentLoaded', () => {
   reloadBtn.onclick = () => {
     const tab = tabs.find(t => t.id === currentTabId);
     if (tab && tab.url !== 'newtab') {
-      window.electronAPI.viewReload(tab.id);
+      try { const activeWebview = getActiveWebview(); if (activeWebview) activeWebview.reload(); } catch (e) {}
     }
   };
 
   // --- Initial Render ---
-  // Create all views first, but don't navigate or show them yet.
-  tabs.forEach(tab => {
-    window.electronAPI.viewCreate(tab.id);
-  });
-
-  // After a short delay to ensure views are created, navigate and update the UI.
-  setTimeout(() => {
-    tabs.forEach(tab => {
-      if (tab.url !== 'newtab') {
-        window.electronAPI.viewNavigate({ id: tab.id, url: tab.url });
-      }
-    });
-    renderTabs();
-    updateView();
-  }, 100); // A small delay can help prevent race conditions on startup.
+  renderTabs();
+  updateView();
 
   // --- Settings Panel Feature Logic ---
   // Theme switching
@@ -2241,9 +2985,6 @@ window.addEventListener('DOMContentLoaded', () => {
       tabs.push(incognitoTab);
       currentTabId = incognitoTabId;
       
-      // Create the actual BrowserView for the incognito tab
-      window.electronAPI.viewCreate(incognitoTabId);
-      
       persistTabs();
       renderTabs();
       updateView();
@@ -2280,10 +3021,6 @@ window.addEventListener('DOMContentLoaded', () => {
         const tabToReopen = closedTabs.pop();
         tabs.push(tabToReopen);
         currentTabId = tabToReopen.id;
-        window.electronAPI.viewCreate(tabToReopen.id);
-        if (tabToReopen.url !== 'newtab') {
-          window.electronAPI.viewNavigate({ id: tabToReopen.id, url: tabToReopen.url });
-        }
         localStorage.setItem('closedTabs', JSON.stringify(closedTabs));
         persistTabs();
         renderTabs();
@@ -2313,6 +3050,78 @@ window.addEventListener('DOMContentLoaded', () => {
 
   // --- Download Manager ---
   let downloads = JSON.parse(localStorage.getItem('downloads') || '[]');
+
+  function closeDownloadsModal() {
+    const modal = document.getElementById('downloads-modal');
+    if (modal) {
+      modal.classList.remove('active');
+    }
+  }
+
+  function getDownloadStatusText(download) {
+    if (download.state === 'completed') return 'Completed';
+    if (download.state === 'interrupted') return 'Interrupted';
+    if (download.state === 'cancelled') return 'Cancelled';
+    return `${Math.round((download.progress || 0) * 100)}%`;
+  }
+
+  function renderDownloadsList(listElement, items) {
+    if (!listElement) return;
+
+    if (!Array.isArray(items) || items.length === 0) {
+      listElement.innerHTML = '<div class="downloads-empty">No downloads yet.</div>';
+      return;
+    }
+
+    listElement.innerHTML = items.map(item => {
+      const progress = Math.max(0, Math.min(100, Math.round((item.progress || 0) * 100)));
+      return `
+        <div class="download-item">
+          <div class="download-name" title="${item.name || ''}">${item.name || 'Unknown file'}</div>
+          <div class="download-progress">
+            <div class="progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${progress}">
+              <div class="progress-fill" style="width: ${progress}%"></div>
+            </div>
+            <span class="progress-text">${getDownloadStatusText(item)}</span>
+          </div>
+          ${item.savePath ? `<div class="download-path" title="${item.savePath}">${item.savePath}</div>` : ''}
+        </div>
+      `;
+    }).join('');
+  }
+
+  function ensureDownloadsModal() {
+    let modal = document.getElementById('downloads-modal');
+    if (modal) return modal;
+
+    modal = document.createElement('div');
+    modal.id = 'downloads-modal';
+    modal.className = 'modal';
+    modal.innerHTML = `
+      <div class="downloads-content" role="dialog" aria-modal="true" aria-label="Downloads">
+        <div class="downloads-header">
+          <h2>Downloads</h2>
+          <button class="close-button" aria-label="Close downloads">&times;</button>
+        </div>
+        <div id="downloads-list" class="downloads-list"></div>
+      </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    const closeBtn = modal.querySelector('.close-button');
+    if (closeBtn) {
+      closeBtn.addEventListener('click', closeDownloadsModal);
+    }
+
+    modal.addEventListener('click', (event) => {
+      if (event.target === modal) {
+        closeDownloadsModal();
+      }
+    });
+
+    return modal;
+  }
 
   // Listen for download events
   window.electronAPI.onDownloadStarted && window.electronAPI.onDownloadStarted((data) => {
@@ -2346,75 +3155,25 @@ window.addEventListener('DOMContentLoaded', () => {
 
   // Show downloads modal
   function showDownloadsModal() {
-    let modal = document.getElementById('downloads-modal');
-    if (!modal) {
-      modal = document.createElement('div');
-      modal.id = 'downloads-modal';
-      modal.className = 'modal';
-      modal.style.zIndex = '2147483648'; // Ensure it's above settings panel
-      modal.innerHTML = `
-        <div class="modal-content" style="z-index: 2147483649;">
-          <span class="close-button">&times;</span>
-          <h2>Downloads</h2>
-          <div id="downloads-list"></div>
-        </div>
-      `;
-      document.body.appendChild(modal);
-      modal.querySelector('.close-button').onclick = () => {
-        modal.style.display = 'none';
-      };
-      
-      // Close modal when clicking outside
-      modal.onclick = (e) => {
-        if (e.target === modal) {
-          modal.style.display = 'none';
-        }
-      };
-    }
-    
-    // Apply current theme to modal
-    const currentTheme = localStorage.getItem('theme') || 'light';
-    modal.classList.remove('theme-light', 'theme-dark');
-    modal.classList.add('theme-' + currentTheme);
-    const modalContent = modal.querySelector('.modal-content');
-    if (modalContent) {
-      modalContent.classList.remove('theme-light', 'theme-dark');
-      modalContent.classList.add('theme-' + currentTheme);
-    }
-    
-    // Populate downloads
-    const downloads = JSON.parse(localStorage.getItem('downloads') || '[]');
+    const modal = ensureDownloadsModal();
     const list = modal.querySelector('#downloads-list');
-    
-    if (downloads.length === 0) {
-      list.innerHTML = '<p style="text-align: center; padding: 20px; color: inherit;">No downloads yet.</p>';
-    } else {
-      list.innerHTML = downloads.map(d => `
-        <div class="download-item">
-          <div class="download-name">${d.name}</div>
-          <div class="download-progress">
-            <div class="progress-bar">
-              <div class="progress-fill" style="width: ${(d.progress * 100)}%"></div>
-            </div>
-            <span class="progress-text">${d.state === 'completed' ? 'Completed' : Math.round(d.progress * 100) + '%'}</span>
-          </div>
-          ${d.savePath ? `<div class="download-path">${d.savePath}</div>` : ''}
-        </div>
-      `).join('');
-    }
-    
-    // Ensure modal appears above everything
-    modal.style.display = 'block';
-    modal.style.position = 'fixed';
-    modal.style.top = '0';
-    modal.style.left = '0';
-    modal.style.width = '100vw';
-    modal.style.height = '100vh';
+    const currentDownloads = JSON.parse(localStorage.getItem('downloads') || '[]');
+    renderDownloadsList(list, currentDownloads);
+    modal.classList.add('active');
   }
 
   const showDownloadsBtn = document.getElementById('show-downloads-btn');
   if (showDownloadsBtn) {
     showDownloadsBtn.onclick = showDownloadsModal;
+  }
+
+  if (!document.downloadsEscapeListenerAdded) {
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') {
+        closeDownloadsModal();
+      }
+    });
+    document.downloadsEscapeListenerAdded = true;
   }
 
   // Custom User Agent
@@ -2479,10 +3238,6 @@ window.addEventListener('DOMContentLoaded', () => {
         const tabToReopen = closedTabs.pop();
         tabs.push(tabToReopen);
         currentTabId = tabToReopen.id;
-        window.electronAPI.viewCreate(tabToReopen.id);
-        if (tabToReopen.url !== 'newtab') {
-          window.electronAPI.viewNavigate({ id: tabToReopen.id, url: tabToReopen.url });
-        }
         localStorage.setItem('closedTabs', JSON.stringify(closedTabs));
         persistTabs();
         renderTabs();
@@ -2500,7 +3255,7 @@ window.addEventListener('DOMContentLoaded', () => {
       e.preventDefault();
       const tab = tabs.find(t => t.id === currentTabId);
       if (tab && tab.url !== 'newtab') {
-        window.electronAPI.viewReload(tab.id);
+        try { const activeWebview = getActiveWebview(); if (activeWebview) activeWebview.reload(); } catch (err) {}
       }
     } else if (e.ctrlKey && e.key === 'd') {
       e.preventDefault();
@@ -2528,7 +3283,7 @@ window.addEventListener('DOMContentLoaded', () => {
       e.preventDefault();
       const tab = tabs.find(t => t.id === currentTabId);
       if (tab && tab.url !== 'newtab') {
-        window.electronAPI.viewReload(tab.id);
+        try { const activeWebview = getActiveWebview(); if (activeWebview) activeWebview.reload(); } catch (err) {}
       }
     } else if (e.key === 'F12') {
       e.preventDefault();
@@ -2566,15 +3321,7 @@ window.addEventListener('DOMContentLoaded', () => {
     originalNavigate(url);
   };
 
-  // Listen for page title updates
-  window.electronAPI.onPageTitleUpdated && window.electronAPI.onPageTitleUpdated(({ id, title }) => {
-    const tab = tabs.find(t => t.id === id);
-    if (tab && tab.url !== 'newtab') {
-      tab.title = title;
-      persistTabs();
-      renderTabs();
-    }
-  });
+  // Page title updates come from webview event listeners now.
 });
 
 // --- Weather Widget Functionality ---
@@ -3073,7 +3820,7 @@ class NewsWidget {
   
   async init() {
     try {
-      const newsSettings = this.getNewsSettings();
+      const newsSettings = await this.getNewsSettings();
       const articles = await this.fetchNews(newsSettings.country, newsSettings.category);
       this.updateDisplay(articles);
     } catch (error) {
@@ -3082,10 +3829,12 @@ class NewsWidget {
     }
   }
   
-  getNewsSettings() {
+  async getNewsSettings() {
+    const country = await getWidgetSetting('newsCountry', 'us');
+    const category = await getWidgetSetting('newsCategory', 'general');
     return {
-      country: localStorage.getItem('newsCountry') || 'us',
-      category: localStorage.getItem('newsCategory') || 'general'
+      country: country || 'us',
+      category: category || 'general'
     };
   }
   
@@ -3166,10 +3915,10 @@ class NewsWidget {
         console.error('RSS2JSON service failed:', apiError);
       }
       
-      return this.getReliableNews();
+      return this.getReliableNews(country, category);
     } catch (error) {
       console.error('All news fetch methods failed:', error);
-      return this.getReliableNews();
+      return this.getReliableNews(country, category);
     }
   }
   
@@ -3199,16 +3948,13 @@ class NewsWidget {
     return sources[country] || 'News Source';
   }
   
-  getReliableNews() {
+  getReliableNews(country = 'us', category = 'general') {
     // Provide current, real news headlines that reflect the current settings
     const currentDate = new Date().toISOString();
     const hoursAgo1 = new Date(Date.now() - 1 * 60 * 60 * 1000).toISOString();
     const hoursAgo2 = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
     const hoursAgo3 = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString();
     const hoursAgo4 = new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString();
-    
-    const country = localStorage.getItem('newsCountry') || 'us';
-    const category = localStorage.getItem('newsCategory') || 'general';
     
     // Create country-specific fallback headlines
     const countryNews = {
@@ -3370,8 +4116,7 @@ class NewsWidget {
         this.loadingEl.textContent = 'Updating news...';
       }
       
-      const country = localStorage.getItem('newsCountry') || 'us';
-      const category = localStorage.getItem('newsCategory') || 'general';
+      const { country, category } = await this.getNewsSettings();
       
       const articles = await this.fetchNews(country, category);
       
@@ -3390,6 +4135,22 @@ class NewsWidget {
 // Global widget instances
 let globalNewsWidget = null;
 let globalWeatherWidget = null;
+
+async function getWidgetSetting(key, fallback = null) {
+  try {
+    const persisted = await storage.getItem(key);
+    if (persisted !== null && persisted !== undefined) return persisted;
+  } catch (error) {
+    console.error(`Failed to read widget setting ${key} from persistent storage`, error);
+  }
+
+  try {
+    const legacy = localStorage.getItem(key);
+    return legacy !== null ? legacy : fallback;
+  } catch (_error) {
+    return fallback;
+  }
+}
 
 // Global function to update news widget - defined early
 function updateNewsWidget() {
@@ -3451,17 +4212,6 @@ function initializeWindowControls() {
     });
   }
 
-  // Add double-click to maximize functionality
-  if (titleBar) {
-    titleBar.addEventListener('dblclick', async (e) => {
-      // Only trigger on the draggable area, not on buttons or tabs
-      if (e.target === titleBar || e.target.closest('#tabs')) {
-        await window.electronAPI.maximizeWindow();
-        updateMaximizeButton();
-      }
-    });
-  }
-
   // Initialize maximize button state
   updateMaximizeButton();
   
@@ -3505,7 +4255,9 @@ document.addEventListener('DOMContentLoaded', () => {
   
   // Small delay to ensure all elements are loaded
   setTimeout(() => {
-    initializeWidgets();
+    initializeWidgets().catch((error) => {
+      console.error('Failed to initialize widgets:', error);
+    });
   }, 1000);
   
   // Listen for widget settings changes from settings window
@@ -3525,11 +4277,11 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 });
 
-function initializeWidgets() {
+async function initializeWidgets() {
   console.log('Initializing widgets...');
   // Check widget visibility settings
-  const showWeather = localStorage.getItem('showWeatherWidget') !== 'false';
-  const showNews = localStorage.getItem('showNewsWidget') !== 'false';
+  const showWeather = (await getWidgetSetting('showWeatherWidget', 'true')) !== 'false';
+  const showNews = (await getWidgetSetting('showNewsWidget', 'true')) !== 'false';
   
   console.log('Widget settings - showWeather:', showWeather, 'showNews:', showNews);
   
@@ -3593,20 +4345,3 @@ function handleWidgetSettingsChange(data) {
   }
 }
 
-// --- History Button Opens History Page (local file) ---
-const historyBtn = document.getElementById('history-btn');
-  if (historyBtn) {
-  historyBtn.addEventListener('click', async function(e) {
-    e.preventDefault();
-    // Ensure buffered history is flushed to persistent storage before opening history page
-    try { await historyManager.flush(); } catch (err) { console.error('Failed to flush history before opening history page', err); }
-    // Open local history.html using a URL relative to the current page
-    try {
-      const fileUrl = new URL('history.html', window.location.href).href;
-      newTab(fileUrl);
-    } catch (err) {
-      // Fallback to history.html relative path
-      newTab('history.html');
-    }
-  });
-}
