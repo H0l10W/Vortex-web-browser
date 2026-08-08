@@ -1,6 +1,9 @@
-window.addEventListener('DOMContentLoaded', () => {
+window.addEventListener("DOMContentLoaded", () => {
   // Persistent storage helper to replace localStorage
-  const hasElectronStorage = !!(window.electronAPI && typeof window.electronAPI.getStorageItem === 'function');
+  const hasElectronStorage = !!(
+    window.electronAPI &&
+    typeof window.electronAPI.getStorageItem === "function"
+  );
   const storage = {
     async getItem(key) {
       try {
@@ -9,7 +12,7 @@ window.addEventListener('DOMContentLoaded', () => {
           if (value !== null && value !== undefined) return value;
         }
       } catch (error) {
-        console.error('Error getting storage item:', key, error);
+        console.error("Error getting storage item:", key, error);
       }
       try {
         const legacy = localStorage.getItem(key);
@@ -21,11 +24,14 @@ window.addEventListener('DOMContentLoaded', () => {
     async setItem(key, value) {
       let saved = false;
       try {
-        if (hasElectronStorage && typeof window.electronAPI.setStorageItem === 'function') {
+        if (
+          hasElectronStorage &&
+          typeof window.electronAPI.setStorageItem === "function"
+        ) {
           saved = !!(await window.electronAPI.setStorageItem(key, value));
         }
       } catch (error) {
-        console.error('Error setting storage item:', key, error);
+        console.error("Error setting storage item:", key, error);
       }
       try {
         localStorage.setItem(key, value);
@@ -37,11 +43,14 @@ window.addEventListener('DOMContentLoaded', () => {
     async removeItem(key) {
       let removed = false;
       try {
-        if (hasElectronStorage && typeof window.electronAPI.removeStorageItem === 'function') {
+        if (
+          hasElectronStorage &&
+          typeof window.electronAPI.removeStorageItem === "function"
+        ) {
           removed = !!(await window.electronAPI.removeStorageItem(key));
         }
       } catch (error) {
-        console.error('Error removing storage item:', key, error);
+        console.error("Error removing storage item:", key, error);
       }
       try {
         localStorage.removeItem(key);
@@ -49,36 +58,61 @@ window.addEventListener('DOMContentLoaded', () => {
       } catch (_error) {
         return removed;
       }
-    }
+    },
   };
 
-  const settingsTabButtons = document.querySelectorAll('.settings-tab-button');
-  const settingsTabContents = document.querySelectorAll('.settings-tab-content');
-  const themeOptions = document.querySelectorAll('.theme-option');
-  const appVersionSpan = document.getElementById('app-version');
+  const settingsTabButtons = document.querySelectorAll(".settings-tab-button");
+  const settingsTabContents = document.querySelectorAll(
+    ".settings-tab-content",
+  );
+  const themeOptions = document.querySelectorAll(".theme-option");
+  const appVersionSpan = document.getElementById("app-version");
+  const buildDateSpan = document.getElementById("build-date");
+
+if (window.electronAPI?.getBuildDate && buildDateSpan) {
+    window.electronAPI.getBuildDate().then((timestamp) => {
+      const buildDate = timestamp ? new Date(timestamp) : null;
+      buildDateSpan.textContent = buildDate && !Number.isNaN(buildDate.getTime())
+        ? buildDate.toLocaleDateString(undefined, { month: "long", year: "numeric" })
+        : "Unavailable";
+    }).catch(() => {
+      buildDateSpan.textContent = "Unavailable";
+    });
+  }
 
   // Privacy settings elements
-  const clearHistoryBtn = document.getElementById('clear-history-btn');
-  const viewCookiesBtn = document.getElementById('view-cookies-btn');
-  const clearCookiesBtn = document.getElementById('clear-cookies-btn');
-  const clearAllDataBtn = document.getElementById('clear-all-data-btn');
-  const cookieModal = document.getElementById('cookie-modal');
-  const closeCookieModal = document.getElementById('close-cookie-modal');
-  const cookiesList = document.getElementById('cookies-list');
+  const clearHistoryBtn = document.getElementById("clear-history-btn");
+  const viewCookiesBtn = document.getElementById("view-cookies-btn");
+  const clearCookiesBtn = document.getElementById("clear-cookies-btn");
+  const clearAllDataBtn = document.getElementById("clear-all-data-btn");
+  const cookieModal = document.getElementById("cookie-modal");
+  const closeCookieModal = document.getElementById("close-cookie-modal");
+  const cookiesList = document.getElementById("cookies-list");
 
   // Appearance settings elements
-  const fontSizeSlider = document.getElementById('font-size-slider');
-  const fontSizeValue = document.getElementById('font-size-value');
-  const pageZoomSlider = document.getElementById('page-zoom-slider');
-  const zoomValue = document.getElementById('zoom-value');
-  const smoothScrollingToggle = document.getElementById('smooth-scrolling-toggle');
-  const reducedAnimationsToggle = document.getElementById('reduced-animations-toggle');
-  const visualEffectsToggle = document.getElementById('visual-effects-toggle');
-  const closeTabsOnExitToggle = document.getElementById('close-tabs-on-exit-toggle');
-  const showTabPreviewsToggle = document.getElementById('show-tab-previews-toggle');
+  const fontSizeSlider = document.getElementById("font-size-slider");
+  const fontSizeValue = document.getElementById("font-size-value");
+  const pageZoomSlider = document.getElementById("page-zoom-slider");
+  const zoomValue = document.getElementById("zoom-value");
+  const smoothScrollingToggle = document.getElementById(
+    "smooth-scrolling-toggle",
+  );
+  const reducedAnimationsToggle = document.getElementById(
+    "reduced-animations-toggle",
+  );
+  const visualEffectsToggle = document.getElementById("visual-effects-toggle");
+  const closeTabsOnExitToggle = document.getElementById(
+    "close-tabs-on-exit-toggle",
+  );
+  const showTabPreviewsToggle = document.getElementById(
+    "show-tab-previews-toggle",
+  );
 
-  if (window.electronAPI && typeof window.electronAPI.getAppVersion === 'function') {
-    window.electronAPI.getAppVersion().then(version => {
+  if (
+    window.electronAPI &&
+    typeof window.electronAPI.getAppVersion === "function"
+  ) {
+    window.electronAPI.getAppVersion().then((version) => {
       if (appVersionSpan) {
         appVersionSpan.textContent = version;
       }
@@ -87,41 +121,56 @@ window.addEventListener('DOMContentLoaded', () => {
 
   function applyTheme(themeClassName, { broadcast = true } = {}) {
     const themeClasses = [
-      'theme-light', 'theme-dark',
-      'theme-light-mint', 'theme-light-sakura', 'theme-light-sunny',
-      'theme-dark-purple', 'theme-dark-nord', 'theme-dark-forest', 'theme-dark-rose'
+      "theme-light",
+      "theme-dark",
+      "theme-light-mint",
+      "theme-light-sakura",
+      "theme-light-sunny",
+      "theme-dark-purple",
+      "theme-dark-nord",
+      "theme-dark-forest",
+      "theme-dark-rose",
+      "theme-dark-sakura",
+      "theme-dark-sunny",
     ];
     // Remove all possible theme classes
     document.body.classList.remove(...themeClasses);
-    
+
     // Add the single, correct class (e.g., 'theme-dark-purple')
     document.body.classList.add(themeClassName);
-    
+
     // Broadcast the change to other windows
-    if (broadcast && window.electronAPI && typeof window.electronAPI.broadcastThemeChange === 'function') {
+    if (
+      broadcast &&
+      window.electronAPI &&
+      typeof window.electronAPI.broadcastThemeChange === "function"
+    ) {
       window.electronAPI.broadcastThemeChange(themeClassName);
     }
   }
 
   function updateSelectedThemeUI(themeClassName) {
     if (themeOptions) {
-      const themeName = themeClassName.replace('theme-', '');
-      themeOptions.forEach(opt => {
-        opt.classList.toggle('selected', opt.dataset.theme === themeName);
+      const themeName = themeClassName.replace("theme-", "");
+      themeOptions.forEach((opt) => {
+        opt.classList.toggle("selected", opt.dataset.theme === themeName);
       });
     }
   }
 
   // Set up tab navigation
   if (settingsTabButtons) {
-    settingsTabButtons.forEach(button => {
-      button.addEventListener('click', () => {
-        settingsTabButtons.forEach(btn => btn.classList.remove('active'));
-        button.classList.add('active');
+    settingsTabButtons.forEach((button) => {
+      button.addEventListener("click", () => {
+        settingsTabButtons.forEach((btn) => btn.classList.remove("active"));
+        button.classList.add("active");
 
         const tabId = button.dataset.tab;
-        settingsTabContents.forEach(content => {
-          content.classList.toggle('active', content.id === `${tabId}-settings`);
+        settingsTabContents.forEach((content) => {
+          content.classList.toggle(
+            "active",
+            content.id === `${tabId}-settings`,
+          );
         });
       });
     });
@@ -129,13 +178,13 @@ window.addEventListener('DOMContentLoaded', () => {
 
   // Set up theme selection clicks
   if (themeOptions) {
-    themeOptions.forEach(option => {
-      option.addEventListener('click', () => {
+    themeOptions.forEach((option) => {
+      option.addEventListener("click", () => {
         const themeName = option.dataset.theme; // e.g., 'dark-purple'
         const themeClassName = `theme-${themeName}`; // e.g., 'theme-dark-purple'
-        
-        localStorage.setItem('theme', themeClassName);
-        storage.setItem('theme', themeClassName);
+
+        localStorage.setItem("theme", themeClassName);
+        storage.setItem("theme", themeClassName);
         applyTheme(themeClassName);
         updateSelectedThemeUI(themeClassName);
       });
@@ -143,74 +192,112 @@ window.addEventListener('DOMContentLoaded', () => {
   }
 
   // Listen for theme changes from other windows
-  if (window.electronAPI && typeof window.electronAPI.onThemeChanged === 'function') {
+  if (
+    window.electronAPI &&
+    typeof window.electronAPI.onThemeChanged === "function"
+  ) {
     window.electronAPI.onThemeChanged((themeClassName) => {
-      localStorage.setItem('theme', themeClassName);
-      storage.setItem('theme', themeClassName);
+      localStorage.setItem("theme", themeClassName);
+      storage.setItem("theme", themeClassName);
       applyTheme(themeClassName, { broadcast: false });
       updateSelectedThemeUI(themeClassName);
     });
   }
 
   // Apply saved theme on initial load
-  storage.getItem('theme').then(currentTheme => {
-    const theme = currentTheme || localStorage.getItem('theme') || 'theme-light';
+  storage.getItem("theme").then((currentTheme) => {
+    const theme =
+      currentTheme || localStorage.getItem("theme") || "theme-light";
     applyTheme(theme, { broadcast: false });
     updateSelectedThemeUI(theme);
   });
 
   // Initialize and bind force web dark toggle
-  const forceWebDarkToggleFull = document.getElementById('force-web-dark-toggle-full');
+  const forceWebDarkToggleFull = document.getElementById(
+    "force-web-dark-toggle-full",
+  );
   if (forceWebDarkToggleFull) {
     // Initialize from storage
-    storage.getItem('forceWebDarkMode').then(async value => {
-      const enabled = value === 'true';
+    storage.getItem("forceWebDarkMode").then(async (value) => {
+      const enabled = value === "true";
       forceWebDarkToggleFull.checked = enabled;
-      if (window.electronAPI && typeof window.electronAPI.applyWebDarkModeAll === 'function') {
-        try { await window.electronAPI.applyWebDarkModeAll(enabled); } catch (err) { console.error('Failed to apply dark mode at init', err); }
+      if (
+        window.electronAPI &&
+        typeof window.electronAPI.applyWebDarkModeAll === "function"
+      ) {
+        try {
+          await window.electronAPI.applyWebDarkModeAll(enabled);
+        } catch (err) {
+          console.error("Failed to apply dark mode at init", err);
+        }
       }
     });
 
-    forceWebDarkToggleFull.addEventListener('change', async (e) => {
+    forceWebDarkToggleFull.addEventListener("change", async (e) => {
       const enabled = !!e.target.checked;
-      try { await storage.setItem('forceWebDarkMode', enabled ? 'true' : 'false'); } catch (err) {}
+      try {
+        await storage.setItem("forceWebDarkMode", enabled ? "true" : "false");
+      } catch (err) {}
       // Ask main to apply CSS to all views
-      if (window.electronAPI && typeof window.electronAPI.applyWebDarkModeAll === 'function') {
-        try { await window.electronAPI.applyWebDarkModeAll(enabled); } catch (err) { console.error('Failed to apply web dark mode to all views', err); }
+      if (
+        window.electronAPI &&
+        typeof window.electronAPI.applyWebDarkModeAll === "function"
+      ) {
+        try {
+          await window.electronAPI.applyWebDarkModeAll(enabled);
+        } catch (err) {
+          console.error("Failed to apply web dark mode to all views", err);
+        }
       }
-      try { if (window.electronAPI && typeof window.electronAPI.broadcastWidgetSettings === 'function') window.electronAPI.broadcastWidgetSettings('forceWebDark', enabled); } catch (e) {}
-      showToast(enabled ? 'Force web dark mode enabled' : 'Force web dark mode disabled', 'info');
+      try {
+        if (
+          window.electronAPI &&
+          typeof window.electronAPI.broadcastWidgetSettings === "function"
+        )
+          window.electronAPI.broadcastWidgetSettings("forceWebDark", enabled);
+      } catch (e) {}
+      showToast(
+        enabled
+          ? "Force web dark mode enabled"
+          : "Force web dark mode disabled",
+        "info",
+      );
     });
     // Listen for broadcasted setting changes from other windows
-    if (window.electronAPI && typeof window.electronAPI.onWidgetSettingsChanged === 'function') {
+    if (
+      window.electronAPI &&
+      typeof window.electronAPI.onWidgetSettingsChanged === "function"
+    ) {
       window.electronAPI.onWidgetSettingsChanged((data) => {
-        if (data.widget === 'forceWebDark') {
-          try { forceWebDarkToggleFull.checked = !!data.enabled; } catch (e) {}
+        if (data.widget === "forceWebDark") {
+          try {
+            forceWebDarkToggleFull.checked = !!data.enabled;
+          } catch (e) {}
         }
       });
     }
   }
 
   // --- Widget Settings Logic ---
-  
+
   // Widget toggle elements
-  const weatherToggle = document.getElementById('weather-widget-toggle');
-  const newsToggle = document.getElementById('news-widget-toggle');
-  const newsSettings = document.getElementById('news-settings-options');
-  const newsCountrySelect = document.getElementById('news-country');
-  const newsCategorySelect = document.getElementById('news-category');
-  
+  const weatherToggle = document.getElementById("weather-widget-toggle");
+  const newsToggle = document.getElementById("news-widget-toggle");
+  const newsSettings = document.getElementById("news-settings-options");
+  const newsCountrySelect = document.getElementById("news-country");
+  const newsCategorySelect = document.getElementById("news-category");
+
   // Weather location elements
-  const weatherSettings = document.getElementById('weather-settings-options');
-  const weatherLocationInput = document.getElementById('weather-location');
-  const updateWeatherBtn = document.getElementById('update-weather-location');
-  const resetWeatherBtn = document.getElementById('reset-weather-location');
-  
-  console.log('Weather elements found:', {
+  const weatherSettings = document.getElementById("weather-settings-options");
+  const weatherLocationInput = document.getElementById("weather-location");
+  const updateWeatherBtn = document.getElementById("update-weather-location");
+  const resetWeatherBtn = document.getElementById("reset-weather-location");
+
+  console.log("Weather elements found:", {
     weatherSettings: !!weatherSettings,
     weatherLocationInput: !!weatherLocationInput,
     updateWeatherBtn: !!updateWeatherBtn,
-    resetWeatherBtn: !!resetWeatherBtn
+    resetWeatherBtn: !!resetWeatherBtn,
   });
 
   async function getWidgetSetting(key, fallback = null) {
@@ -240,163 +327,181 @@ window.addEventListener('DOMContentLoaded', () => {
       // ignore localStorage write failures
     }
   }
-  
-
 
   // Initialize widget settings
   if (weatherToggle) {
-    getWidgetSetting('showWeatherWidget', 'true').then((value) => {
-      weatherToggle.checked = value !== 'false';
+    getWidgetSetting("showWeatherWidget", "true").then((value) => {
+      weatherToggle.checked = value !== "false";
       if (weatherSettings) {
-        weatherSettings.style.display = weatherToggle.checked ? 'block' : 'none';
+        weatherSettings.style.display = weatherToggle.checked
+          ? "block"
+          : "none";
       }
     });
 
-    weatherToggle.addEventListener('change', async (e) => {
-      await setWidgetSetting('showWeatherWidget', e.target.checked ? 'true' : 'false');
+    weatherToggle.addEventListener("change", async (e) => {
+      await setWidgetSetting(
+        "showWeatherWidget",
+        e.target.checked ? "true" : "false",
+      );
       if (weatherSettings) {
-        weatherSettings.style.display = e.target.checked ? 'block' : 'none';
+        weatherSettings.style.display = e.target.checked ? "block" : "none";
       }
       // Broadcast setting change to main window
-      if (window.electronAPI && typeof window.electronAPI.broadcastWidgetSettings === 'function') {
-        window.electronAPI.broadcastWidgetSettings('weather', e.target.checked);
+      if (
+        window.electronAPI &&
+        typeof window.electronAPI.broadcastWidgetSettings === "function"
+      ) {
+        window.electronAPI.broadcastWidgetSettings("weather", e.target.checked);
       }
     });
-    
+
     // Show/hide weather settings based on toggle
     if (weatherSettings) {
-      weatherSettings.style.display = weatherToggle.checked ? 'block' : 'none';
+      weatherSettings.style.display = weatherToggle.checked ? "block" : "none";
     }
   }
 
   if (newsToggle) {
-    getWidgetSetting('showNewsWidget', 'true').then((value) => {
-      newsToggle.checked = value !== 'false';
+    getWidgetSetting("showNewsWidget", "true").then((value) => {
+      newsToggle.checked = value !== "false";
       if (newsSettings) {
-        newsSettings.style.display = newsToggle.checked ? 'block' : 'none';
+        newsSettings.style.display = newsToggle.checked ? "block" : "none";
       }
     });
 
-    newsToggle.addEventListener('change', async (e) => {
-      await setWidgetSetting('showNewsWidget', e.target.checked ? 'true' : 'false');
+    newsToggle.addEventListener("change", async (e) => {
+      await setWidgetSetting(
+        "showNewsWidget",
+        e.target.checked ? "true" : "false",
+      );
       if (newsSettings) {
-        newsSettings.style.display = e.target.checked ? 'block' : 'none';
+        newsSettings.style.display = e.target.checked ? "block" : "none";
       }
       // Broadcast setting change to main window
-      if (window.electronAPI && typeof window.electronAPI.broadcastWidgetSettings === 'function') {
-        window.electronAPI.broadcastWidgetSettings('news', e.target.checked);
+      if (
+        window.electronAPI &&
+        typeof window.electronAPI.broadcastWidgetSettings === "function"
+      ) {
+        window.electronAPI.broadcastWidgetSettings("news", e.target.checked);
       }
     });
-    
+
     // Show/hide news settings based on toggle
     if (newsSettings) {
-      newsSettings.style.display = newsToggle.checked ? 'block' : 'none';
+      newsSettings.style.display = newsToggle.checked ? "block" : "none";
     }
   }
 
   // News settings
   if (newsCountrySelect) {
-    getWidgetSetting('newsCountry', 'us').then((currentCountry) => {
-      newsCountrySelect.value = currentCountry || 'us';
+    getWidgetSetting("newsCountry", "us").then((currentCountry) => {
+      newsCountrySelect.value = currentCountry || "us";
     });
 
-    
-    newsCountrySelect.onchange = async function() {
+    newsCountrySelect.onchange = async function () {
       const newCountry = this.value;
-      await setWidgetSetting('newsCountry', newCountry);
-      
+      await setWidgetSetting("newsCountry", newCountry);
+
       if (window.electronAPI && window.electronAPI.broadcastWidgetSettings) {
-        window.electronAPI.broadcastWidgetSettings('newsUpdate', true);
+        window.electronAPI.broadcastWidgetSettings("newsUpdate", true);
       }
-      
+
       // Force immediate news update with multiple methods
       let updateAttempted = false;
-      
+
       if (window.opener && window.opener.updateNewsWidget) {
         try {
           window.opener.updateNewsWidget();
           updateAttempted = true;
         } catch (err) {
-          console.error('Direct function call failed:', err);
+          console.error("Direct function call failed:", err);
         }
       }
-      
+
       if (window.opener) {
         try {
-          const currentCategory = await getWidgetSetting('newsCategory', 'general');
-          window.opener.postMessage({
-            type: 'newsSettingsChanged',
-            country: newCountry,
-            category: currentCategory,
-            timestamp: Date.now()
-          }, '*');
+          const currentCategory = await getWidgetSetting(
+            "newsCategory",
+            "general",
+          );
+          window.opener.postMessage(
+            {
+              type: "newsSettingsChanged",
+              country: newCountry,
+              category: currentCategory,
+              timestamp: Date.now(),
+            },
+            "*",
+          );
           updateAttempted = true;
         } catch (err) {
-          console.error('PostMessage failed:', err);
+          console.error("PostMessage failed:", err);
         }
       }
-      
-      if (typeof window.updateNewsWidget === 'function') {
+
+      if (typeof window.updateNewsWidget === "function") {
         window.updateNewsWidget();
         updateAttempted = true;
       }
-      
+
       if (window.electronAPI?.broadcastWidgetSettings) {
-        window.electronAPI.broadcastWidgetSettings('newsUpdate', true);
+        window.electronAPI.broadcastWidgetSettings("newsUpdate", true);
         updateAttempted = true;
       }
-      
-
     };
   }
 
   if (newsCategorySelect) {
-    getWidgetSetting('newsCategory', 'general').then((currentCategory) => {
-      newsCategorySelect.value = currentCategory || 'general';
+    getWidgetSetting("newsCategory", "general").then((currentCategory) => {
+      newsCategorySelect.value = currentCategory || "general";
     });
-    
-    newsCategorySelect.onchange = async function() {
+
+    newsCategorySelect.onchange = async function () {
       const newCategory = this.value;
-      await setWidgetSetting('newsCategory', newCategory);
-      
+      await setWidgetSetting("newsCategory", newCategory);
+
       if (window.electronAPI && window.electronAPI.broadcastWidgetSettings) {
-        window.electronAPI.broadcastWidgetSettings('newsUpdate', true);
+        window.electronAPI.broadcastWidgetSettings("newsUpdate", true);
       }
-      
+
       // Force immediate news update with multiple methods
       let updateAttempted = false;
-      
+
       if (window.opener && window.opener.updateNewsWidget) {
         try {
           window.opener.updateNewsWidget();
           updateAttempted = true;
         } catch (err) {
-          console.error('Direct function call failed:', err);
+          console.error("Direct function call failed:", err);
         }
       }
-      
+
       if (window.opener) {
         try {
-          const currentCountry = await getWidgetSetting('newsCountry', 'us');
-          window.opener.postMessage({
-            type: 'newsSettingsChanged',
-            category: newCategory,
-            country: currentCountry,
-            timestamp: Date.now()
-          }, '*');
+          const currentCountry = await getWidgetSetting("newsCountry", "us");
+          window.opener.postMessage(
+            {
+              type: "newsSettingsChanged",
+              category: newCategory,
+              country: currentCountry,
+              timestamp: Date.now(),
+            },
+            "*",
+          );
           updateAttempted = true;
         } catch (err) {
-          console.error('PostMessage failed:', err);
+          console.error("PostMessage failed:", err);
         }
       }
-      
-      if (typeof window.updateNewsWidget === 'function') {
+
+      if (typeof window.updateNewsWidget === "function") {
         window.updateNewsWidget();
         updateAttempted = true;
       }
-      
+
       if (window.electronAPI?.broadcastWidgetSettings) {
-        window.electronAPI.broadcastWidgetSettings('newsUpdate', true);
+        window.electronAPI.broadcastWidgetSettings("newsUpdate", true);
         updateAttempted = true;
       }
     };
@@ -405,73 +510,77 @@ window.addEventListener('DOMContentLoaded', () => {
   // Weather location settings
   if (weatherLocationInput) {
     // Load saved value
-    storage.getItem('weatherLocation').then(savedLocation => {
-      weatherLocationInput.value = savedLocation || '';
+    storage.getItem("weatherLocation").then((savedLocation) => {
+      weatherLocationInput.value = savedLocation || "";
     });
   }
 
   if (updateWeatherBtn) {
-    console.log('Update weather button found, setting up click handler');
-    updateWeatherBtn.onclick = async function() {
-      console.log('=== BUTTON CLICKED! ===');
-      const input = document.getElementById('weather-location');
+    console.log("Update weather button found, setting up click handler");
+    updateWeatherBtn.onclick = async function () {
+      console.log("=== BUTTON CLICKED! ===");
+      const input = document.getElementById("weather-location");
       const location = input.value.trim();
-      console.log('Location input value:', location);
-      
+      console.log("Location input value:", location);
+
       if (!location) {
-        showToast('Please enter a location', 'error');
+        showToast("Please enter a location", "error");
         return;
       }
-      
-      console.log('Saving weather location to storage:', location);
+
+      console.log("Saving weather location to storage:", location);
       try {
-        await storage.setItem('weatherLocation', location);
-        await storage.setItem('useAutoLocation', 'false');
-        await storage.removeItem('weatherCoords'); // Clear cached coords
-        console.log('Storage operations completed successfully');
-        
+        await storage.setItem("weatherLocation", location);
+        await storage.setItem("useAutoLocation", "false");
+        await storage.removeItem("weatherCoords"); // Clear cached coords
+        console.log("Storage operations completed successfully");
+
         // Verify the data was saved
-        const savedLocation = await storage.getItem('weatherLocation');
-        const savedAutoMode = await storage.getItem('useAutoLocation');
-        console.log('Verification - saved location:', savedLocation, 'useAutoLocation:', savedAutoMode);
-        
+        const savedLocation = await storage.getItem("weatherLocation");
+        const savedAutoMode = await storage.getItem("useAutoLocation");
+        console.log(
+          "Verification - saved location:",
+          savedLocation,
+          "useAutoLocation:",
+          savedAutoMode,
+        );
       } catch (error) {
-        console.error('Error saving to storage:', error);
-        showToast('Error saving location: ' + error.message, 'error');
+        console.error("Error saving to storage:", error);
+        showToast("Error saving location: " + error.message, "error");
         return;
       }
-      
-      console.log('Broadcasting weather update to main window');
+
+      console.log("Broadcasting weather update to main window");
       if (window.electronAPI?.broadcastWidgetSettings) {
         try {
-          window.electronAPI.broadcastWidgetSettings('weatherUpdate', true);
-          console.log('Broadcast sent successfully');
+          window.electronAPI.broadcastWidgetSettings("weatherUpdate", true);
+          console.log("Broadcast sent successfully");
         } catch (error) {
-          console.error('Error broadcasting:', error);
+          console.error("Error broadcasting:", error);
         }
       } else {
-        console.error('electronAPI.broadcastWidgetSettings not available');
+        console.error("electronAPI.broadcastWidgetSettings not available");
       }
-      
-      showToast(`Weather location set to: ${location}`, 'success');
+
+      showToast(`Weather location set to: ${location}`, "success");
     };
   } else {
-    console.error('Update weather button not found!');
+    console.error("Update weather button not found!");
   }
 
   if (resetWeatherBtn) {
-    resetWeatherBtn.onclick = async function() {
-      const input = document.getElementById('weather-location');
-      input.value = '';
-      await storage.removeItem('weatherLocation');
-      await storage.setItem('useAutoLocation', 'true');
-      await storage.removeItem('weatherCoords');
-      
+    resetWeatherBtn.onclick = async function () {
+      const input = document.getElementById("weather-location");
+      input.value = "";
+      await storage.removeItem("weatherLocation");
+      await storage.setItem("useAutoLocation", "true");
+      await storage.removeItem("weatherCoords");
+
       if (window.electronAPI?.broadcastWidgetSettings) {
-        window.electronAPI.broadcastWidgetSettings('weatherUpdate', true);
+        window.electronAPI.broadcastWidgetSettings("weatherUpdate", true);
       }
-      
-      showToast('Weather location reset to automatic detection', 'success');
+
+      showToast("Weather location reset to automatic detection", "success");
     };
   }
 
@@ -479,53 +588,80 @@ window.addEventListener('DOMContentLoaded', () => {
 
   // Clear browsing history
   if (clearHistoryBtn) {
-    clearHistoryBtn.addEventListener('click', async () => {
-      if (confirm('Are you sure you want to clear all browsing history?')) {
+    clearHistoryBtn.addEventListener("click", async () => {
+      if (confirm("Are you sure you want to clear all browsing history?")) {
         try {
           // If the settings page is opened in same renderer context, use historyManager if available
-          if (window.historyManager && typeof window.historyManager.clear === 'function') {
+          if (
+            window.historyManager &&
+            typeof window.historyManager.clear === "function"
+          ) {
             await window.historyManager.clear();
           }
         } catch (err) {
-          console.warn('Failed to clear via historyManager:', err);
+          console.warn("Failed to clear via historyManager:", err);
         }
         // Clear persistent browser history used by the main window
-        try { await storage.setItem('browserHistory', '[]'); } catch (err) { try { localStorage.setItem('browserHistory', '[]'); } catch(e) {} }
+        try {
+          await storage.setItem("browserHistory", "[]");
+        } catch (err) {
+          try {
+            localStorage.setItem("browserHistory", "[]");
+          } catch (e) {}
+        }
         // Also remove any legacy 'history' key
-        try { localStorage.removeItem('history'); } catch (e) {}
+        try {
+          localStorage.removeItem("history");
+        } catch (e) {}
         // Broadcast updated history and request all windows to clear their buffers
-        try { if (window.electronAPI && window.electronAPI.broadcastHistoryUpdated) window.electronAPI.broadcastHistoryUpdated(); } catch (e) {}
-        try { if (window.electronAPI && window.electronAPI.requestClearHistory) window.electronAPI.requestClearHistory(); } catch (e) {}
-        showToast('Browsing history cleared', 'success');
+        try {
+          if (window.electronAPI && window.electronAPI.broadcastHistoryUpdated)
+            window.electronAPI.broadcastHistoryUpdated();
+        } catch (e) {}
+        try {
+          if (window.electronAPI && window.electronAPI.requestClearHistory)
+            window.electronAPI.requestClearHistory();
+        } catch (e) {}
+        showToast("Browsing history cleared", "success");
       }
     });
   }
 
   // View cookies modal
   if (viewCookiesBtn) {
-    viewCookiesBtn.addEventListener('click', () => {
+    viewCookiesBtn.addEventListener("click", () => {
       displayCookies();
-      cookieModal.style.display = 'block';
+      cookieModal.style.display = "block";
     });
   }
 
   // Close cookie modal
   if (closeCookieModal) {
-    closeCookieModal.addEventListener('click', () => {
-      cookieModal.style.display = 'none';
+    closeCookieModal.addEventListener("click", () => {
+      cookieModal.style.display = "none";
     });
   }
 
   // Clear all cookies
   if (clearCookiesBtn) {
-    clearCookiesBtn.addEventListener('click', () => {
-      if (confirm('Are you sure you want to clear all cookies? This may log you out of websites.')) {
-        if (window.electronAPI && typeof window.electronAPI.clearAllCookies === 'function') {
-          window.electronAPI.clearAllCookies().then(() => {
-            showToast('All cookies cleared successfully.', 'success');
-          }).catch(() => {
-            showToast('Failed to clear cookies.', 'error');
-          });
+    clearCookiesBtn.addEventListener("click", () => {
+      if (
+        confirm(
+          "Are you sure you want to clear all cookies? This may log you out of websites.",
+        )
+      ) {
+        if (
+          window.electronAPI &&
+          typeof window.electronAPI.clearAllCookies === "function"
+        ) {
+          window.electronAPI
+            .clearAllCookies()
+            .then(() => {
+              showToast("All cookies cleared successfully.", "success");
+            })
+            .catch(() => {
+              showToast("Failed to clear cookies.", "error");
+            });
         }
       }
     });
@@ -533,49 +669,125 @@ window.addEventListener('DOMContentLoaded', () => {
 
   // Clear all browsing data
   if (clearAllDataBtn) {
-    clearAllDataBtn.addEventListener('click', async () => {
-      if (confirm('Are you sure you want to clear ALL browsing data? This includes history, cookies, bookmarks, and quick links. This action cannot be undone.')) {
+    clearAllDataBtn.addEventListener("click", async () => {
+      if (
+        confirm(
+          "Are you sure you want to clear ALL browsing data? This includes history, cookies, bookmarks, and quick links. This action cannot be undone.",
+        )
+      ) {
         // Clear localStorage data
-        const themeToKeep = localStorage.getItem('theme');
+        const themeToKeep = localStorage.getItem("theme");
         localStorage.clear();
         if (themeToKeep) {
-          localStorage.setItem('theme', themeToKeep);
+          localStorage.setItem("theme", themeToKeep);
         }
-        
+
         // Clear cookies via Electron API
-        if (window.electronAPI && typeof window.electronAPI.clearAllCookies === 'function') {
+        if (
+          window.electronAPI &&
+          typeof window.electronAPI.clearAllCookies === "function"
+        ) {
           window.electronAPI.clearAllCookies();
         }
         // Clear persistent browser history as well
-          try { await storage.setItem('browserHistory', '[]'); } catch (err) { try { localStorage.setItem('browserHistory', '[]'); } catch(e) {} }
-          try { if (window.electronAPI && window.electronAPI.broadcastHistoryUpdated) window.electronAPI.broadcastHistoryUpdated(); } catch (e) {}
-          try { if (window.electronAPI && window.electronAPI.requestClearHistory) window.electronAPI.requestClearHistory(); } catch (e) {}
-        
-        showToast('All browsing data cleared', 'success');
+        try {
+          await storage.setItem("browserHistory", "[]");
+        } catch (err) {
+          try {
+            localStorage.setItem("browserHistory", "[]");
+          } catch (e) {}
+        }
+        try {
+          if (window.electronAPI && window.electronAPI.broadcastHistoryUpdated)
+            window.electronAPI.broadcastHistoryUpdated();
+        } catch (e) {}
+        try {
+          if (window.electronAPI && window.electronAPI.requestClearHistory)
+            window.electronAPI.requestClearHistory();
+        } catch (e) {}
+
+        showToast("All browsing data cleared", "success");
       }
+    });
+  }
+
+  // --- Enhanced Privacy Controls ---
+  const trackerBlockingToggle = document.getElementById(
+    "tracker-blocking-toggle",
+  );
+  const dntToggle = document.getElementById("dnt-toggle");
+  const httpsUpgradeToggle = document.getElementById("https-upgrade-toggle");
+  const referrerPolicyToggle = document.getElementById(
+    "referrer-policy-toggle",
+  );
+
+  if (
+    trackerBlockingToggle ||
+    dntToggle ||
+    httpsUpgradeToggle ||
+    referrerPolicyToggle
+  ) {
+    window.electronAPI
+      .getPrivacySettings()
+      .then((settings) => {
+        if (trackerBlockingToggle)
+          trackerBlockingToggle.checked = !!settings.trackerBlockEnabled;
+        if (dntToggle) dntToggle.checked = !!settings.dntEnabled;
+        if (httpsUpgradeToggle)
+          httpsUpgradeToggle.checked = !!settings.httpsUpgradeEnabled;
+        if (referrerPolicyToggle)
+          referrerPolicyToggle.checked = !!settings.referrerPolicyStrict;
+      })
+      .catch(() => {});
+  }
+
+  if (trackerBlockingToggle) {
+    trackerBlockingToggle.addEventListener("change", (e) => {
+      window.electronAPI.toggleTrackerBlocking(e.target.checked);
+    });
+  }
+
+  if (dntToggle) {
+    dntToggle.addEventListener("change", (e) => {
+      window.electronAPI.toggleDnt(e.target.checked);
+    });
+  }
+
+  if (httpsUpgradeToggle) {
+    httpsUpgradeToggle.addEventListener("change", (e) => {
+      window.electronAPI.toggleHttpsUpgrade(e.target.checked);
+    });
+  }
+
+  if (referrerPolicyToggle) {
+    referrerPolicyToggle.addEventListener("change", (e) => {
+      window.electronAPI.toggleReferrerPolicy(e.target.checked);
     });
   }
 
   // Function to display cookies
   function displayCookies() {
-    if (window.electronAPI && typeof window.electronAPI.getAllCookies === 'function') {
-      window.electronAPI.getAllCookies().then(cookies => {
-        cookiesList.innerHTML = '';
-        
+    if (
+      window.electronAPI &&
+      typeof window.electronAPI.getAllCookies === "function"
+    ) {
+      window.electronAPI.getAllCookies().then((cookies) => {
+        cookiesList.innerHTML = "";
+
         if (cookies.length === 0) {
-          cookiesList.innerHTML = '<p>No cookies found.</p>';
+          cookiesList.innerHTML = "<p>No cookies found.</p>";
           return;
         }
 
-        cookies.forEach(cookie => {
-          const cookieItem = document.createElement('div');
-          cookieItem.className = 'cookie-item';
+        cookies.forEach((cookie) => {
+          const cookieItem = document.createElement("div");
+          cookieItem.className = "cookie-item";
           cookieItem.innerHTML = `
             <div class="cookie-info">
               <strong>${cookie.name}</strong> - ${cookie.domain}
               <div class="cookie-details">
-                <span>Value: ${cookie.value.substring(0, 50)}${cookie.value.length > 50 ? '...' : ''}</span>
-                <span>Expires: ${cookie.expirationDate ? new Date(cookie.expirationDate * 1000).toLocaleDateString() : 'Session'}</span>
+                <span>Value: ${cookie.value.substring(0, 50)}${cookie.value.length > 50 ? "..." : ""}</span>
+                <span>Expires: ${cookie.expirationDate ? new Date(cookie.expirationDate * 1000).toLocaleDateString() : "Session"}</span>
               </div>
             </div>
             <button class="delete-cookie-btn" data-name="${cookie.name}" data-domain="${cookie.domain}">Delete</button>
@@ -584,13 +796,17 @@ window.addEventListener('DOMContentLoaded', () => {
         });
 
         // Add delete functionality to individual cookie buttons
-        const deleteCookieBtns = cookiesList.querySelectorAll('.delete-cookie-btn');
-        deleteCookieBtns.forEach(btn => {
-          btn.addEventListener('click', (e) => {
+        const deleteCookieBtns =
+          cookiesList.querySelectorAll(".delete-cookie-btn");
+        deleteCookieBtns.forEach((btn) => {
+          btn.addEventListener("click", (e) => {
             const name = e.target.dataset.name;
             const domain = e.target.dataset.domain;
-            
-            if (window.electronAPI && typeof window.electronAPI.deleteCookie === 'function') {
+
+            if (
+              window.electronAPI &&
+              typeof window.electronAPI.deleteCookie === "function"
+            ) {
               window.electronAPI.deleteCookie(name, domain).then(() => {
                 displayCookies(); // Refresh the list
               });
@@ -599,45 +815,69 @@ window.addEventListener('DOMContentLoaded', () => {
         });
       });
     } else {
-      cookiesList.innerHTML = '<p>Cookie management not available.</p>';
+      cookiesList.innerHTML = "<p>Cookie management not available.</p>";
     }
   }
 
-  function showToast(message, type = 'info', duration = 3000) {
+  function showToast(message, type = "info", duration = 3000) {
     try {
-      if (window.notifications && typeof window.notifications.notify === 'function') {
+      if (
+        window.notifications &&
+        typeof window.notifications.notify === "function"
+      ) {
         window.notifications.notify(message, type, duration);
-      } else if (window.electronAPI && typeof window.electronAPI.notify === 'function') {
+      } else if (
+        window.electronAPI &&
+        typeof window.electronAPI.notify === "function"
+      ) {
         window.electronAPI.notify(message, type, duration);
       }
-    } catch (e) { console.error('Error requesting global toast from settings:', e); }
+    } catch (e) {
+      console.error("Error requesting global toast from settings:", e);
+    }
   }
 
   // Memory Management Functions
   // ===========================
-  
-  const refreshMemoryBtn = document.getElementById('refresh-memory-btn');
-  const forceGcBtn = document.getElementById('force-gc-btn');
-  const hibernateTabsBtn = document.getElementById('hibernate-tabs-btn');
-  const refreshMonitorBtn = document.getElementById('refresh-monitor-btn');
-  const toggleLiveMonitorBtn = document.getElementById('toggle-live-monitor-btn');
 
-  const perfCpuApp = document.getElementById('perf-cpu-app');
-  const perfCpuSystem = document.getElementById('perf-cpu-system');
-  const perfRamApp = document.getElementById('perf-ram-app');
-  const perfRamSystem = document.getElementById('perf-ram-system');
-  const perfGpu = document.getElementById('perf-gpu');
-  const perfNetworkRate = document.getElementById('perf-network-rate');
-  const perfNetworkLatency = document.getElementById('perf-network-latency');
-  const perfNetworkRequests = document.getElementById('perf-network-requests');
+  const refreshMemoryBtn = document.getElementById("refresh-memory-btn");
+  const forceGcBtn = document.getElementById("force-gc-btn");
+  const hibernateTabsBtn = document.getElementById("hibernate-tabs-btn");
+  const refreshMonitorBtn = document.getElementById("refresh-monitor-btn");
+  const toggleLiveMonitorBtn = document.getElementById(
+    "toggle-live-monitor-btn",
+  );
 
-  const memoryThresholdSlider = document.getElementById('memory-threshold-slider');
-  const memoryThresholdValue = document.getElementById('memory-threshold-value');
-  const maxInactiveTabsSlider = document.getElementById('max-inactive-tabs-slider');
-  const maxInactiveTabsValue = document.getElementById('max-inactive-tabs-value');
-  const hibernationDelaySlider = document.getElementById('hibernation-delay-slider');
-  const hibernationDelayValue = document.getElementById('hibernation-delay-value');
-  const applyPerformanceConfigBtn = document.getElementById('apply-performance-config-btn');
+  const perfCpuApp = document.getElementById("perf-cpu-app");
+  const perfCpuSystem = document.getElementById("perf-cpu-system");
+  const perfRamApp = document.getElementById("perf-ram-app");
+  const perfRamSystem = document.getElementById("perf-ram-system");
+  const perfGpu = document.getElementById("perf-gpu");
+  const perfNetworkRate = document.getElementById("perf-network-rate");
+  const perfNetworkLatency = document.getElementById("perf-network-latency");
+  const perfNetworkRequests = document.getElementById("perf-network-requests");
+
+  const memoryThresholdSlider = document.getElementById(
+    "memory-threshold-slider",
+  );
+  const memoryThresholdValue = document.getElementById(
+    "memory-threshold-value",
+  );
+  const maxInactiveTabsSlider = document.getElementById(
+    "max-inactive-tabs-slider",
+  );
+  const maxInactiveTabsValue = document.getElementById(
+    "max-inactive-tabs-value",
+  );
+  const hibernationDelaySlider = document.getElementById(
+    "hibernation-delay-slider",
+  );
+  const hibernationDelayValue = document.getElementById(
+    "hibernation-delay-value",
+  );
+  const applyPerformanceConfigBtn = document.getElementById(
+    "apply-performance-config-btn",
+  );
 
   let liveMonitorInterval = null;
   let liveMonitorEnabled = false;
@@ -655,7 +895,11 @@ window.addEventListener('DOMContentLoaded', () => {
   }
 
   async function loadPerformanceConfig() {
-    if (!window.electronAPI || typeof window.electronAPI.getPerformanceConfig !== 'function') return;
+    if (
+      !window.electronAPI ||
+      typeof window.electronAPI.getPerformanceConfig !== "function"
+    )
+      return;
     try {
       const config = await window.electronAPI.getPerformanceConfig();
       if (!config) return;
@@ -667,58 +911,75 @@ window.addEventListener('DOMContentLoaded', () => {
         maxInactiveTabsSlider.value = config.maxInactiveTabs;
       }
       if (hibernationDelaySlider && config.hibernationDelayMs) {
-        hibernationDelaySlider.value = Math.round(config.hibernationDelayMs / 60000);
+        hibernationDelaySlider.value = Math.round(
+          config.hibernationDelayMs / 60000,
+        );
       }
 
       updatePerformanceSliderLabels();
     } catch (error) {
-      console.error('Failed to load performance config:', error);
+      console.error("Failed to load performance config:", error);
     }
   }
 
   async function applyPerformanceConfig() {
-    if (!window.electronAPI || typeof window.electronAPI.setPerformanceConfig !== 'function') return;
+    if (
+      !window.electronAPI ||
+      typeof window.electronAPI.setPerformanceConfig !== "function"
+    )
+      return;
     try {
       const payload = {
         memoryThresholdMB: Number(memoryThresholdSlider?.value || 1024),
         maxInactiveTabs: Number(maxInactiveTabsSlider?.value || 10),
-        hibernationDelayMs: Number(hibernationDelaySlider?.value || 10) * 60000
+        hibernationDelayMs: Number(hibernationDelaySlider?.value || 10) * 60000,
       };
 
       await window.electronAPI.setPerformanceConfig(payload);
-      showToast('Performance tuning updated live', 'success');
+      showToast("Performance tuning updated live", "success");
       await updateSystemMonitor();
       await updateMemoryDisplay();
     } catch (error) {
-      console.error('Failed to apply performance config:', error);
-      showToast('Failed to apply performance tuning', 'error');
+      console.error("Failed to apply performance config:", error);
+      showToast("Failed to apply performance tuning", "error");
     }
   }
 
   async function updateSystemMonitor() {
-    if (!window.electronAPI || typeof window.electronAPI.getSystemMetrics !== 'function') return;
+    if (
+      !window.electronAPI ||
+      typeof window.electronAPI.getSystemMetrics !== "function"
+    )
+      return;
 
     try {
       const metrics = await window.electronAPI.getSystemMetrics();
       if (!metrics) return;
 
-      if (perfCpuApp) perfCpuApp.textContent = `${metrics.cpu.appPercent.toFixed(1)}%`;
-      if (perfCpuSystem) perfCpuSystem.textContent = `${metrics.cpu.systemPercent.toFixed(1)}%`;
+      if (perfCpuApp)
+        perfCpuApp.textContent = `${metrics.cpu.appPercent.toFixed(1)}%`;
+      if (perfCpuSystem)
+        perfCpuSystem.textContent = `${metrics.cpu.systemPercent.toFixed(1)}%`;
       if (perfRamApp) perfRamApp.textContent = `${metrics.memory.rss} MB`;
       if (perfRamSystem) {
-        const used = Math.max(0, metrics.memory.systemTotalMB - metrics.memory.systemFreeMB);
+        const used = Math.max(
+          0,
+          metrics.memory.systemTotalMB - metrics.memory.systemFreeMB,
+        );
         perfRamSystem.textContent = `${used} / ${metrics.memory.systemTotalMB} MB`;
       }
       if (perfGpu) {
         perfGpu.textContent = `${metrics.gpu.processCpuPercent.toFixed(1)}% CPU / ${metrics.gpu.processMemoryMB} MB`;
       }
-      if (perfNetworkRate) perfNetworkRate.textContent = `${metrics.network.averageDownKbps} kbps`;
-      if (perfNetworkLatency) perfNetworkLatency.textContent = `${metrics.network.averageLatencyMs} ms`;
+      if (perfNetworkRate)
+        perfNetworkRate.textContent = `${metrics.network.averageDownKbps} kbps`;
+      if (perfNetworkLatency)
+        perfNetworkLatency.textContent = `${metrics.network.averageLatencyMs} ms`;
       if (perfNetworkRequests) {
         perfNetworkRequests.textContent = `${metrics.network.requestsPerMin}/min (active ${metrics.network.activeRequests})`;
       }
     } catch (error) {
-      console.error('Failed to update system monitor:', error);
+      console.error("Failed to update system monitor:", error);
     }
   }
 
@@ -739,19 +1000,21 @@ window.addEventListener('DOMContentLoaded', () => {
 
   function updateLiveMonitorButton() {
     if (toggleLiveMonitorBtn) {
-      toggleLiveMonitorBtn.textContent = liveMonitorEnabled ? 'Stop Live Monitor' : 'Start Live Monitor';
+      toggleLiveMonitorBtn.textContent = liveMonitorEnabled
+        ? "Stop Live Monitor"
+        : "Start Live Monitor";
     }
   }
 
   if (refreshMonitorBtn) {
-    refreshMonitorBtn.addEventListener('click', async () => {
+    refreshMonitorBtn.addEventListener("click", async () => {
       await updateSystemMonitor();
       await updateMemoryDisplay();
     });
   }
 
   if (toggleLiveMonitorBtn) {
-    toggleLiveMonitorBtn.addEventListener('click', async () => {
+    toggleLiveMonitorBtn.addEventListener("click", async () => {
       liveMonitorEnabled = !liveMonitorEnabled;
       if (liveMonitorEnabled) {
         startLiveMonitor();
@@ -765,104 +1028,121 @@ window.addEventListener('DOMContentLoaded', () => {
     updateLiveMonitorButton();
   }
 
-  [memoryThresholdSlider, maxInactiveTabsSlider, hibernationDelaySlider].forEach(slider => {
+  [
+    memoryThresholdSlider,
+    maxInactiveTabsSlider,
+    hibernationDelaySlider,
+  ].forEach((slider) => {
     if (!slider) return;
-    slider.addEventListener('input', updatePerformanceSliderLabels);
-    slider.addEventListener('change', applyPerformanceConfig);
+    slider.addEventListener("input", updatePerformanceSliderLabels);
+    slider.addEventListener("change", applyPerformanceConfig);
   });
 
   if (applyPerformanceConfigBtn) {
-    applyPerformanceConfigBtn.addEventListener('click', applyPerformanceConfig);
+    applyPerformanceConfigBtn.addEventListener("click", applyPerformanceConfig);
   }
 
   loadPerformanceConfig();
   updatePerformanceSliderLabels();
-  
+
   async function updateMemoryDisplay() {
-    if (window.electronAPI && typeof window.electronAPI.getMemoryUsage === 'function') {
+    if (
+      window.electronAPI &&
+      typeof window.electronAPI.getMemoryUsage === "function"
+    ) {
       try {
         const memoryInfo = await window.electronAPI.getMemoryUsage();
-        
-        document.getElementById('memory-rss').textContent = `${memoryInfo.rss} MB`;
-        document.getElementById('memory-heap').textContent = `${memoryInfo.heapUsed} / ${memoryInfo.heapTotal} MB`;
-        document.getElementById('memory-tabs').textContent = memoryInfo.totalTabs;
-        document.getElementById('memory-hibernated').textContent = memoryInfo.hibernatedTabs.length;
-        
+
+        document.getElementById("memory-rss").textContent =
+          `${memoryInfo.rss} MB`;
+        document.getElementById("memory-heap").textContent =
+          `${memoryInfo.heapUsed} / ${memoryInfo.heapTotal} MB`;
+        document.getElementById("memory-tabs").textContent =
+          memoryInfo.totalTabs;
+        document.getElementById("memory-hibernated").textContent =
+          memoryInfo.hibernatedTabs.length;
+
         // Color code memory usage
-        const rssElement = document.getElementById('memory-rss');
+        const rssElement = document.getElementById("memory-rss");
         if (memoryInfo.rss > 1024) {
-          rssElement.style.color = '#e74c3c'; // Red for high usage
+          rssElement.style.color = "#e74c3c"; // Red for high usage
         } else if (memoryInfo.rss > 512) {
-          rssElement.style.color = '#f39c12'; // Orange for medium usage
+          rssElement.style.color = "#f39c12"; // Orange for medium usage
         } else {
-          rssElement.style.color = '#27ae60'; // Green for low usage
+          rssElement.style.color = "#27ae60"; // Green for low usage
         }
-        
       } catch (error) {
-        console.error('Failed to get memory usage:', error);
-        document.getElementById('memory-rss').textContent = 'Error';
-        document.getElementById('memory-heap').textContent = 'Error';
-        document.getElementById('memory-tabs').textContent = 'Error';
-        document.getElementById('memory-hibernated').textContent = 'Error';
+        console.error("Failed to get memory usage:", error);
+        document.getElementById("memory-rss").textContent = "Error";
+        document.getElementById("memory-heap").textContent = "Error";
+        document.getElementById("memory-tabs").textContent = "Error";
+        document.getElementById("memory-hibernated").textContent = "Error";
       }
     }
   }
-  
+
   if (refreshMemoryBtn) {
-    refreshMemoryBtn.addEventListener('click', () => {
+    refreshMemoryBtn.addEventListener("click", () => {
       updateMemoryDisplay();
       updateSystemMonitor();
     });
   }
-  
+
   if (forceGcBtn) {
-    forceGcBtn.addEventListener('click', async () => {
-      if (window.electronAPI && typeof window.electronAPI.forceGarbageCollection === 'function') {
+    forceGcBtn.addEventListener("click", async () => {
+      if (
+        window.electronAPI &&
+        typeof window.electronAPI.forceGarbageCollection === "function"
+      ) {
         try {
-          forceGcBtn.textContent = 'Running GC...';
+          forceGcBtn.textContent = "Running GC...";
           forceGcBtn.disabled = true;
-          
+
           const result = await window.electronAPI.forceGarbageCollection();
           if (result) {
             updateMemoryDisplay();
           }
-          
-          forceGcBtn.textContent = 'Force Garbage Collection';
+
+          forceGcBtn.textContent = "Force Garbage Collection";
           forceGcBtn.disabled = false;
         } catch (error) {
-          console.error('Failed to run garbage collection:', error);
-          forceGcBtn.textContent = 'Force Garbage Collection';
+          console.error("Failed to run garbage collection:", error);
+          forceGcBtn.textContent = "Force Garbage Collection";
           forceGcBtn.disabled = false;
         }
       }
     });
   }
-  
+
   if (hibernateTabsBtn) {
-    hibernateTabsBtn.addEventListener('click', async () => {
-      if (window.electronAPI && typeof window.electronAPI.hibernateInactiveTabs === 'function') {
+    hibernateTabsBtn.addEventListener("click", async () => {
+      if (
+        window.electronAPI &&
+        typeof window.electronAPI.hibernateInactiveTabs === "function"
+      ) {
         try {
-          hibernateTabsBtn.textContent = 'Hibernating...';
+          hibernateTabsBtn.textContent = "Hibernating...";
           hibernateTabsBtn.disabled = true;
-          
-          const hibernatedTabs = await window.electronAPI.hibernateInactiveTabs();
+
+          const hibernatedTabs =
+            await window.electronAPI.hibernateInactiveTabs();
           updateMemoryDisplay();
-          
-          hibernateTabsBtn.textContent = 'Hibernate Inactive Tabs';
+
+          hibernateTabsBtn.textContent = "Hibernate Inactive Tabs";
           hibernateTabsBtn.disabled = false;
         } catch (error) {
-          console.error('Failed to hibernate tabs:', error);
-          hibernateTabsBtn.textContent = 'Hibernate Inactive Tabs';
+          console.error("Failed to hibernate tabs:", error);
+          hibernateTabsBtn.textContent = "Hibernate Inactive Tabs";
           hibernateTabsBtn.disabled = false;
         }
       }
     });
   }
-  
+
   // Update memory display when Performance tab is opened and pause monitor otherwise
-  settingsTabButtons.forEach(button => {
-    button.addEventListener('click', () => {
-      if (button.dataset.tab === 'performance') {
+  settingsTabButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      if (button.dataset.tab === "performance") {
         setTimeout(() => {
           updateMemoryDisplay();
           updateSystemMonitor();
@@ -874,53 +1154,59 @@ window.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  window.addEventListener('beforeunload', () => {
+  window.addEventListener("beforeunload", () => {
     stopLiveMonitor();
   });
 
   // Close modal when clicking outside
-  window.addEventListener('click', (e) => {
+  window.addEventListener("click", (e) => {
     if (e.target === cookieModal) {
-      cookieModal.style.display = 'none';
+      cookieModal.style.display = "none";
     }
   });
 
   // --- Appearance Settings Functionality ---
-  
+
   // Font Size Slider
   if (fontSizeSlider && fontSizeValue) {
     // Load saved font size
-    storage.getItem('fontSize').then(savedSize => {
-      const fontSize = savedSize || '14';
+    storage.getItem("fontSize").then((savedSize) => {
+      const fontSize = savedSize || "14";
       fontSizeSlider.value = fontSize;
-      fontSizeValue.textContent = fontSize + 'px';
-      document.documentElement.style.setProperty('--base-font-size', fontSize + 'px');
+      fontSizeValue.textContent = fontSize + "px";
+      document.documentElement.style.setProperty(
+        "--base-font-size",
+        fontSize + "px",
+      );
     });
 
-    fontSizeSlider.addEventListener('input', (e) => {
+    fontSizeSlider.addEventListener("input", (e) => {
       const size = e.target.value;
-      fontSizeValue.textContent = size + 'px';
-      document.documentElement.style.setProperty('--base-font-size', size + 'px');
-      storage.setItem('fontSize', size);
+      fontSizeValue.textContent = size + "px";
+      document.documentElement.style.setProperty(
+        "--base-font-size",
+        size + "px",
+      );
+      storage.setItem("fontSize", size);
     });
   }
 
   // Page Zoom Slider
   if (pageZoomSlider && zoomValue) {
     // Load saved zoom level
-    storage.getItem('pageZoom').then(savedZoom => {
-      const zoom = savedZoom || '100';
+    storage.getItem("pageZoom").then((savedZoom) => {
+      const zoom = savedZoom || "100";
       pageZoomSlider.value = zoom;
-      zoomValue.textContent = zoom + '%';
-      document.body.style.zoom = zoom + '%';
+      zoomValue.textContent = zoom + "%";
+      document.body.style.zoom = zoom + "%";
     });
 
-    pageZoomSlider.addEventListener('input', async (e) => {
+    pageZoomSlider.addEventListener("input", async (e) => {
       const zoom = e.target.value;
-      zoomValue.textContent = zoom + '%';
-      document.body.style.zoom = zoom + '%';
-      await storage.setItem('pageZoom', zoom);
-      
+      zoomValue.textContent = zoom + "%";
+      document.body.style.zoom = zoom + "%";
+      await storage.setItem("pageZoom", zoom);
+
       // Apply zoom to all webpages
       if (window.electronAPI && window.electronAPI.setZoomLevel) {
         await window.electronAPI.setZoomLevel(parseInt(zoom));
@@ -930,49 +1216,55 @@ window.addEventListener('DOMContentLoaded', () => {
 
   // Smooth Scrolling Toggle
   if (smoothScrollingToggle) {
-    storage.getItem('smoothScrolling').then(enabled => {
-      smoothScrollingToggle.checked = enabled === 'true';
-      updateScrollBehavior(enabled === 'true');
+    storage.getItem("smoothScrolling").then((enabled) => {
+      smoothScrollingToggle.checked = enabled === "true";
+      updateScrollBehavior(enabled === "true");
     });
 
-    smoothScrollingToggle.addEventListener('change', async (e) => {
+    smoothScrollingToggle.addEventListener("change", async (e) => {
       const enabled = e.target.checked;
-      await storage.setItem('smoothScrolling', enabled.toString());
+      await storage.setItem("smoothScrolling", enabled.toString());
       updateScrollBehavior(enabled);
-      
+
       // Apply to main browser window
       if (window.electronAPI && window.electronAPI.applyUISettings) {
         await window.electronAPI.applyUISettings({
-          smoothScrolling: enabled.toString()
+          smoothScrolling: enabled.toString(),
         });
       }
     });
   }
 
   function updateScrollBehavior(enabled) {
-    document.documentElement.style.scrollBehavior = enabled ? 'smooth' : 'auto';
+    document.documentElement.style.scrollBehavior = enabled ? "smooth" : "auto";
   }
 
   // Reduced Animations Toggle
   if (reducedAnimationsToggle) {
-    storage.getItem('reducedAnimations').then(enabled => {
-      reducedAnimationsToggle.checked = enabled === 'true';
-      updateAnimationSettings(enabled === 'true');
+    storage.getItem("reducedAnimations").then((enabled) => {
+      reducedAnimationsToggle.checked = enabled === "true";
+      updateAnimationSettings(enabled === "true");
     });
 
-    reducedAnimationsToggle.addEventListener('change', async (e) => {
+    reducedAnimationsToggle.addEventListener("change", async (e) => {
       const enabled = e.target.checked;
-      await storage.setItem('reducedAnimations', enabled.toString());
+      await storage.setItem("reducedAnimations", enabled.toString());
       updateAnimationSettings(enabled);
 
-      if (window.electronAPI && typeof window.electronAPI.broadcastWidgetSettings === 'function') {
-        window.electronAPI.broadcastWidgetSettings('reducedAnimations', enabled);
+      if (
+        window.electronAPI &&
+        typeof window.electronAPI.broadcastWidgetSettings === "function"
+      ) {
+        window.electronAPI.broadcastWidgetSettings(
+          "reducedAnimations",
+          enabled,
+        );
       }
-      
+
       // Apply to main browser window
       if (window.electronAPI && window.electronAPI.applyUISettings) {
         await window.electronAPI.applyUISettings({
-          reducedAnimations: enabled.toString()
+          reducedAnimations: enabled.toString(),
         });
       }
     });
@@ -980,47 +1272,50 @@ window.addEventListener('DOMContentLoaded', () => {
 
   function updateAnimationSettings(reduced) {
     if (reduced) {
-      document.body.classList.add('animations-disabled');
-      document.documentElement.style.setProperty('--animation-speed', '0s');
-      document.documentElement.style.setProperty('--transition-speed', '0s');
+      document.body.classList.add("animations-disabled");
+      document.documentElement.style.setProperty("--animation-speed", "0s");
+      document.documentElement.style.setProperty("--transition-speed", "0s");
     } else {
-      document.body.classList.remove('animations-disabled');
-      document.documentElement.style.setProperty('--animation-speed', '0.12s');
-      document.documentElement.style.setProperty('--transition-speed', '0.12s');
+      document.body.classList.remove("animations-disabled");
+      document.documentElement.style.setProperty("--animation-speed", "0.12s");
+      document.documentElement.style.setProperty("--transition-speed", "0.12s");
     }
   }
 
   // Visual Effects Toggle (Bloom/Shadows)
   if (visualEffectsToggle) {
-    storage.getItem('visualEffectsEnabled').then(enabledValue => {
-      const enabled = enabledValue !== 'false';
+    storage.getItem("visualEffectsEnabled").then((enabledValue) => {
+      const enabled = enabledValue !== "false";
       visualEffectsToggle.checked = enabled;
       updateVisualEffects(enabled);
     });
 
-    visualEffectsToggle.addEventListener('change', async (e) => {
+    visualEffectsToggle.addEventListener("change", async (e) => {
       const enabled = e.target.checked;
-      await storage.setItem('visualEffectsEnabled', enabled.toString());
+      await storage.setItem("visualEffectsEnabled", enabled.toString());
       updateVisualEffects(enabled);
 
-      if (window.electronAPI && typeof window.electronAPI.broadcastWidgetSettings === 'function') {
-        window.electronAPI.broadcastWidgetSettings('visualEffects', enabled);
+      if (
+        window.electronAPI &&
+        typeof window.electronAPI.broadcastWidgetSettings === "function"
+      ) {
+        window.electronAPI.broadcastWidgetSettings("visualEffects", enabled);
       }
     });
   }
 
   function updateVisualEffects(enabled) {
-    document.body.classList.toggle('effects-disabled', !enabled);
+    document.body.classList.toggle("effects-disabled", !enabled);
   }
 
   // Close Tabs on Exit Toggle
   if (closeTabsOnExitToggle) {
-    storage.getItem('closeTabsOnExit').then(enabled => {
-      closeTabsOnExitToggle.checked = enabled === 'true';
+    storage.getItem("closeTabsOnExit").then((enabled) => {
+      closeTabsOnExitToggle.checked = enabled === "true";
     });
 
-    closeTabsOnExitToggle.addEventListener('change', async (e) => {
-      await storage.setItem('closeTabsOnExit', e.target.checked.toString());
+    closeTabsOnExitToggle.addEventListener("change", async (e) => {
+      await storage.setItem("closeTabsOnExit", e.target.checked.toString());
       // Apply close tabs on exit behavior immediately
       if (window.electronAPI && window.electronAPI.setCloseTabsOnExit) {
         await window.electronAPI.setCloseTabsOnExit(e.target.checked);
@@ -1030,12 +1325,12 @@ window.addEventListener('DOMContentLoaded', () => {
 
   // Show Tab Previews Toggle
   if (showTabPreviewsToggle) {
-    storage.getItem('showTabPreviews').then(enabled => {
-      showTabPreviewsToggle.checked = enabled !== 'false'; // Default to true
+    storage.getItem("showTabPreviews").then((enabled) => {
+      showTabPreviewsToggle.checked = enabled !== "false"; // Default to true
     });
 
-    showTabPreviewsToggle.addEventListener('change', async (e) => {
-      await storage.setItem('showTabPreviews', e.target.checked.toString());
+    showTabPreviewsToggle.addEventListener("change", async (e) => {
+      await storage.setItem("showTabPreviews", e.target.checked.toString());
       // Apply tab previews setting immediately
       if (window.electronAPI && window.electronAPI.setTabPreviewsEnabled) {
         await window.electronAPI.setTabPreviewsEnabled(e.target.checked);
@@ -1044,74 +1339,84 @@ window.addEventListener('DOMContentLoaded', () => {
   }
 
   // --- General Settings Tab Functionality ---
-  
+
   // General tab elements - radio button groups
   const startPageRadios = document.querySelectorAll('input[name="start-page"]');
-  const searchEngineRadios = document.querySelectorAll('input[name="search-engine"]');
+  const searchEngineRadios = document.querySelectorAll(
+    'input[name="search-engine"]',
+  );
   const newsRadios = document.querySelectorAll('input[name="news-category"]');
-  
-  const homepageInputFull = document.getElementById('homepage-input-full');
-  const newTabBehavior = document.getElementById('new-tab-behavior');
-  const customSearchGroup = document.getElementById('custom-search-group');
-  const customSearchUrl = document.getElementById('custom-search-url');
-  const searchSuggestionsToggle = document.getElementById('search-suggestions-toggle');
-  const downloadLocationInput = document.getElementById('download-location');
-  const chooseDownloadFolderBtn = document.getElementById('choose-download-folder');
-  const askDownloadLocationToggle = document.getElementById('ask-download-location-toggle');
-  const userAgentInputFull = document.getElementById('user-agent-input-full');
-  const javascriptEnabledToggle = document.getElementById('javascript-enabled-toggle');
-  const imagesEnabledToggle = document.getElementById('images-enabled-toggle');
-  const popupBlockerToggle = document.getElementById('popup-blocker-toggle');
+
+  const homepageInputFull = document.getElementById("homepage-input-full");
+  const newTabBehavior = document.getElementById("new-tab-behavior");
+  const customSearchGroup = document.getElementById("custom-search-group");
+  const customSearchUrl = document.getElementById("custom-search-url");
+  const searchSuggestionsToggle = document.getElementById(
+    "search-suggestions-toggle",
+  );
+  const downloadLocationInput = document.getElementById("download-location");
+  const chooseDownloadFolderBtn = document.getElementById(
+    "choose-download-folder",
+  );
+  const askDownloadLocationToggle = document.getElementById(
+    "ask-download-location-toggle",
+  );
+  const userAgentInputFull = document.getElementById("user-agent-input-full");
+  const javascriptEnabledToggle = document.getElementById(
+    "javascript-enabled-toggle",
+  );
+  const imagesEnabledToggle = document.getElementById("images-enabled-toggle");
+  const popupBlockerToggle = document.getElementById("popup-blocker-toggle");
 
   // Initialize General Settings
   if (startPageRadios.length > 0) {
-    storage.getItem('startPage').then(startPage => {
-      const selectedValue = startPage || 'newtab';
+    storage.getItem("startPage").then((startPage) => {
+      const selectedValue = startPage || "newtab";
       const targetRadio = document.getElementById(`start-${selectedValue}`);
       if (targetRadio) {
         targetRadio.checked = true;
       }
     });
 
-    startPageRadios.forEach(radio => {
-      radio.addEventListener('change', (e) => {
+    startPageRadios.forEach((radio) => {
+      radio.addEventListener("change", (e) => {
         if (e.target.checked) {
-          storage.setItem('startPage', e.target.value);
+          storage.setItem("startPage", e.target.value);
         }
       });
     });
   }
 
   if (homepageInputFull) {
-    storage.getItem('homepage').then(homepage => {
-      homepageInputFull.value = homepage || 'https://www.google.com';
+    storage.getItem("homepage").then((homepage) => {
+      homepageInputFull.value = homepage || "https://www.google.com";
     });
 
-    homepageInputFull.addEventListener('change', (e) => {
-      storage.setItem('homepage', e.target.value);
+    homepageInputFull.addEventListener("change", (e) => {
+      storage.setItem("homepage", e.target.value);
     });
   }
 
   // Save homepage button functionality
-  const saveHomepageFull = document.getElementById('save-homepage-full');
+  const saveHomepageFull = document.getElementById("save-homepage-full");
   if (saveHomepageFull && homepageInputFull) {
-    saveHomepageFull.addEventListener('click', async () => {
+    saveHomepageFull.addEventListener("click", async () => {
       const url = homepageInputFull.value.trim();
       if (url) {
-        await storage.setItem('homepage', url);
-        
+        await storage.setItem("homepage", url);
+
         // Update in main process
         if (window.electronAPI.setHomepage) {
           window.electronAPI.setHomepage(url);
         }
-        
+
         // Visual feedback
-        saveHomepageFull.textContent = 'Saved!';
-        saveHomepageFull.style.background = '#34A853';
-        
+        saveHomepageFull.textContent = "Saved!";
+        saveHomepageFull.style.background = "#34A853";
+
         setTimeout(() => {
-          saveHomepageFull.textContent = 'Save';
-          saveHomepageFull.style.background = '';
+          saveHomepageFull.textContent = "Save";
+          saveHomepageFull.style.background = "";
         }, 1500);
       }
     });
@@ -1119,18 +1424,18 @@ window.addEventListener('DOMContentLoaded', () => {
 
   // Search engine radio buttons
   if (searchEngineRadios.length > 0) {
-    storage.getItem('searchEngine').then(engine => {
-      const selectedValue = engine || 'google';
+    storage.getItem("searchEngine").then((engine) => {
+      const selectedValue = engine || "google";
       const targetRadio = document.getElementById(`search-${selectedValue}`);
       if (targetRadio) {
         targetRadio.checked = true;
       }
     });
 
-    searchEngineRadios.forEach(radio => {
-      radio.addEventListener('change', (e) => {
+    searchEngineRadios.forEach((radio) => {
+      radio.addEventListener("change", (e) => {
         if (e.target.checked) {
-          storage.setItem('searchEngine', e.target.value);
+          storage.setItem("searchEngine", e.target.value);
           if (window.electronAPI.setSearchEngine) {
             window.electronAPI.setSearchEngine(e.target.value);
           }
@@ -1139,69 +1444,69 @@ window.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // News category radio buttons  
+  // News category radio buttons
   if (newsRadios.length > 0) {
-    storage.getItem('newsCategory').then(category => {
-      const selectedValue = category || 'general';
+    storage.getItem("newsCategory").then((category) => {
+      const selectedValue = category || "general";
       const targetRadio = document.getElementById(`news-${selectedValue}`);
       if (targetRadio) {
         targetRadio.checked = true;
       }
     });
 
-    newsRadios.forEach(radio => {
-      radio.addEventListener('change', (e) => {
+    newsRadios.forEach((radio) => {
+      radio.addEventListener("change", (e) => {
         if (e.target.checked) {
-          storage.setItem('newsCategory', e.target.value);
+          storage.setItem("newsCategory", e.target.value);
         }
       });
     });
   }
 
   if (newTabBehavior) {
-    storage.getItem('newTabBehavior').then(behavior => {
-      newTabBehavior.value = behavior || 'newtab';
+    storage.getItem("newTabBehavior").then((behavior) => {
+      newTabBehavior.value = behavior || "newtab";
     });
 
-    newTabBehavior.addEventListener('change', (e) => {
-      storage.setItem('newTabBehavior', e.target.value);
+    newTabBehavior.addEventListener("change", (e) => {
+      storage.setItem("newTabBehavior", e.target.value);
     });
   }
 
   if (customSearchUrl) {
-    storage.getItem('customSearchUrl').then(url => {
-      customSearchUrl.value = url || '';
+    storage.getItem("customSearchUrl").then((url) => {
+      customSearchUrl.value = url || "";
     });
 
-    customSearchUrl.addEventListener('change', (e) => {
-      storage.setItem('customSearchUrl', e.target.value);
+    customSearchUrl.addEventListener("change", (e) => {
+      storage.setItem("customSearchUrl", e.target.value);
     });
   }
 
   if (searchSuggestionsToggle) {
-    storage.getItem('searchSuggestions').then(enabled => {
-      searchSuggestionsToggle.checked = enabled !== 'false';
+    storage.getItem("searchSuggestions").then((enabled) => {
+      searchSuggestionsToggle.checked = enabled !== "false";
     });
 
-    searchSuggestionsToggle.addEventListener('change', (e) => {
-      storage.setItem('searchSuggestions', e.target.checked.toString());
+    searchSuggestionsToggle.addEventListener("change", (e) => {
+      storage.setItem("searchSuggestions", e.target.checked.toString());
     });
   }
 
   if (downloadLocationInput) {
-    storage.getItem('downloadLocation').then(location => {
-      downloadLocationInput.value = location || '';
+    storage.getItem("downloadLocation").then((location) => {
+      downloadLocationInput.value = location || "";
     });
   }
 
   if (chooseDownloadFolderBtn) {
-    chooseDownloadFolderBtn.addEventListener('click', async () => {
+    chooseDownloadFolderBtn.addEventListener("click", async () => {
       try {
         if (window.electronAPI && window.electronAPI.chooseDownloadFolder) {
           const folderPath = await window.electronAPI.chooseDownloadFolder();
           if (folderPath && downloadLocationInput) {
             downloadLocationInput.value = folderPath;
-            await storage.setItem('downloadLocation', folderPath);
+            await storage.setItem("downloadLocation", folderPath);
             // Apply download location setting immediately
             if (window.electronAPI.setDownloadLocation) {
               await window.electronAPI.setDownloadLocation(folderPath);
@@ -1209,61 +1514,116 @@ window.addEventListener('DOMContentLoaded', () => {
           }
         }
       } catch (error) {
-        console.error('Error choosing download folder:', error);
+        console.error("Error choosing download folder:", error);
       }
     });
   }
 
   if (askDownloadLocationToggle) {
-    storage.getItem('askDownloadLocation').then(enabled => {
-      askDownloadLocationToggle.checked = enabled === 'true';
+    storage.getItem("askDownloadLocation").then((enabled) => {
+      askDownloadLocationToggle.checked = enabled === "true";
     });
 
-    askDownloadLocationToggle.addEventListener('change', (e) => {
-      storage.setItem('askDownloadLocation', e.target.checked.toString());
+    askDownloadLocationToggle.addEventListener("change", (e) => {
+      storage.setItem("askDownloadLocation", e.target.checked.toString());
     });
   }
 
   if (userAgentInputFull) {
-    storage.getItem('userAgent').then(userAgent => {
-      userAgentInputFull.value = userAgent || '';
+    storage.getItem("userAgent").then((userAgent) => {
+      userAgentInputFull.value = userAgent || "";
     });
 
-    userAgentInputFull.addEventListener('change', (e) => {
-      storage.setItem('userAgent', e.target.value);
+    userAgentInputFull.addEventListener("change", (e) => {
+      storage.setItem("userAgent", e.target.value);
     });
   }
 
   if (javascriptEnabledToggle) {
-    storage.getItem('javascriptEnabled').then(enabled => {
-      javascriptEnabledToggle.checked = enabled !== 'false';
+    storage.getItem("javascriptEnabled").then((enabled) => {
+      javascriptEnabledToggle.checked = enabled !== "false";
     });
 
-    javascriptEnabledToggle.addEventListener('change', async (e) => {
-      await storage.setItem('javascriptEnabled', e.target.checked.toString());
-      console.log('JavaScript setting changed:', e.target.checked);
+    javascriptEnabledToggle.addEventListener("change", async (e) => {
+      await storage.setItem("javascriptEnabled", e.target.checked.toString());
+      console.log("JavaScript setting changed:", e.target.checked);
     });
   }
 
   if (imagesEnabledToggle) {
-    storage.getItem('imagesEnabled').then(enabled => {
-      imagesEnabledToggle.checked = enabled !== 'false';
+    storage.getItem("imagesEnabled").then((enabled) => {
+      imagesEnabledToggle.checked = enabled !== "false";
     });
 
-    imagesEnabledToggle.addEventListener('change', async (e) => {
-      await storage.setItem('imagesEnabled', e.target.checked.toString());
-      console.log('Images setting changed:', e.target.checked);
+    imagesEnabledToggle.addEventListener("change", async (e) => {
+      await storage.setItem("imagesEnabled", e.target.checked.toString());
+      console.log("Images setting changed:", e.target.checked);
     });
   }
 
   if (popupBlockerToggle) {
-    storage.getItem('popupBlockerEnabled').then(enabled => {
-      popupBlockerToggle.checked = enabled !== 'false';
+    storage.getItem("popupBlockerEnabled").then((enabled) => {
+      popupBlockerToggle.checked = enabled !== "false";
     });
 
-    popupBlockerToggle.addEventListener('change', async (e) => {
-      await storage.setItem('popupBlockerEnabled', e.target.checked.toString());
-      console.log('Popup blocker setting changed:', e.target.checked);
+    popupBlockerToggle.addEventListener("change", async (e) => {
+      await storage.setItem("popupBlockerEnabled", e.target.checked.toString());
+      console.log("Popup blocker setting changed:", e.target.checked);
+    });
+  }
+
+  // --- Default Browser ---
+  const setDefaultBrowserBtn = document.getElementById(
+    "set-default-browser-btn",
+  );
+  const defaultBrowserStatus = document.getElementById(
+    "default-browser-status",
+  );
+
+  async function refreshDefaultBrowserStatus() {
+    try {
+      const isDefault = await window.electronAPI.isDefaultBrowser();
+      if (defaultBrowserStatus) {
+        defaultBrowserStatus.textContent = isDefault
+          ? "✅ Vortex is already your default browser."
+          : "Vortex is not currently set as your default browser.";
+      }
+      if (setDefaultBrowserBtn) {
+        setDefaultBrowserBtn.disabled = isDefault;
+        setDefaultBrowserBtn.textContent = isDefault
+          ? "Already Default"
+          : "Set as Default Browser";
+      }
+    } catch (e) {
+      if (defaultBrowserStatus)
+        defaultBrowserStatus.textContent =
+          "Unable to check default browser status.";
+    }
+  }
+
+  if (setDefaultBrowserBtn) {
+    refreshDefaultBrowserStatus();
+    setDefaultBrowserBtn.addEventListener("click", async () => {
+      setDefaultBrowserBtn.disabled = true;
+      setDefaultBrowserBtn.textContent = "Setting\u2026";
+      try {
+        const ok = await window.electronAPI.setAsDefaultBrowser();
+        if (ok) {
+          window.electronAPI.notify(
+            "Vortex is now your default browser!",
+            "success",
+          );
+        } else {
+          window.electronAPI.notify(
+            "Could not set as default browser. Try running as administrator.",
+            "error",
+            5000,
+          );
+        }
+      } catch (e) {
+        window.electronAPI.notify("An error occurred.", "error");
+      }
+      await refreshDefaultBrowserStatus();
     });
   }
 });

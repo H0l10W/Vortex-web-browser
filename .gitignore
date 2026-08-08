@@ -372,10 +372,11 @@ FodyWeavers.xsd
 
 # Security and sensitive files
 cert.p12
-security-test.js
 security-test.ps1
 security-test-results.txt
 SECURITY_TEST_RESULTS_*.txt
+security-test-report-*.txt
+*.crdownload
 
 # Node.js
 node_modules/

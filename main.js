@@ -1,4 +1,4 @@
-const { app, BrowserWindow, BrowserView, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, BrowserView, ipcMain, dialog, webContents } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const fs = require('fs');
 const path = require('path');
@@ -289,6 +289,8 @@ function ensureSuggestionsOverlay(parentWin) {
       contextIsolation: true,
       nodeIntegration: false,
       webSecurity: true,
+      allowRunningInsecureContent: false,
+      enableRemoteModule: false,
       sandbox: true
     }
   });
@@ -364,7 +366,7 @@ async function initAdBlocker() {
     
     // Try to use cached filters first
     const cacheDir = path.join(app.getPath('userData'), 'adblock-cache');
-    const filtersCachePath = path.join(cacheDir, 'ublock.txt');
+    const filtersCachePath = path.join(cacheDir, 'easylist-easyprivacy-v3.txt');
     
     try {
       await fs.promises.mkdir(cacheDir, { recursive: true });
@@ -377,13 +379,19 @@ async function initAdBlocker() {
       filtersData = await fs.promises.readFile(filtersCachePath, 'utf-8');
       console.log('Loaded AdBlock filters from cache');
     } catch (e) {
-      console.log('Fetching uBlock Origin filter lists...');
+      console.log('Fetching EasyList ad-blocking filters...');
       try {
-        // Fetch uBlock Origin's filter lists
-        const response = await fetch('https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/energy.txt');
-        if (response.ok) {
-          filtersData = await response.text();
-          // Cache the filters
+        // Fetch standard advertising and privacy filters with a bounded startup delay.
+        const filterListUrls = [
+          'https://easylist.to/easylist/easylist.txt',
+          'https://easylist.to/easylist/easyprivacy.txt'
+        ];
+        const responses = await Promise.all(
+          filterListUrls.map(url => fetch(url, { signal: AbortSignal.timeout(8000) }))
+        );
+        if (responses.every(response => response.ok)) {
+          filtersData = (await Promise.all(responses.map(response => response.text()))).join('\n');
+          // Cache the combined filters for fast and offline subsequent starts.
           try {
             await fs.promises.writeFile(filtersCachePath, filtersData);
           } catch (cacheErr) {
@@ -391,25 +399,44 @@ async function initAdBlocker() {
           }
         }
       } catch (fetchErr) {
-        console.warn('Could not fetch uBlock filters, using fallback');
-        // Fallback: use basic filter format
-        filtersData = `||doubleclick.net^
+        console.warn('Could not fetch EasyList filters, using built-in fallback');
+        // Keep blocking common ad networks when the filter server is unavailable
+        filtersData = `! Vortex built-in offline ad and tracker rules
+||doubleclick.net^
 ||googlesyndication.com^
 ||googleadservices.com^
+||googletagservices.com^
 ||adnxs.com^
 ||criteo.com^
+||criteo.net^
 ||taboola.com^
 ||outbrain.com^
 ||amazon-adsystem.com^
 ||ads.yahoo.com^
 ||scorecardresearch.com^
+||pubmatic.com^
+||rubiconproject.com^
+||openx.net^
+||casalemedia.com^
+||moatads.com^
+||adsrvr.org^
+||quantserve.com^
+||advertising.com^
+||serving-sys.com^
+||media.net^
+||smartadserver.com^
+||bidswitch.net^
+||contextweb.com^
+/pagead/$third-party
+/adsbygoogle.js
+/prebid.js$script,third-party
 `;
       }
     }
     
     if (filtersData) {
       adblocker = await FiltersEngine.parse(filtersData);
-      console.log('AdBlock engine initialized with uBlock Origin filters');
+      console.log('AdBlock engine initialized with EasyList filters');
     }
     
     const persisted = storageData?.adblockEnabled;
@@ -428,17 +455,17 @@ function shouldBlockAdRequest(details) {
   if (!adblocker) return false;
   
   try {
-    const requestUrl = details.url;
-    const referrer = details.referrer || details.initiator || '';
-    const resourceType = details.resourceType || 'other';
-    
-    const result = adblocker.match({
-      url: requestUrl,
-      sourceUrl: referrer || undefined,
-      type: resourceType
+    const { Request } = require('@cliqz/adblocker');
+    const request = Request.fromRawDetails({
+      requestId: String(details.id ?? '0'),
+      tabId: details.webContentsId ?? 0,
+      url: details.url,
+      sourceUrl: details.referrer || details.initiator || '',
+      type: details.resourceType || 'other',
+      _originalRequestDetails: details
     });
-    
-    return result && result.match;
+    const result = adblocker.match(request);
+    return result?.match === true && !result.exception;
   } catch (err) {
     console.debug('Error in shouldBlockAdRequest:', err);
     return false;
@@ -993,6 +1020,7 @@ ipcMain.removeAllListeners('broadcast-theme-change');
 ipcMain.removeAllListeners('toggle-adblock');
 ipcMain.removeAllListeners('set-adblock-mode');
 ipcMain.removeAllListeners('toggle-devtools');
+ipcMain.removeAllListeners('register-webview-devtools-shortcut');
 ipcMain.removeAllListeners('broadcast-widget-settings');
 ipcMain.removeAllListeners('close-app');
 ipcMain.removeAllListeners('start-window-drag');
@@ -1007,6 +1035,34 @@ const pendingTransfers = new Map();
 const pendingTransfersByTransferId = new Map();
 const rendererReady = new Map(); // DOMContentLoaded map
 const rendererUIReady = new Map(); // UI initialized map
+const registeredDevToolsWebContents = new Set();
+
+function toggleDevToolsForWebContents(targetWebContents, options = {}) {
+  if (!targetWebContents || targetWebContents.isDestroyed()) return;
+  if (targetWebContents.isDevToolsOpened()) {
+    targetWebContents.closeDevTools();
+  } else {
+    targetWebContents.openDevTools(options);
+  }
+}
+
+function registerDevToolsShortcutForWebContents(targetWebContents) {
+  if (!targetWebContents || targetWebContents.isDestroyed()) return;
+  const webContentsId = targetWebContents.id;
+  if (registeredDevToolsWebContents.has(webContentsId)) return;
+
+  registeredDevToolsWebContents.add(webContentsId);
+  targetWebContents.once('destroyed', () => {
+    registeredDevToolsWebContents.delete(webContentsId);
+  });
+
+  targetWebContents.on('before-input-event', (event, input) => {
+    if (input && input.type === 'keyDown' && input.key === 'F12') {
+      event.preventDefault();
+      toggleDevToolsForWebContents(targetWebContents, { mode: 'detach' });
+    }
+  });
+}
 
 function closeWindowFast(win, reason = 'transfer-complete') {
   if (!win || win.isDestroyed()) return;
@@ -2130,19 +2186,38 @@ ipcMain.on('toggle-devtools', (event) => {
   if (state && state.activeViewId && state.views.has(state.activeViewId)) {
     const view = state.views.get(state.activeViewId);
     if (view && view.webContents && !view.webContents.isDestroyed()) {
-      view.webContents.toggleDevTools();
+      toggleDevToolsForWebContents(view.webContents, { mode: 'detach' });
       return;
     }
   }
   // Fallback to toggling the main window devtools (UI)
-  win.webContents.toggleDevTools();
+  toggleDevToolsForWebContents(win.webContents, { mode: 'right' });
+});
+
+ipcMain.on('register-webview-devtools-shortcut', (_event, webContentsId) => {
+  const id = Number(webContentsId);
+  if (!Number.isFinite(id)) return;
+
+  const targetWebContents = webContents.fromId(id);
+  registerDevToolsShortcutForWebContents(targetWebContents);
 });
 
 ipcMain.handle('get-app-version', () => {
   const version = app.getVersion();
   console.log('App version requested:', version);
-  console.log('Package.json version should be: 0.0.6');
   return version;
+});
+
+ipcMain.handle('get-build-date', () => {
+  try {
+    const buildTarget = app.isPackaged
+      ? app.getPath('exe')
+      : path.join(__dirname, 'package.json');
+    return fs.statSync(buildTarget).mtime.toISOString();
+  } catch (error) {
+    console.error('Failed to determine build date:', error);
+    return null;
+  }
 });
 
 // Cookie management handlers
@@ -2563,7 +2638,7 @@ function createIncognitoWindow() {
   return incognitoWin;
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   console.log('=== AUTO-UPDATER DEBUG INFO ===');
   console.log('App version:', app.getVersion());
   console.log('Repository configured: H0l10W/Vortex-web-browser');
@@ -2571,7 +2646,7 @@ app.whenReady().then(() => {
   console.log('Auto-updater provider:', autoUpdater.getFeedURL());
   console.log('================================');
 
-  initAdBlocker();
+  await initAdBlocker();
   
   // Initialize non-critical components after window creation
   setImmediate(() => {

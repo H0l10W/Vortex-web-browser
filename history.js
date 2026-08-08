@@ -104,6 +104,44 @@
     }
   };
 
+  const formatHistoryUrl = (url) => {
+    try {
+      const parsed = new URL(url);
+      const host = parsed.hostname.replace(/^www\./, '');
+      const path = decodeURIComponent(`${parsed.pathname}${parsed.search}${parsed.hash}`);
+      return `${host}${path === '/' ? '' : path}`;
+    } catch (_e) {
+      return String(url || '').replace(/^https?:\/\//, '').replace(/^www\./, '');
+    }
+  };
+  const filterIds = ['history-date-from', 'history-date-to', 'history-time-from', 'history-time-to'];
+
+  function filterHistory(entries) {
+    const values = Object.fromEntries(filterIds.map(id => [id, document.getElementById(id)?.value || '']));
+    const dateFrom = values['history-date-from'];
+    const dateTo = values['history-date-to'];
+    const timeFrom = values['history-time-from'];
+    const timeTo = values['history-time-to'];
+    const hasFilters = Object.values(values).some(Boolean);
+    return entries.filter(entry => {
+      if (!hasFilters) return true;
+      const timestamp = Number(entry.timestamp);
+      if (!Number.isFinite(timestamp) || timestamp <= 0) return false;
+      const visited = new Date(timestamp);
+      if (Number.isNaN(visited.getTime())) return false;
+      const localDate = [visited.getFullYear(), String(visited.getMonth() + 1).padStart(2, '0'), String(visited.getDate()).padStart(2, '0')].join('-');
+      if (dateFrom && localDate < dateFrom) return false;
+      if (dateTo && localDate > dateTo) return false;
+      const localTime = `${String(visited.getHours()).padStart(2, '0')}:${String(visited.getMinutes()).padStart(2, '0')}`;
+      if (timeFrom && timeTo && timeFrom > timeTo) {
+        if (localTime < timeFrom && localTime > timeTo) return false;
+      } else {
+        if (timeFrom && localTime < timeFrom) return false;
+        if (timeTo && localTime > timeTo) return false;
+      }
+      return true;
+    });
+  }
   async function renderHistory() {
     console.time('renderHistory');
     try {
@@ -166,13 +204,15 @@
         });
       const list = document.getElementById('history-list');
       list.innerHTML = '';
-      if (!history.length) {
-        list.innerHTML = '<div class="no-history">No browsing history yet.</div>';
+      const entries = filterHistory(history).sort((a, b) => (Number(b.timestamp) || 0) - (Number(a.timestamp) || 0));
+      const result = document.getElementById('history-filter-result');
+      if (result) result.textContent = `${entries.length} of ${history.length} ${history.length === 1 ? 'visit' : 'visits'}`;
+      if (!entries.length) {
+        list.innerHTML = `<div class="no-history">${history.length ? 'No history matches these filters.' : 'No browsing history yet.'}</div>`;
         return;
       }
       const PAGE_SIZE = 100;
       let offset = 0;
-      const entries = history.slice().reverse();
 
       function appendNextPage() {
         if (offset >= entries.length) return;
@@ -207,14 +247,23 @@
           title.textContent = entry.title || ((entry.host && entry.host.length) ? (entry.host.charAt(0).toUpperCase() + entry.host.slice(1)) : getSiteName(entry.url));
           const meta = document.createElement('span');
           meta.className = 'history-meta';
-          const urlText = entry.url || '';
-          let timeText = '';
-          try { if (entry.timestamp) timeText = new Date(entry.timestamp).toLocaleString(); } catch (e) {}
-          meta.textContent = `${urlText}${timeText ? ' • ' + timeText : ''}`;
+          const urlText = formatHistoryUrl(entry.url);
+          meta.textContent = urlText;
+          const visitedAt = document.createElement('time');
+          visitedAt.className = 'history-item-time';
+          try {
+            const timestamp = Number(entry.timestamp);
+            if (Number.isFinite(timestamp) && timestamp > 0) {
+              const visited = new Date(timestamp);
+              visitedAt.dateTime = visited.toISOString();
+              visitedAt.textContent = `${visited.toLocaleDateString()}\n${visited.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`;
+            } else visitedAt.textContent = 'Date unavailable';
+          } catch (e) { visitedAt.textContent = 'Date unavailable'; }
           textContainer.appendChild(title);
           textContainer.appendChild(meta);
           item.appendChild(favicon);
           item.appendChild(textContainer);
+          item.appendChild(visitedAt);
           frag2.appendChild(item);
         });
           list.appendChild(frag2);
@@ -229,11 +278,11 @@
       }
       appendNextPage();
       // listen to scroll to append more
-      list.addEventListener('scroll', (e) => {
+      list.onscroll = () => {
         if (list.scrollTop + list.clientHeight > list.scrollHeight - 300) {
           appendNextPage();
         }
-      }, { passive: true });
+      };
       console.timeEnd('renderHistory');
     } catch (err) {
       console.error('Error rendering history:', err);
@@ -270,6 +319,15 @@
   }
 
   await renderHistory();
+  filterIds.forEach(id => {
+    const input = document.getElementById(id);
+    if (input) input.addEventListener('change', renderHistory);
+  });
+  const resetFiltersBtn = document.getElementById('clear-history-filters-btn');
+  if (resetFiltersBtn) resetFiltersBtn.addEventListener('click', () => {
+    filterIds.forEach(id => { const input = document.getElementById(id); if (input) input.value = ''; });
+    renderHistory();
+  });
   // Manual refresh button
   const refreshBtn = document.getElementById('refresh-history-btn');
   if (refreshBtn) refreshBtn.addEventListener('click', () => { try { renderHistory(); } catch(e) {} });

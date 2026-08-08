@@ -1,177 +1,61 @@
-# Vortex Browser - Roadmap
+# Vortex Browser Roadmap
 
-## 🎯 Current Version: 0.2.2
-*Chrome-like UI with floating tabs and modern positioning*
+## Current release
 
----
+**Version 0.3.8**
 
-## 🚀 Upcoming Releases
+Version 0.3.8 includes tab groups, session restore, tab hibernation, history filtering, privacy controls, developer tools, Windows file associations, protocol handling, and substantial interface refinements.
 
-### 📋 Version 0.3.0 - Enhanced Browsing Experience
-**Target: Q1 2025**
+## Current priorities
 
-#### 🔍 Search & Navigation
-- [ ] Search suggestions and autocomplete
-- [ ] History search and filtering
-- [ ] Improved URL bar with search shortcuts
-- [ ] Quick access to recently visited sites
+### Reliability and security
 
-#### 📊 Developer Tools Integration
-- [ ] Built-in developer console
-- [ ] Element inspector
-- [ ] Network monitoring
-- [ ] Performance profiling tools
+- [ ] Expand automated coverage beyond linting and the static security audit
+- [ ] Add crash recovery tests and structured crash reporting
+- [ ] Review and harden webview navigation, permissions, and process isolation
+- [ ] Add safe-browsing warnings and stronger certificate management
+- [ ] Complete an accessibility audit, including keyboard and screen-reader flows
 
-#### 🔧 Extensions Support
-- [ ] Basic extension framework
-- [ ] Ad blocker improvements
-- [ ] Custom extension loading
-- [ ] Extension management interface
+### Browser essentials
 
-### 📋 Version 0.4.0 - Productivity Features
-**Target: Q2 2025**
+- [ ] Improve URL-bar shortcuts and recently visited suggestions
+- [ ] Add bookmark folders, search, and import/export
+- [ ] Improve download queue management, resumption, and history
+- [ ] Add recently closed tab recovery, tab pinning, and tab muting
+- [ ] Add picture-in-picture and improved media controls
 
-#### 📝 Session Management
-- [ ] Save and restore browser sessions
-- [ ] Tab groups and organization
-- [ ] Workspace management
-- [ ] Session synchronization
+### Extensions and customization
 
-#### 🔒 Enhanced Privacy
-- [ ] Improved incognito mode
-- [ ] Tracker blocking
-- [ ] Cookie management
-- [ ] Privacy dashboard
+- [ ] Define a restricted extension framework
+- [ ] Add local extension loading and management
+- [ ] Add customizable keyboard shortcuts and toolbar layout
+- [ ] Add custom theme creation and import/export
 
-#### ⚡ Performance Optimization
-- [ ] Tab suspension for memory management
-- [ ] Faster page loading
-- [ ] Background tab throttling
-- [ ] Resource usage optimization
+### Sync and workspaces
 
-### 📋 Version 0.5.0 - Advanced Features
-**Target: Q3 2025**
+- [ ] Add workspace management and multiple session profiles
+- [ ] Design secure sync for bookmarks, settings, history, and open tabs
+- [ ] Add session export/import
 
-#### 🌐 Sync & Cloud
-- [ ] Cloud bookmark synchronization
-- [ ] Settings sync across devices
-- [ ] History synchronization
-- [ ] Cross-device tab sharing
+## Before 1.0
 
-#### 🎮 Media & Content
-- [ ] Enhanced video player controls
-- [ ] Picture-in-Picture mode
-- [ ] Download manager improvements
-- [ ] File type associations
+- [ ] Comprehensive unit, integration, and end-to-end test suites
+- [ ] Repeatable startup, memory, and page-load benchmarks
+- [ ] Independent security review
+- [ ] Complete user and contributor documentation
+- [ ] Crash reporting and recovery validation
+- [ ] Installer, portable-build, update, and file-association release testing
 
-#### 🛡️ Security Enhancements
-- [ ] Enhanced certificate management
-- [ ] Security warnings system
-- [ ] Safe browsing integration
-- [ ] Password manager integration
+## Later considerations
 
----
+- macOS and Linux support
+- Encrypted password management
+- Cross-device sync
+- Public plugin/API ecosystem
+- Advanced accessibility and voice controls
 
-## 🔮 Long-term Vision (1.0+)
+This roadmap is intentionally outcome-focused. Completed release details belong in the changelog.
 
-### 🎯 Version 1.0.0 - Stable Release
-**Target: Q4 2025**
+**Last updated:** 8 August 2026
 
-#### 🏆 Production Ready
-- [ ] Comprehensive testing suite
-- [ ] Performance benchmarking
-- [ ] Security auditing
-- [ ] Documentation completion
-- [ ] User guide and tutorials
-
-#### 🌍 Platform Expansion
-- [ ] macOS version
-- [ ] Linux version
-- [ ] Mobile companion app (consideration)
-
-### 🚀 Future Innovations
-
-#### 🤖 AI Integration
-- [ ] AI-powered search assistance
-- [ ] Smart bookmark organization
-- [ ] Content summarization
-- [ ] Intelligent tab management
-
-#### 🎨 Advanced Customization
-- [ ] Custom CSS theming
-- [ ] Layout customization
-- [ ] Advanced gesture support
-- [ ] Voice controls
-
-#### 🔗 Integration Features
-- [ ] Third-party service integration
-- [ ] API for external tools
-- [ ] Plugin ecosystem
-- [ ] Developer SDK
-
----
-
-## 📈 Current Priorities
-
-### 🔥 High Priority
-1. **Search functionality** - Essential for daily browsing
-2. **Developer tools** - Critical for web developers
-3. **Performance optimization** - Better user experience
-4. **Extension support** - Expanded functionality
-
-### 📋 Medium Priority
-1. **Session management** - Productivity improvement
-2. **Privacy enhancements** - User security
-3. **Sync features** - Cross-device experience
-4. **Media improvements** - Content consumption
-
-### 💡 Future Considerations
-1. **AI features** - Next-generation browsing
-2. **Platform expansion** - Broader user base
-3. **Advanced customization** - Power user features
-4. **Enterprise features** - Business use cases
-
----
-
-## 🤝 Community Involvement
-
-### 📢 How to Contribute
-- **Feature Requests**: Submit ideas via GitHub issues
-- **Bug Reports**: Help identify and fix issues
-- **Testing**: Try beta versions and provide feedback
-- **Documentation**: Improve guides and tutorials
-
-### 🎯 Feedback Priorities
-1. **Usability issues** - What makes browsing difficult?
-2. **Performance problems** - Where does the browser slow down?
-3. **Missing features** - What essential features are needed?
-4. **UI/UX suggestions** - How can the interface improve?
-
-### 📊 Success Metrics
-- **Performance**: Faster load times, lower memory usage
-- **Stability**: Fewer crashes, better error handling
-- **Features**: More productive browsing experience
-- **Adoption**: Growing user base and positive feedback
-
----
-
-## 📅 Release Schedule
-
-### 🗓️ Regular Updates
-- **Major versions**: Quarterly (every 3 months)
-- **Minor updates**: Monthly feature additions
-- **Patch releases**: Bi-weekly bug fixes and improvements
-- **Security updates**: As needed for critical issues
-
-### 🔄 Development Cycle
-1. **Planning** (2 weeks): Feature design and specification
-2. **Development** (8 weeks): Implementation and testing
-3. **Beta testing** (2 weeks): Community feedback and refinement
-4. **Release** (1 week): Final testing and deployment
-
----
-
-*This roadmap is a living document and may be adjusted based on user feedback, technical challenges, and changing priorities. Community input is always welcome!*
-
-**Last Updated**: December 7, 2025  
-**Next Review**: January 7, 2025
+**Next review:** September 2026

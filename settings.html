@@ -1,779 +1,1609 @@
-<!DOCTYPE html>
+<!doctype html>
 <html>
-<head>
-  <meta charset="UTF-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; img-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests;">
-  <title>Settings</title>
-  <script>
-    // Apply theme immediately to prevent FOUC (Flash of Unstyled Content)
-    (function() {
-      const themeClassName = localStorage.getItem('theme') || 'theme-light';
-      // The CSS expects the class on the body, so we'll apply it there.
-      // We can't access body directly in the head, so we'll set an attribute on html
-      // and have a script right after body opens to move it.
-      document.documentElement.setAttribute('data-theme', themeClassName);
-    })();
-  </script>
-  <link rel="stylesheet" href="settings.css">
-</head>
-<body>
-  <script>
-    // Move the theme class from <html> to <body> as soon as body exists.
-    (function() {
-      const themeClassName = document.documentElement.getAttribute('data-theme');
-      if (themeClassName) {
-        // Remove any existing theme classes first
-        const themeClasses = [
-          'theme-light', 'theme-dark',
-          'theme-light-mint', 'theme-light-sakura', 'theme-light-sunny',
-          'theme-dark-purple', 'theme-dark-nord', 'theme-dark-forest', 'theme-dark-rose'
-        ];
-        document.body.classList.remove(...themeClasses);
-        
-        // Add the correct theme class
-        document.body.classList.add(themeClassName);
-        document.documentElement.removeAttribute('data-theme');
-        
-        console.log('Applied theme to settings page:', themeClassName);
-      }
-    })();
-  </script>
-  <div id="full-settings-page">
-    <header id="full-settings-header">
-      <h2>Settings</h2>
-    </header>
-    <div id="full-settings-content">
-      <aside id="full-settings-sidebar">
-        <div class="sidebar-section">
-          <button class="settings-tab-button active" data-tab="general">
-            <span class="setting-icon">⚙️</span>
-            <span class="setting-text">General</span>
-          </button>
-          <button class="settings-tab-button" data-tab="appearance">
-            <span class="setting-icon">🎨</span>
-            <span class="setting-text">Appearance</span>
-          </button>
-          <button class="settings-tab-button" data-tab="widgets">
-            <span class="setting-icon">📊</span>
-            <span class="setting-text">Widgets</span>
-          </button>
-          <button class="settings-tab-button" data-tab="privacy">
-            <span class="setting-icon">🔒</span>
-            <span class="setting-text">Privacy</span>
-          </button>
-          <button class="settings-tab-button" data-tab="performance">
-            <span class="setting-icon">⚡</span>
-            <span class="setting-text">Performance</span>
-          </button>
-          <button class="settings-tab-button" data-tab="about">
-            <span class="setting-icon">ℹ️</span>
-            <span class="setting-text">About</span>
-          </button>
+    <head>
+        <meta charset="UTF-8" />
+        <meta
+            http-equiv="Content-Security-Policy"
+            content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; img-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests;"
+        />
+        <title>Settings</title>
+        <script>
+            // Apply theme immediately to prevent FOUC (Flash of Unstyled Content)
+            (function () {
+                const themeClassName =
+                    localStorage.getItem("theme") || "theme-light";
+                // The CSS expects the class on the body, so we'll apply it there.
+                // We can't access body directly in the head, so we'll set an attribute on html
+                // and have a script right after body opens to move it.
+                document.documentElement.setAttribute(
+                    "data-theme",
+                    themeClassName,
+                );
+            })();
+        </script>
+        <link rel="stylesheet" href="settings.css" />
+    </head>
+    <body>
+        <script>
+            // Move the theme class from <html> to <body> as soon as body exists.
+            (function () {
+                const themeClassName =
+                    document.documentElement.getAttribute("data-theme");
+                if (themeClassName) {
+                    // Remove any existing theme classes first
+                    const themeClasses = [
+                        "theme-light",
+                        "theme-dark",
+                        "theme-light-mint",
+                        "theme-light-sakura",
+                        "theme-light-sunny",
+                        "theme-dark-purple",
+                        "theme-dark-nord",
+                        "theme-dark-forest",
+                        "theme-dark-rose",
+                        "theme-dark-sakura",
+                        "theme-dark-sunny",
+                    ];
+                    document.body.classList.remove(...themeClasses);
+
+                    // Add the correct theme class
+                    document.body.classList.add(themeClassName);
+                    document.documentElement.removeAttribute("data-theme");
+
+                    console.log(
+                        "Applied theme to settings page:",
+                        themeClassName,
+                    );
+                }
+            })();
+        </script>
+        <div id="full-settings-page">
+            <header id="full-settings-header">
+                <h2>Settings</h2>
+            </header>
+            <div id="full-settings-content">
+                <aside id="full-settings-sidebar">
+                    <div class="sidebar-section">
+                        <button
+                            class="settings-tab-button active"
+                            data-tab="general"
+                        >
+                            <span class="setting-icon">⚙️</span>
+                            <span class="setting-text">General</span>
+                        </button>
+                        <button
+                            class="settings-tab-button"
+                            data-tab="appearance"
+                        >
+                            <span class="setting-icon">🎨</span>
+                            <span class="setting-text">Appearance</span>
+                        </button>
+                        <button class="settings-tab-button" data-tab="widgets">
+                            <span class="setting-icon">📊</span>
+                            <span class="setting-text">Widgets</span>
+                        </button>
+                        <button class="settings-tab-button" data-tab="privacy">
+                            <span class="setting-icon">🔒</span>
+                            <span class="setting-text">Privacy</span>
+                        </button>
+                        <button
+                            class="settings-tab-button"
+                            data-tab="performance"
+                        >
+                            <span class="setting-icon">⚡</span>
+                            <span class="setting-text">Performance</span>
+                        </button>
+                        <button class="settings-tab-button" data-tab="about">
+                            <span class="setting-icon">ℹ️</span>
+                            <span class="setting-text">About</span>
+                        </button>
+                    </div>
+                </aside>
+                <main id="full-settings-main">
+                    <div
+                        id="general-settings"
+                        class="settings-tab-content active"
+                    >
+                        <div class="settings-tab-header">
+                            <h3>General Settings</h3>
+                            <p>
+                                Configure your browser's core functionality and
+                                behavior.
+                            </p>
+                        </div>
+
+                        <div class="settings-grid">
+                            <div class="settings-card">
+                                <div class="card-header">
+                                    <h4>🚀 Startup & Navigation</h4>
+                                    <p>
+                                        Control how your browser starts and
+                                        navigates
+                                    </p>
+                                </div>
+                                <div class="card-content">
+                                    <div class="setting-group">
+                                        <label class="setting-label"
+                                            >When browser starts</label
+                                        >
+                                        <div class="toggle-group">
+                                            <div class="toggle-option">
+                                                <label class="toggle-switch">
+                                                    <input
+                                                        type="radio"
+                                                        name="start-page"
+                                                        id="start-homepage"
+                                                        value="homepage"
+                                                    />
+                                                    <span class="slider"></span>
+                                                </label>
+                                                <span class="toggle-label"
+                                                    >Open homepage</span
+                                                >
+                                            </div>
+                                            <div class="toggle-option">
+                                                <label class="toggle-switch">
+                                                    <input
+                                                        type="radio"
+                                                        name="start-page"
+                                                        id="start-newtab"
+                                                        value="newtab"
+                                                        checked
+                                                    />
+                                                    <span class="slider"></span>
+                                                </label>
+                                                <span class="toggle-label"
+                                                    >Open new tab page</span
+                                                >
+                                            </div>
+                                            <div class="toggle-option">
+                                                <label class="toggle-switch">
+                                                    <input
+                                                        type="radio"
+                                                        name="start-page"
+                                                        id="start-lastsession"
+                                                        value="lastsession"
+                                                    />
+                                                    <span class="slider"></span>
+                                                </label>
+                                                <span class="toggle-label"
+                                                    >Restore last session</span
+                                                >
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="setting-group">
+                                        <label
+                                            for="homepage-input-full"
+                                            class="setting-label"
+                                            >Homepage URL</label
+                                        >
+                                        <div class="input-group">
+                                            <input
+                                                type="text"
+                                                id="homepage-input-full"
+                                                placeholder="https://www.example.com"
+                                                class="setting-input"
+                                            />
+                                            <button
+                                                id="save-homepage-full"
+                                                class="btn-secondary"
+                                            >
+                                                Save
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <div class="setting-group">
+                                        <label
+                                            for="new-tab-behavior"
+                                            class="setting-label"
+                                            >New tab behavior</label
+                                        >
+                                        <select
+                                            id="new-tab-behavior"
+                                            class="setting-select"
+                                        >
+                                            <option value="newtab">
+                                                Show new tab page
+                                            </option>
+                                            <option value="homepage">
+                                                Show homepage
+                                            </option>
+                                            <option value="blank">
+                                                Show blank page
+                                            </option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="settings-card">
+                                <div class="card-header">
+                                    <h4>🔍 Search & Navigation</h4>
+                                    <p>
+                                        Configure search engine and address bar
+                                        behavior
+                                    </p>
+                                </div>
+                                <div class="card-content">
+                                    <div class="setting-group">
+                                        <label class="setting-label"
+                                            >Default search engine</label
+                                        >
+                                        <div class="toggle-group">
+                                            <div class="toggle-option">
+                                                <label class="toggle-switch">
+                                                    <input
+                                                        type="radio"
+                                                        name="search-engine"
+                                                        id="search-google"
+                                                        value="google"
+                                                        checked
+                                                    />
+                                                    <span class="slider"></span>
+                                                </label>
+                                                <span class="toggle-label"
+                                                    >Google</span
+                                                >
+                                            </div>
+                                            <div class="toggle-option">
+                                                <label class="toggle-switch">
+                                                    <input
+                                                        type="radio"
+                                                        name="search-engine"
+                                                        id="search-bing"
+                                                        value="bing"
+                                                    />
+                                                    <span class="slider"></span>
+                                                </label>
+                                                <span class="toggle-label"
+                                                    >Microsoft Bing</span
+                                                >
+                                            </div>
+                                            <div class="toggle-option">
+                                                <label class="toggle-switch">
+                                                    <input
+                                                        type="radio"
+                                                        name="search-engine"
+                                                        id="search-duckduckgo"
+                                                        value="duckduckgo"
+                                                    />
+                                                    <span class="slider"></span>
+                                                </label>
+                                                <span class="toggle-label"
+                                                    >DuckDuckGo</span
+                                                >
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div
+                                        class="setting-group"
+                                        id="custom-search-group"
+                                        style="display: none"
+                                    >
+                                        <label
+                                            for="custom-search-url"
+                                            class="setting-label"
+                                            >Custom search URL</label
+                                        >
+                                        <input
+                                            type="text"
+                                            id="custom-search-url"
+                                            placeholder="https://example.com/search?q=%s"
+                                            class="setting-input"
+                                        />
+                                        <p
+                                            style="
+                                                font-size: 12px;
+                                                color: #666;
+                                                margin-top: 4px;
+                                            "
+                                        >
+                                            Use %s as placeholder for search
+                                            terms
+                                        </p>
+                                    </div>
+
+                                    <div class="setting-group">
+                                        <div class="toggle-setting">
+                                            <label class="toggle-switch">
+                                                <input
+                                                    type="checkbox"
+                                                    id="search-suggestions-toggle"
+                                                    checked
+                                                />
+                                                <span class="slider"></span>
+                                            </label>
+                                            <div class="toggle-info">
+                                                <span class="toggle-label"
+                                                    >Show search
+                                                    suggestions</span
+                                                >
+                                                <span class="toggle-description"
+                                                    >Display search suggestions
+                                                    in the address bar</span
+                                                >
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="settings-card">
+                                <div class="card-header">
+                                    <h4>📂 Downloads & Files</h4>
+                                    <p>
+                                        Manage download location and file
+                                        handling
+                                    </p>
+                                </div>
+                                <div class="card-content">
+                                    <div class="setting-group">
+                                        <label
+                                            for="download-location"
+                                            class="setting-label"
+                                            >Download location</label
+                                        >
+                                        <div class="button-group">
+                                            <input
+                                                type="text"
+                                                id="download-location"
+                                                class="setting-input"
+                                                readonly
+                                            />
+                                            <button
+                                                id="choose-download-folder"
+                                                class="btn-secondary"
+                                            >
+                                                Choose Folder
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <div class="setting-group">
+                                        <div class="toggle-setting">
+                                            <label class="toggle-switch">
+                                                <input
+                                                    type="checkbox"
+                                                    id="ask-download-location-toggle"
+                                                />
+                                                <span class="slider"></span>
+                                            </label>
+                                            <div class="toggle-info">
+                                                <span class="toggle-label"
+                                                    >Ask where to save
+                                                    files</span
+                                                >
+                                                <span class="toggle-description"
+                                                    >Prompt for download
+                                                    location before
+                                                    downloading</span
+                                                >
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="settings-card">
+                                <div class="card-header">
+                                    <h4>🌐 Default Browser</h4>
+                                    <p>
+                                        Set Vortex as your default browser for
+                                        web links and local HTML files
+                                    </p>
+                                </div>
+                                <div class="card-content">
+                                    <div class="setting-group">
+                                        <p
+                                            id="default-browser-status"
+                                            class="setting-description"
+                                        >
+                                            Checking status…
+                                        </p>
+                                    </div>
+                                </div>
+                                <div class="card-actions">
+                                    <button
+                                        id="set-default-browser-btn"
+                                        class="btn-primary"
+                                        disabled
+                                    >
+                                        Set as Default Browser
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div class="settings-card">
+                                <div class="card-header">
+                                    <h4>🔗 Advanced</h4>
+                                    <p>
+                                        Advanced browser configuration and
+                                        developer options
+                                    </p>
+                                </div>
+                                <div class="card-content">
+                                    <div class="setting-group">
+                                        <label
+                                            for="user-agent-input-full"
+                                            class="setting-label"
+                                            >Custom User Agent</label
+                                        >
+                                        <input
+                                            type="text"
+                                            id="user-agent-input-full"
+                                            placeholder="Leave empty for default"
+                                            class="setting-input"
+                                        />
+                                        <p
+                                            style="
+                                                font-size: 12px;
+                                                color: #666;
+                                                margin-top: 4px;
+                                            "
+                                        >
+                                            Override the browser's user agent
+                                            string
+                                        </p>
+                                    </div>
+
+                                    <div class="setting-group">
+                                        <div class="toggle-setting">
+                                            <label class="toggle-switch">
+                                                <input
+                                                    type="checkbox"
+                                                    id="javascript-enabled-toggle"
+                                                    checked
+                                                />
+                                                <span class="slider"></span>
+                                            </label>
+                                            <div class="toggle-info">
+                                                <span class="toggle-label"
+                                                    >Enable JavaScript</span
+                                                >
+                                                <span class="toggle-description"
+                                                    >Allow websites to run
+                                                    JavaScript
+                                                    (recommended)</span
+                                                >
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="setting-group">
+                                        <div class="toggle-setting">
+                                            <label class="toggle-switch">
+                                                <input
+                                                    type="checkbox"
+                                                    id="images-enabled-toggle"
+                                                    checked
+                                                />
+                                                <span class="slider"></span>
+                                            </label>
+                                            <div class="toggle-info">
+                                                <span class="toggle-label"
+                                                    >Load images</span
+                                                >
+                                                <span class="toggle-description"
+                                                    >Download and display images
+                                                    on websites</span
+                                                >
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="setting-group">
+                                        <div class="toggle-setting">
+                                            <label class="toggle-switch">
+                                                <input
+                                                    type="checkbox"
+                                                    id="popup-blocker-toggle"
+                                                    checked
+                                                />
+                                                <span class="slider"></span>
+                                            </label>
+                                            <div class="toggle-info">
+                                                <span class="toggle-label"
+                                                    >Block pop-ups</span
+                                                >
+                                                <span class="toggle-description"
+                                                    >Prevent websites from
+                                                    opening unwanted pop-up
+                                                    windows</span
+                                                >
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="appearance-settings" class="settings-tab-content">
+                        <div class="settings-tab-header">
+                            <h3>Appearance</h3>
+                            <p>Customize the look and feel of your browser.</p>
+                        </div>
+
+                        <div class="settings-card">
+                            <div class="card-header">
+                                <h4>Themes</h4>
+                                <p>
+                                    Choose a theme to personalize your browser's
+                                    appearance
+                                </p>
+                            </div>
+
+                            <div class="theme-selector">
+                                <h5>Light Themes</h5>
+                                <div class="theme-options">
+                                    <div
+                                        class="theme-option"
+                                        data-theme="light"
+                                    >
+                                        <div
+                                            class="theme-preview"
+                                            style="background: #fff"
+                                        ></div>
+                                        <span>Default Light</span>
+                                    </div>
+                                    <div
+                                        class="theme-option"
+                                        data-theme="light-mint"
+                                    >
+                                        <div
+                                            class="theme-preview"
+                                            style="
+                                                background: radial-gradient(
+                                                    circle,
+                                                    #c1fdd1 0%,
+                                                    #a8eec1 100%
+                                                );
+                                            "
+                                        ></div>
+                                        <span>Mint</span>
+                                    </div>
+                                    <div
+                                        class="theme-option"
+                                        data-theme="light-sakura"
+                                    >
+                                        <div
+                                            class="theme-preview"
+                                            style="
+                                                background: radial-gradient(
+                                                    circle,
+                                                    #ffc0cb 0%,
+                                                    #ffb6c1 100%
+                                                );
+                                            "
+                                        ></div>
+                                        <span>Sakura</span>
+                                    </div>
+                                    <div
+                                        class="theme-option"
+                                        data-theme="light-sunny"
+                                    >
+                                        <div
+                                            class="theme-preview"
+                                            style="
+                                                background: radial-gradient(
+                                                    circle,
+                                                    #fff176 0%,
+                                                    #ffeb3b 100%
+                                                );
+                                            "
+                                        ></div>
+                                        <span>Sunny</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="theme-selector">
+                                <h5>Dark Themes</h5>
+                                <div class="theme-options">
+                                    <div class="theme-option" data-theme="dark">
+                                        <div
+                                            class="theme-preview"
+                                            style="background: #1a1a1a"
+                                        ></div>
+                                        <span>Default Dark</span>
+                                    </div>
+                                    <div
+                                        class="theme-option"
+                                        data-theme="dark-purple"
+                                    >
+                                        <div
+                                            class="theme-preview"
+                                            style="
+                                                background: radial-gradient(
+                                                    circle,
+                                                    #6a1b9a 0%,
+                                                    #ab47bc 100%
+                                                );
+                                            "
+                                        ></div>
+                                        <span>Purple</span>
+                                    </div>
+                                    <div
+                                        class="theme-option"
+                                        data-theme="dark-nord"
+                                    >
+                                        <div
+                                            class="theme-preview"
+                                            style="
+                                                background: radial-gradient(
+                                                    circle,
+                                                    #4c566a 0%,
+                                                    #3b4252 100%
+                                                );
+                                            "
+                                        ></div>
+                                        <span>Nord</span>
+                                    </div>
+                                    <div
+                                        class="theme-option"
+                                        data-theme="dark-forest"
+                                    >
+                                        <div
+                                            class="theme-preview"
+                                            style="
+                                                background: radial-gradient(
+                                                    circle,
+                                                    #5a6d5a 0%,
+                                                    #4a5d4a 100%
+                                                );
+                                            "
+                                        ></div>
+                                        <span>Forest</span>
+                                    </div>
+                                    <div
+                                        class="theme-option"
+                                        data-theme="dark-rose"
+                                    >
+                                        <div
+                                            class="theme-preview"
+                                            style="
+                                                background: radial-gradient(
+                                                    circle,
+                                                    #7a5a77 0%,
+                                                    #664b63 100%
+                                                );
+                                            "
+                                        ></div>
+                                        <span>Rose</span>
+                                    </div>
+                                    <div
+                                        class="theme-option"
+                                        data-theme="dark-sakura"
+                                    >
+                                        <div
+                                            class="theme-preview"
+                                            style="
+                                                background: radial-gradient(
+                                                    circle,
+                                                    #6b1a3a 0%,
+                                                    #a0274f 100%
+                                                );
+                                            "
+                                        ></div>
+                                        <span>Dark Sakura</span>
+                                    </div>
+                                    <div
+                                        class="theme-option"
+                                        data-theme="dark-sunny"
+                                    >
+                                        <div
+                                            class="theme-preview"
+                                            style="
+                                                background: radial-gradient(
+                                                    circle,
+                                                    #5d4000 0%,
+                                                    #8a6000 100%
+                                                );
+                                            "
+                                        ></div>
+                                        <span>Dark Sunny</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="settings-card">
+                            <div class="card-header">
+                                <h4>Text & Display</h4>
+                                <p>
+                                    Adjust text size and visual display options
+                                </p>
+                            </div>
+                            <div class="card-content">
+                                <div class="setting-group">
+                                    <label
+                                        for="font-size-slider"
+                                        class="setting-label"
+                                        >Font Size</label
+                                    >
+                                    <div class="slider-container">
+                                        <input
+                                            type="range"
+                                            id="font-size-slider"
+                                            min="12"
+                                            max="20"
+                                            value="14"
+                                            step="1"
+                                            class="range-slider"
+                                        />
+                                        <div class="slider-labels">
+                                            <span>Small</span>
+                                            <span id="font-size-value"
+                                                >14px</span
+                                            >
+                                            <span>Large</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="setting-group">
+                                    <label
+                                        for="page-zoom-slider"
+                                        class="setting-label"
+                                        >Page Zoom</label
+                                    >
+                                    <div class="slider-container">
+                                        <input
+                                            type="range"
+                                            id="page-zoom-slider"
+                                            min="75"
+                                            max="150"
+                                            value="100"
+                                            step="25"
+                                            class="range-slider"
+                                        />
+                                        <div class="slider-labels">
+                                            <span>75%</span>
+                                            <span id="zoom-value">100%</span>
+                                            <span>150%</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="setting-group">
+                                    <div class="toggle-setting">
+                                        <label class="toggle-switch">
+                                            <input
+                                                type="checkbox"
+                                                id="smooth-scrolling-toggle"
+                                            />
+                                            <span class="slider"></span>
+                                        </label>
+                                        <div class="toggle-info">
+                                            <span class="toggle-label"
+                                                >Smooth Scrolling</span
+                                            >
+                                            <span class="toggle-description"
+                                                >Enable smooth scrolling for a
+                                                more fluid browsing
+                                                experience</span
+                                            >
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="setting-group">
+                                    <div class="toggle-setting">
+                                        <label class="toggle-switch">
+                                            <input
+                                                type="checkbox"
+                                                id="reduced-animations-toggle"
+                                            />
+                                            <span class="slider"></span>
+                                        </label>
+                                        <div class="toggle-info">
+                                            <span class="toggle-label"
+                                                >Reduce Animations</span
+                                            >
+                                            <span class="toggle-description"
+                                                >Minimize visual effects and
+                                                animations for better
+                                                performance</span
+                                            >
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="setting-group">
+                                    <div class="toggle-setting">
+                                        <label class="toggle-switch">
+                                            <input
+                                                type="checkbox"
+                                                id="visual-effects-toggle"
+                                                checked
+                                            />
+                                            <span class="slider"></span>
+                                        </label>
+                                        <div class="toggle-info">
+                                            <span class="toggle-label"
+                                                >Visual Effects (Bloom)</span
+                                            >
+                                            <span class="toggle-description"
+                                                >Enable glow, shadows, and depth
+                                                effects on UI elements</span
+                                            >
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="setting-group">
+                                    <div class="toggle-setting">
+                                        <label class="toggle-switch">
+                                            <input
+                                                type="checkbox"
+                                                id="force-web-dark-toggle-full"
+                                            />
+                                            <span class="slider"></span>
+                                        </label>
+                                        <div class="toggle-info">
+                                            <span class="toggle-label"
+                                                >Force Dark Mode for Web
+                                                Content</span
+                                            >
+                                            <span class="toggle-description"
+                                                >Apply a dark theme overlay to
+                                                web content in all tabs.</span
+                                            >
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="settings-card">
+                            <div class="card-header">
+                                <h4>Tab Behavior</h4>
+                                <p>Configure how tabs work and appear</p>
+                            </div>
+                            <div class="card-content">
+                                <div class="setting-group">
+                                    <div class="toggle-setting">
+                                        <label class="toggle-switch">
+                                            <input
+                                                type="checkbox"
+                                                id="close-tabs-on-exit-toggle"
+                                            />
+                                            <span class="slider"></span>
+                                        </label>
+                                        <div class="toggle-info">
+                                            <span class="toggle-label"
+                                                >Close All Tabs on Exit</span
+                                            >
+                                            <span class="toggle-description"
+                                                >Don't restore tabs when the
+                                                browser starts</span
+                                            >
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="setting-group">
+                                    <div class="toggle-setting">
+                                        <label class="toggle-switch">
+                                            <input
+                                                type="checkbox"
+                                                id="show-tab-previews-toggle"
+                                                checked
+                                            />
+                                            <span class="slider"></span>
+                                        </label>
+                                        <div class="toggle-info">
+                                            <span class="toggle-label"
+                                                >Show Tab Previews</span
+                                            >
+                                            <span class="toggle-description"
+                                                >Display website favicons in
+                                                tabs</span
+                                            >
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="widgets-settings" class="settings-tab-content">
+                        <div class="settings-tab-header">
+                            <h3>Widgets</h3>
+                            <p>
+                                Customize which widgets appear on your new tab
+                                page.
+                            </p>
+                        </div>
+
+                        <div class="widgets-grid">
+                            <div class="widget-card">
+                                <div class="widget-header">
+                                    <div class="widget-info">
+                                        <h4>Weather Widget</h4>
+                                        <p>
+                                            Display current weather conditions
+                                        </p>
+                                    </div>
+                                    <label class="toggle-switch">
+                                        <input
+                                            type="checkbox"
+                                            id="weather-widget-toggle"
+                                            checked
+                                        />
+                                        <span class="slider"></span>
+                                    </label>
+                                </div>
+
+                                <div
+                                    class="widget-settings"
+                                    id="weather-settings-options"
+                                >
+                                    <div class="setting-group">
+                                        <label
+                                            for="weather-location"
+                                            class="setting-label"
+                                            >Location</label
+                                        >
+                                        <div class="input-group">
+                                            <input
+                                                type="text"
+                                                id="weather-location"
+                                                placeholder="Enter city name (e.g., London, New York)"
+                                                list="weather-suggestions"
+                                                class="setting-input"
+                                            />
+                                            <datalist id="weather-suggestions">
+                                                <option
+                                                    value="New York, USA"
+                                                ></option>
+                                                <option
+                                                    value="London, UK"
+                                                ></option>
+                                                <option
+                                                    value="Paris, France"
+                                                ></option>
+                                                <option
+                                                    value="Tokyo, Japan"
+                                                ></option>
+                                                <option
+                                                    value="Sydney, Australia"
+                                                ></option>
+                                                <option
+                                                    value="Berlin, Germany"
+                                                ></option>
+                                                <option
+                                                    value="Toronto, Canada"
+                                                ></option>
+                                                <option
+                                                    value="Mumbai, India"
+                                                ></option>
+                                                <option
+                                                    value="Dubai, UAE"
+                                                ></option>
+                                                <option
+                                                    value="Los Angeles, USA"
+                                                ></option>
+                                            </datalist>
+                                        </div>
+                                        <div class="button-group">
+                                            <button
+                                                id="update-weather-location"
+                                                class="btn-primary"
+                                            >
+                                                Update Location
+                                            </button>
+                                            <button
+                                                id="reset-weather-location"
+                                                class="btn-secondary"
+                                            >
+                                                Use Auto Location
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="widget-card">
+                                <div class="widget-header">
+                                    <div class="widget-info">
+                                        <h4>News Widget</h4>
+                                        <p>Display latest news articles</p>
+                                    </div>
+                                    <label class="toggle-switch">
+                                        <input
+                                            type="checkbox"
+                                            id="news-widget-toggle"
+                                            checked
+                                        />
+                                        <span class="slider"></span>
+                                    </label>
+                                </div>
+
+                                <div
+                                    class="widget-settings"
+                                    id="news-settings-options"
+                                >
+                                    <div class="setting-group">
+                                        <label
+                                            for="news-country"
+                                            class="setting-label"
+                                            >News Region</label
+                                        >
+                                        <select
+                                            id="news-country"
+                                            class="setting-select"
+                                        >
+                                            <option value="us">
+                                                United States
+                                            </option>
+                                            <option value="gb">
+                                                United Kingdom
+                                            </option>
+                                            <option value="ca">Canada</option>
+                                            <option value="au">
+                                                Australia
+                                            </option>
+                                            <option value="de">Germany</option>
+                                            <option value="fr">France</option>
+                                            <option value="jp">Japan</option>
+                                            <option value="in">India</option>
+                                        </select>
+                                    </div>
+
+                                    <div class="setting-group">
+                                        <label class="setting-label"
+                                            >Category</label
+                                        >
+                                        <div class="toggle-group">
+                                            <div class="toggle-option">
+                                                <label class="toggle-switch">
+                                                    <input
+                                                        type="radio"
+                                                        name="news-category"
+                                                        id="news-general"
+                                                        value="general"
+                                                        checked
+                                                    />
+                                                    <span class="slider"></span>
+                                                </label>
+                                                <span class="toggle-label"
+                                                    >General</span
+                                                >
+                                            </div>
+                                            <div class="toggle-option">
+                                                <label class="toggle-switch">
+                                                    <input
+                                                        type="radio"
+                                                        name="news-category"
+                                                        id="news-technology"
+                                                        value="technology"
+                                                    />
+                                                    <span class="slider"></span>
+                                                </label>
+                                                <span class="toggle-label"
+                                                    >Technology</span
+                                                >
+                                            </div>
+                                            <div class="toggle-option">
+                                                <label class="toggle-switch">
+                                                    <input
+                                                        type="radio"
+                                                        name="news-category"
+                                                        id="news-business"
+                                                        value="business"
+                                                    />
+                                                    <span class="slider"></span>
+                                                </label>
+                                                <span class="toggle-label"
+                                                    >Business</span
+                                                >
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="privacy-settings" class="settings-tab-content">
+                        <div class="settings-tab-header">
+                            <h3>Privacy & Data</h3>
+                            <p>Manage your browsing history and stored data.</p>
+                        </div>
+
+                        <div class="settings-grid">
+                            <div class="settings-card">
+                                <div class="card-header">
+                                    <h4>Browsing History</h4>
+                                    <p>
+                                        Manage your browsing history and saved
+                                        data
+                                    </p>
+                                </div>
+                                <div class="card-actions">
+                                    <button
+                                        id="clear-history-btn"
+                                        class="btn-secondary danger"
+                                    >
+                                        Clear Browsing History
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div class="settings-card">
+                                <div class="card-header">
+                                    <h4>Cookies & Site Data</h4>
+                                    <p>
+                                        View and manage cookies stored by
+                                        websites
+                                    </p>
+                                </div>
+                                <div class="card-actions">
+                                    <div class="button-group">
+                                        <button
+                                            id="view-cookies-btn"
+                                            class="btn-primary"
+                                        >
+                                            View All Cookies
+                                        </button>
+                                        <button
+                                            id="clear-cookies-btn"
+                                            class="btn-secondary danger"
+                                        >
+                                            Clear All Cookies
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="settings-card">
+                                <div class="card-header">
+                                    <h4>Clear All Data</h4>
+                                    <p>
+                                        Remove all browsing data including
+                                        history, cookies, and stored site data
+                                    </p>
+                                </div>
+                                <div class="card-actions">
+                                    <button
+                                        id="clear-all-data-btn"
+                                        class="btn-secondary danger"
+                                    >
+                                        Clear All Browsing Data
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div class="settings-card">
+                                <div class="card-header">
+                                    <h4>🕵️ Tracker Blocking</h4>
+                                    <p>
+                                        Block known tracking scripts, pixels,
+                                        and analytics beacons
+                                    </p>
+                                </div>
+                                <div class="card-content">
+                                    <div class="setting-group">
+                                        <div class="toggle-setting">
+                                            <label class="toggle-switch">
+                                                <input
+                                                    type="checkbox"
+                                                    id="tracker-blocking-toggle"
+                                                />
+                                                <span class="slider"></span>
+                                            </label>
+                                            <div class="toggle-info">
+                                                <span class="toggle-label"
+                                                    >Block Trackers</span
+                                                >
+                                                <span class="toggle-description"
+                                                    >Block cross-site tracking
+                                                    scripts and analytics using
+                                                    EasyPrivacy filters</span
+                                                >
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="setting-group">
+                                        <div class="toggle-setting">
+                                            <label class="toggle-switch">
+                                                <input
+                                                    type="checkbox"
+                                                    id="dnt-toggle"
+                                                />
+                                                <span class="slider"></span>
+                                            </label>
+                                            <div class="toggle-info">
+                                                <span class="toggle-label"
+                                                    >Send "Do Not Track"</span
+                                                >
+                                                <span class="toggle-description"
+                                                    >Ask websites not to track
+                                                    your browsing (DNT &amp; GPC
+                                                    headers)</span
+                                                >
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="settings-card">
+                                <div class="card-header">
+                                    <h4>🔒 Advanced Privacy</h4>
+                                    <p>
+                                        Fine-grained controls over how your
+                                        browser sends data to websites
+                                    </p>
+                                </div>
+                                <div class="card-content">
+                                    <div class="setting-group">
+                                        <div class="toggle-setting">
+                                            <label class="toggle-switch">
+                                                <input
+                                                    type="checkbox"
+                                                    id="https-upgrade-toggle"
+                                                />
+                                                <span class="slider"></span>
+                                            </label>
+                                            <div class="toggle-info">
+                                                <span class="toggle-label"
+                                                    >Always Use HTTPS</span
+                                                >
+                                                <span class="toggle-description"
+                                                    >Automatically upgrade HTTP
+                                                    connections to HTTPS where
+                                                    possible</span
+                                                >
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="setting-group">
+                                        <div class="toggle-setting">
+                                            <label class="toggle-switch">
+                                                <input
+                                                    type="checkbox"
+                                                    id="referrer-policy-toggle"
+                                                />
+                                                <span class="slider"></span>
+                                            </label>
+                                            <div class="toggle-info">
+                                                <span class="toggle-label"
+                                                    >Strict Referrer
+                                                    Policy</span
+                                                >
+                                                <span class="toggle-description"
+                                                    >Only send your page's
+                                                    origin (not the full URL) to
+                                                    other sites — prevents
+                                                    referrer leaking</span
+                                                >
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Cookie Viewer Modal -->
+                        <div id="cookie-modal" class="modal">
+                            <div class="modal-content">
+                                <div class="modal-header">
+                                    <h3>Cookies & Site Data</h3>
+                                    <button
+                                        id="close-cookie-modal"
+                                        class="close-btn"
+                                    >
+                                        &times;
+                                    </button>
+                                </div>
+                                <div class="modal-body">
+                                    <div id="cookies-list"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="performance-settings" class="settings-tab-content">
+                        <div class="settings-tab-header">
+                            <h3>Performance & Memory</h3>
+                            <p>
+                                Monitor and optimize browser performance and
+                                memory usage.
+                            </p>
+                        </div>
+
+                        <div class="settings-card">
+                            <div class="card-header">
+                                <h4>Memory Usage</h4>
+                                <p>
+                                    Current memory consumption and optimization
+                                    controls
+                                </p>
+                            </div>
+                            <div class="card-content">
+                                <div class="info-item">
+                                    <span class="info-label">RAM Usage:</span>
+                                    <span class="info-value" id="memory-rss"
+                                        >Loading...</span
+                                    >
+                                </div>
+                                <div class="info-item">
+                                    <span class="info-label">Heap Memory:</span>
+                                    <span class="info-value" id="memory-heap"
+                                        >Loading...</span
+                                    >
+                                </div>
+                                <div class="info-item">
+                                    <span class="info-label">Total Tabs:</span>
+                                    <span class="info-value" id="memory-tabs"
+                                        >Loading...</span
+                                    >
+                                </div>
+                                <div class="info-item">
+                                    <span class="info-label"
+                                        >Hibernated Tabs:</span
+                                    >
+                                    <span
+                                        class="info-value"
+                                        id="memory-hibernated"
+                                        >Loading...</span
+                                    >
+                                </div>
+                            </div>
+                            <div class="card-actions">
+                                <div class="button-group">
+                                    <button
+                                        id="refresh-memory-btn"
+                                        class="btn-primary"
+                                    >
+                                        Refresh Memory Info
+                                    </button>
+                                    <button
+                                        id="force-gc-btn"
+                                        class="btn-secondary"
+                                    >
+                                        Force Garbage Collection
+                                    </button>
+                                    <button
+                                        id="hibernate-tabs-btn"
+                                        class="btn-secondary"
+                                    >
+                                        Hibernate Inactive Tabs
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="settings-card">
+                            <div class="card-header">
+                                <h4>Developer Monitor</h4>
+                                <p>
+                                    Live CPU, RAM, GPU, and network telemetry
+                                    for troubleshooting and optimization.
+                                </p>
+                            </div>
+                            <div class="card-content">
+                                <div class="info-item">
+                                    <span class="info-label">App CPU:</span>
+                                    <span class="info-value" id="perf-cpu-app"
+                                        >Loading...</span
+                                    >
+                                </div>
+                                <div class="info-item">
+                                    <span class="info-label">System CPU:</span>
+                                    <span
+                                        class="info-value"
+                                        id="perf-cpu-system"
+                                        >Loading...</span
+                                    >
+                                </div>
+                                <div class="info-item">
+                                    <span class="info-label">App RAM:</span>
+                                    <span class="info-value" id="perf-ram-app"
+                                        >Loading...</span
+                                    >
+                                </div>
+                                <div class="info-item">
+                                    <span class="info-label">System RAM:</span>
+                                    <span
+                                        class="info-value"
+                                        id="perf-ram-system"
+                                        >Loading...</span
+                                    >
+                                </div>
+                                <div class="info-item">
+                                    <span class="info-label">GPU:</span>
+                                    <span class="info-value" id="perf-gpu"
+                                        >Loading...</span
+                                    >
+                                </div>
+                                <div class="info-item">
+                                    <span class="info-label"
+                                        >Network (10s avg):</span
+                                    >
+                                    <span
+                                        class="info-value"
+                                        id="perf-network-rate"
+                                        >Loading...</span
+                                    >
+                                </div>
+                                <div class="info-item">
+                                    <span class="info-label"
+                                        >Network Latency:</span
+                                    >
+                                    <span
+                                        class="info-value"
+                                        id="perf-network-latency"
+                                        >Loading...</span
+                                    >
+                                </div>
+                                <div class="info-item">
+                                    <span class="info-label"
+                                        >Requests (1 min):</span
+                                    >
+                                    <span
+                                        class="info-value"
+                                        id="perf-network-requests"
+                                        >Loading...</span
+                                    >
+                                </div>
+                            </div>
+                            <div class="card-actions">
+                                <div class="button-group">
+                                    <button
+                                        id="refresh-monitor-btn"
+                                        class="btn-primary"
+                                    >
+                                        Refresh Monitor
+                                    </button>
+                                    <button
+                                        id="toggle-live-monitor-btn"
+                                        class="btn-secondary"
+                                    >
+                                        Start Live Monitor
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="settings-card">
+                            <div class="card-header">
+                                <h4>Live Tuning</h4>
+                                <p>
+                                    Adjust resource behavior live. These values
+                                    are persisted using your current storage.
+                                </p>
+                            </div>
+                            <div class="card-content">
+                                <div class="setting-group">
+                                    <label
+                                        for="memory-threshold-slider"
+                                        class="setting-label"
+                                        >Memory Pressure Threshold</label
+                                    >
+                                    <div class="slider-container">
+                                        <input
+                                            type="range"
+                                            id="memory-threshold-slider"
+                                            min="512"
+                                            max="4096"
+                                            value="1024"
+                                            step="128"
+                                            class="range-slider"
+                                        />
+                                        <div class="slider-labels">
+                                            <span>512 MB</span>
+                                            <span id="memory-threshold-value"
+                                                >1024 MB</span
+                                            >
+                                            <span>4096 MB</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="setting-group">
+                                    <label
+                                        for="max-inactive-tabs-slider"
+                                        class="setting-label"
+                                        >Max Hibernated Tabs</label
+                                    >
+                                    <div class="slider-container">
+                                        <input
+                                            type="range"
+                                            id="max-inactive-tabs-slider"
+                                            min="1"
+                                            max="30"
+                                            value="10"
+                                            step="1"
+                                            class="range-slider"
+                                        />
+                                        <div class="slider-labels">
+                                            <span>1</span>
+                                            <span id="max-inactive-tabs-value"
+                                                >10</span
+                                            >
+                                            <span>30</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="setting-group">
+                                    <label
+                                        for="hibernation-delay-slider"
+                                        class="setting-label"
+                                        >Hibernate Delay</label
+                                    >
+                                    <div class="slider-container">
+                                        <input
+                                            type="range"
+                                            id="hibernation-delay-slider"
+                                            min="1"
+                                            max="60"
+                                            value="10"
+                                            step="1"
+                                            class="range-slider"
+                                        />
+                                        <div class="slider-labels">
+                                            <span>1 min</span>
+                                            <span id="hibernation-delay-value"
+                                                >10 min</span
+                                            >
+                                            <span>60 min</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="card-actions">
+                                <div class="button-group">
+                                    <button
+                                        id="apply-performance-config-btn"
+                                        class="btn-primary"
+                                    >
+                                        Apply Live Tuning
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="about-settings" class="settings-tab-content">
+                        <div class="settings-tab-header">
+                            <h3>About Vortex</h3>
+                            <p>Information about your browser and version.</p>
+                        </div>
+
+                        <div class="settings-card">
+                            <div class="card-header">
+                                <h4>Browser Information</h4>
+                                <p>Current version and build details</p>
+                            </div>
+                            <div class="card-content">
+                                <div class="info-item">
+                                    <span class="info-label">Application:</span>
+                                    <span class="info-value"
+                                        >Vortex Web Browser</span
+                                    >
+                                </div>
+                                <div class="info-item">
+                                    <span class="info-label">Version:</span>
+                                    <span class="info-value" id="app-version"
+                                        >Loading...</span
+                                    >
+                                </div>
+                                <div class="info-item">
+                                    <span class="info-label">Build Date:</span>
+                                    <span class="info-value" id="build-date"
+                                        >Loading...</span
+                                    >
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </main>
+            </div>
         </div>
-      </aside>
-      <main id="full-settings-main">
-        <div id="general-settings" class="settings-tab-content active">
-          <div class="settings-tab-header">
-            <h3>General Settings</h3>
-            <p>Configure your browser's core functionality and behavior.</p>
-          </div>
-          
-          <div class="settings-grid">
-            <div class="settings-card">
-              <div class="card-header">
-                <h4>🚀 Startup & Navigation</h4>
-                <p>Control how your browser starts and navigates</p>
-              </div>
-              <div class="card-content">
-                <div class="setting-group">
-                  <label class="setting-label">When browser starts</label>
-                  <div class="toggle-group">
-                    <div class="toggle-option">
-                      <label class="toggle-switch">
-                        <input type="radio" name="start-page" id="start-homepage" value="homepage">
-                        <span class="slider"></span>
-                      </label>
-                      <span class="toggle-label">Open homepage</span>
-                    </div>
-                    <div class="toggle-option">
-                      <label class="toggle-switch">
-                        <input type="radio" name="start-page" id="start-newtab" value="newtab" checked>
-                        <span class="slider"></span>
-                      </label>
-                      <span class="toggle-label">Open new tab page</span>
-                    </div>
-                    <div class="toggle-option">
-                      <label class="toggle-switch">
-                        <input type="radio" name="start-page" id="start-lastsession" value="lastsession">
-                        <span class="slider"></span>
-                      </label>
-                      <span class="toggle-label">Restore last session</span>
-                    </div>
-                  </div>
-                </div>
-                
-                <div class="setting-group">
-                  <label for="homepage-input-full" class="setting-label">Homepage URL</label>
-                  <div class="input-group">
-                    <input type="text" id="homepage-input-full" placeholder="https://www.example.com" class="setting-input">
-                    <button id="save-homepage-full" class="btn-secondary">Save</button>
-                  </div>
-                </div>
-
-                <div class="setting-group">
-                  <label for="new-tab-behavior" class="setting-label">New tab behavior</label>
-                  <select id="new-tab-behavior" class="setting-select">
-                    <option value="newtab">Show new tab page</option>
-                    <option value="homepage">Show homepage</option>
-                    <option value="blank">Show blank page</option>
-                  </select>
-                </div>
-              </div>
-            </div>
-
-            <div class="settings-card">
-              <div class="card-header">
-                <h4>🔍 Search & Navigation</h4>
-                <p>Configure search engine and address bar behavior</p>
-              </div>
-              <div class="card-content">
-                <div class="setting-group">
-                  <label class="setting-label">Default search engine</label>
-                  <div class="toggle-group">
-                    <div class="toggle-option">
-                      <label class="toggle-switch">
-                        <input type="radio" name="search-engine" id="search-google" value="google" checked>
-                        <span class="slider"></span>
-                      </label>
-                      <span class="toggle-label">Google</span>
-                    </div>
-                    <div class="toggle-option">
-                      <label class="toggle-switch">
-                        <input type="radio" name="search-engine" id="search-bing" value="bing">
-                        <span class="slider"></span>
-                      </label>
-                      <span class="toggle-label">Microsoft Bing</span>
-                    </div>
-                    <div class="toggle-option">
-                      <label class="toggle-switch">
-                        <input type="radio" name="search-engine" id="search-duckduckgo" value="duckduckgo">
-                        <span class="slider"></span>
-                      </label>
-                      <span class="toggle-label">DuckDuckGo</span>
-                    </div>
-                  </div>
-                </div>
-                
-                <div class="setting-group" id="custom-search-group" style="display: none;">
-                  <label for="custom-search-url" class="setting-label">Custom search URL</label>
-                  <input type="text" id="custom-search-url" placeholder="https://example.com/search?q=%s" class="setting-input">
-                  <p style="font-size: 12px; color: #666; margin-top: 4px;">Use %s as placeholder for search terms</p>
-                </div>
-
-                <div class="setting-group">
-                  <div class="toggle-setting">
-                    <label class="toggle-switch">
-                      <input type="checkbox" id="search-suggestions-toggle" checked>
-                      <span class="slider"></span>
-                    </label>
-                    <div class="toggle-info">
-                      <span class="toggle-label">Show search suggestions</span>
-                      <span class="toggle-description">Display search suggestions in the address bar</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div class="settings-card">
-              <div class="card-header">
-                <h4>📂 Downloads & Files</h4>
-                <p>Manage download location and file handling</p>
-              </div>
-              <div class="card-content">
-                <div class="setting-group">
-                  <label for="download-location" class="setting-label">Download location</label>
-                  <div class="button-group">
-                    <input type="text" id="download-location" class="setting-input" readonly>
-                    <button id="choose-download-folder" class="btn-secondary">Choose Folder</button>
-                  </div>
-                </div>
-
-                <div class="setting-group">
-                  <div class="toggle-setting">
-                    <label class="toggle-switch">
-                      <input type="checkbox" id="ask-download-location-toggle">
-                      <span class="slider"></span>
-                    </label>
-                    <div class="toggle-info">
-                      <span class="toggle-label">Ask where to save files</span>
-                      <span class="toggle-description">Prompt for download location before downloading</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div class="settings-card">
-              <div class="card-header">
-                <h4>🔗 Advanced</h4>
-                <p>Advanced browser configuration and developer options</p>
-              </div>
-              <div class="card-content">
-                <div class="setting-group">
-                  <label for="user-agent-input-full" class="setting-label">Custom User Agent</label>
-                  <input type="text" id="user-agent-input-full" placeholder="Leave empty for default" class="setting-input">
-                  <p style="font-size: 12px; color: #666; margin-top: 4px;">Override the browser's user agent string</p>
-                </div>
-
-                <div class="setting-group">
-                  <div class="toggle-setting">
-                    <label class="toggle-switch">
-                      <input type="checkbox" id="javascript-enabled-toggle" checked>
-                      <span class="slider"></span>
-                    </label>
-                    <div class="toggle-info">
-                      <span class="toggle-label">Enable JavaScript</span>
-                      <span class="toggle-description">Allow websites to run JavaScript (recommended)</span>
-                    </div>
-                  </div>
-                </div>
-
-                <div class="setting-group">
-                  <div class="toggle-setting">
-                    <label class="toggle-switch">
-                      <input type="checkbox" id="images-enabled-toggle" checked>
-                      <span class="slider"></span>
-                    </label>
-                    <div class="toggle-info">
-                      <span class="toggle-label">Load images</span>
-                      <span class="toggle-description">Download and display images on websites</span>
-                    </div>
-                  </div>
-                </div>
-
-                <div class="setting-group">
-                  <div class="toggle-setting">
-                    <label class="toggle-switch">
-                      <input type="checkbox" id="popup-blocker-toggle" checked>
-                      <span class="slider"></span>
-                    </label>
-                    <div class="toggle-info">
-                      <span class="toggle-label">Block pop-ups</span>
-                      <span class="toggle-description">Prevent websites from opening unwanted pop-up windows</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div id="appearance-settings" class="settings-tab-content">
-          <div class="settings-tab-header">
-            <h3>Appearance</h3>
-            <p>Customize the look and feel of your browser.</p>
-          </div>
-          
-          <div class="settings-card">
-            <div class="card-header">
-              <h4>Themes</h4>
-              <p>Choose a theme to personalize your browser's appearance</p>
-            </div>
-            
-            <div class="theme-selector">
-              <h5>Light Themes</h5>
-              <div class="theme-options">
-                <div class="theme-option" data-theme="light">
-                  <div class="theme-preview" style="background: #fff;"></div>
-                  <span>Default Light</span>
-                </div>
-                <div class="theme-option" data-theme="light-mint">
-                  <div class="theme-preview" style="background: radial-gradient(circle, #c1fdd1 0%, #a8eec1 100%);"></div>
-                  <span>Mint</span>
-                </div>
-                <div class="theme-option" data-theme="light-sakura">
-                  <div class="theme-preview" style="background: radial-gradient(circle, #ffc0cb 0%, #ffb6c1 100%);"></div>
-                  <span>Sakura</span>
-                </div>
-                <div class="theme-option" data-theme="light-sunny">
-                  <div class="theme-preview" style="background: radial-gradient(circle, #fff176 0%, #ffeb3b 100%);"></div>
-                  <span>Sunny</span>
-                </div>
-              </div>
-            </div>
-
-            <div class="theme-selector">
-              <h5>Dark Themes</h5>
-              <div class="theme-options">
-                <div class="theme-option" data-theme="dark">
-                  <div class="theme-preview" style="background: #1a1a1a;"></div>
-                  <span>Default Dark</span>
-                </div>
-                <div class="theme-option" data-theme="dark-purple">
-                  <div class="theme-preview" style="background: radial-gradient(circle, #6a1b9a 0%, #ab47bc 100%);"></div>
-                  <span>Purple</span>
-                </div>
-                <div class="theme-option" data-theme="dark-nord">
-                  <div class="theme-preview" style="background: radial-gradient(circle, #4c566a 0%, #3b4252 100%);"></div>
-                  <span>Nord</span>
-                </div>
-                <div class="theme-option" data-theme="dark-forest">
-                  <div class="theme-preview" style="background: radial-gradient(circle, #5a6d5a 0%, #4a5d4a 100%);"></div>
-                  <span>Forest</span>
-                </div>
-                <div class="theme-option" data-theme="dark-rose">
-                  <div class="theme-preview" style="background: radial-gradient(circle, #7a5a77 0%, #664b63 100%);"></div>
-                  <span>Rose</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        
-          <div class="settings-card">
-            <div class="card-header">
-              <h4>Text & Display</h4>
-              <p>Adjust text size and visual display options</p>
-            </div>
-            <div class="card-content">
-              <div class="setting-group">
-                <label for="font-size-slider" class="setting-label">Font Size</label>
-                <div class="slider-container">
-                  <input type="range" id="font-size-slider" min="12" max="20" value="14" step="1" class="range-slider">
-                  <div class="slider-labels">
-                    <span>Small</span>
-                    <span id="font-size-value">14px</span>
-                    <span>Large</span>
-                  </div>
-                </div>
-              </div>
-              
-              <div class="setting-group">
-                <label for="page-zoom-slider" class="setting-label">Page Zoom</label>
-                <div class="slider-container">
-                  <input type="range" id="page-zoom-slider" min="75" max="150" value="100" step="25" class="range-slider">
-                  <div class="slider-labels">
-                    <span>75%</span>
-                    <span id="zoom-value">100%</span>
-                    <span>150%</span>
-                  </div>
-                </div>
-              </div>
-
-              <div class="setting-group">
-                <div class="toggle-setting">
-                  <label class="toggle-switch">
-                      <input type="checkbox" id="smooth-scrolling-toggle">
-                    <span class="slider"></span>
-                  </label>
-                  <div class="toggle-info">
-                    <span class="toggle-label">Smooth Scrolling</span>
-                    <span class="toggle-description">Enable smooth scrolling for a more fluid browsing experience</span>
-                  </div>
-                </div>
-              </div>
-
-              <div class="setting-group">
-                <div class="toggle-setting">
-                  <label class="toggle-switch">
-                    <input type="checkbox" id="reduced-animations-toggle">
-                    <span class="slider"></span>
-                  </label>
-                  <div class="toggle-info">
-                    <span class="toggle-label">Reduce Animations</span>
-                    <span class="toggle-description">Minimize visual effects and animations for better performance</span>
-                  </div>
-                </div>
-              </div>
-
-              <div class="setting-group">
-                <div class="toggle-setting">
-                  <label class="toggle-switch">
-                    <input type="checkbox" id="visual-effects-toggle" checked>
-                    <span class="slider"></span>
-                  </label>
-                  <div class="toggle-info">
-                    <span class="toggle-label">Visual Effects (Bloom)</span>
-                    <span class="toggle-description">Enable glow, shadows, and depth effects on UI elements</span>
-                  </div>
-                </div>
-              </div>
-              <div class="setting-group">
-                <div class="toggle-setting">
-                  <label class="toggle-switch">
-                    <input type="checkbox" id="force-web-dark-toggle-full">
-                    <span class="slider"></span>
-                  </label>
-                  <div class="toggle-info">
-                    <span class="toggle-label">Force Dark Mode for Web Content</span>
-                    <span class="toggle-description">Apply a dark theme overlay to web content in all tabs.</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div class="settings-card">
-            <div class="card-header">
-              <h4>Tab Behavior</h4>
-              <p>Configure how tabs work and appear</p>
-            </div>
-            <div class="card-content">
-              <div class="setting-group">
-                <div class="toggle-setting">
-                  <label class="toggle-switch">
-                    <input type="checkbox" id="close-tabs-on-exit-toggle">
-                    <span class="slider"></span>
-                  </label>
-                  <div class="toggle-info">
-                    <span class="toggle-label">Close All Tabs on Exit</span>
-                    <span class="toggle-description">Don't restore tabs when the browser starts</span>
-                  </div>
-                </div>
-              </div>
-
-              <div class="setting-group">
-                <div class="toggle-setting">
-                  <label class="toggle-switch">
-                    <input type="checkbox" id="show-tab-previews-toggle" checked>
-                    <span class="slider"></span>
-                  </label>
-                  <div class="toggle-info">
-                    <span class="toggle-label">Show Tab Previews</span>
-                    <span class="toggle-description">Display website favicons and titles in tabs</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div id="widgets-settings" class="settings-tab-content">
-          <div class="settings-tab-header">
-            <h3>Widgets</h3>
-            <p>Customize which widgets appear on your new tab page.</p>
-          </div>
-          
-          <div class="widgets-grid">
-            <div class="widget-card">
-              <div class="widget-header">
-                <div class="widget-info">
-                  <h4>Weather Widget</h4>
-                  <p>Display current weather conditions</p>
-                </div>
-                <label class="toggle-switch">
-                  <input type="checkbox" id="weather-widget-toggle" checked>
-                  <span class="slider"></span>
-                </label>
-              </div>
-              
-              <div class="widget-settings" id="weather-settings-options">
-                <div class="setting-group">
-                  <label for="weather-location" class="setting-label">Location</label>
-                  <div class="input-group">
-                    <input 
-                      type="text" 
-                      id="weather-location" 
-                      placeholder="Enter city name (e.g., London, New York)" 
-                      list="weather-suggestions" 
-                      class="setting-input"
-                    />
-                    <datalist id="weather-suggestions">
-                      <option value="New York, USA">
-                      <option value="London, UK">
-                      <option value="Paris, France">
-                      <option value="Tokyo, Japan">
-                      <option value="Sydney, Australia">
-                      <option value="Berlin, Germany">
-                      <option value="Toronto, Canada">
-                      <option value="Mumbai, India">
-                      <option value="Dubai, UAE">
-                      <option value="Los Angeles, USA">
-                    </datalist>
-                  </div>
-                  <div class="button-group">
-                    <button id="update-weather-location" class="btn-primary">Update Location</button>
-                    <button id="reset-weather-location" class="btn-secondary">Use Auto Location</button>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div class="widget-card">
-              <div class="widget-header">
-                <div class="widget-info">
-                  <h4>News Widget</h4>
-                  <p>Display latest news articles</p>
-                </div>
-                <label class="toggle-switch">
-                  <input type="checkbox" id="news-widget-toggle" checked>
-                  <span class="slider"></span>
-                </label>
-              </div>
-              
-              <div class="widget-settings" id="news-settings-options">
-                <div class="setting-group">
-                  <label for="news-country" class="setting-label">News Region</label>
-                  <select id="news-country" class="setting-select">
-                    <option value="us">United States</option>
-                    <option value="gb">United Kingdom</option>
-                    <option value="ca">Canada</option>
-                    <option value="au">Australia</option>
-                    <option value="de">Germany</option>
-                    <option value="fr">France</option>
-                    <option value="jp">Japan</option>
-                    <option value="in">India</option>
-                  </select>
-                </div>
-                
-                <div class="setting-group">
-                  <label class="setting-label">Category</label>
-                  <div class="toggle-group">
-                    <div class="toggle-option">
-                      <label class="toggle-switch">
-                        <input type="radio" name="news-category" id="news-general" value="general" checked>
-                        <span class="slider"></span>
-                      </label>
-                      <span class="toggle-label">General</span>
-                    </div>
-                    <div class="toggle-option">
-                      <label class="toggle-switch">
-                        <input type="radio" name="news-category" id="news-technology" value="technology">
-                        <span class="slider"></span>
-                      </label>
-                      <span class="toggle-label">Technology</span>
-                    </div>
-                    <div class="toggle-option">
-                      <label class="toggle-switch">
-                        <input type="radio" name="news-category" id="news-business" value="business">
-                        <span class="slider"></span>
-                      </label>
-                      <span class="toggle-label">Business</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-        <div id="privacy-settings" class="settings-tab-content">
-          <div class="settings-tab-header">
-            <h3>Privacy & Data</h3>
-            <p>Manage your browsing history and stored data.</p>
-          </div>
-          
-          <div class="settings-grid">
-            <div class="settings-card">
-              <div class="card-header">
-                <h4>Browsing History</h4>
-                <p>Manage your browsing history and saved data</p>
-              </div>
-              <div class="card-actions">
-                <button id="clear-history-btn" class="btn-secondary danger">Clear Browsing History</button>
-              </div>
-            </div>
-
-            <div class="settings-card">
-              <div class="card-header">
-                <h4>Cookies & Site Data</h4>
-                <p>View and manage cookies stored by websites</p>
-              </div>
-              <div class="card-actions">
-                <div class="button-group">
-                  <button id="view-cookies-btn" class="btn-primary">View All Cookies</button>
-                  <button id="clear-cookies-btn" class="btn-secondary danger">Clear All Cookies</button>
-                </div>
-              </div>
-            </div>
-
-            <div class="settings-card">
-              <div class="card-header">
-                <h4>Clear All Data</h4>
-                <p>Remove all browsing data including history, cookies, and stored site data</p>
-              </div>
-              <div class="card-actions">
-                <button id="clear-all-data-btn" class="btn-secondary danger">Clear All Browsing Data</button>
-              </div>
-            </div>
-          </div>
-
-          <!-- Cookie Viewer Modal -->
-          <div id="cookie-modal" class="modal">
-            <div class="modal-content">
-              <div class="modal-header">
-                <h3>Cookies & Site Data</h3>
-                <button id="close-cookie-modal" class="close-btn">&times;</button>
-              </div>
-              <div class="modal-body">
-                <div id="cookies-list"></div>
-              </div>
-            </div>
-          </div>
-        </div>
-        <div id="performance-settings" class="settings-tab-content">
-          <div class="settings-tab-header">
-            <h3>Performance & Memory</h3>
-            <p>Monitor and optimize browser performance and memory usage.</p>
-          </div>
-          
-          <div class="settings-card">
-            <div class="card-header">
-              <h4>Memory Usage</h4>
-              <p>Current memory consumption and optimization controls</p>
-            </div>
-            <div class="card-content">
-              <div class="info-item">
-                <span class="info-label">RAM Usage:</span>
-                <span class="info-value" id="memory-rss">Loading...</span>
-              </div>
-              <div class="info-item">
-                <span class="info-label">Heap Memory:</span>
-                <span class="info-value" id="memory-heap">Loading...</span>
-              </div>
-              <div class="info-item">
-                <span class="info-label">Total Tabs:</span>
-                <span class="info-value" id="memory-tabs">Loading...</span>
-              </div>
-              <div class="info-item">
-                <span class="info-label">Hibernated Tabs:</span>
-                <span class="info-value" id="memory-hibernated">Loading...</span>
-              </div>
-            </div>
-            <div class="card-actions">
-              <div class="button-group">
-                <button id="refresh-memory-btn" class="btn-primary">Refresh Memory Info</button>
-                <button id="force-gc-btn" class="btn-secondary">Force Garbage Collection</button>
-                <button id="hibernate-tabs-btn" class="btn-secondary">Hibernate Inactive Tabs</button>
-              </div>
-            </div>
-          </div>
-
-          <div class="settings-card">
-            <div class="card-header">
-              <h4>Developer Monitor</h4>
-              <p>Live CPU, RAM, GPU, and network telemetry for troubleshooting and optimization.</p>
-            </div>
-            <div class="card-content">
-              <div class="info-item">
-                <span class="info-label">App CPU:</span>
-                <span class="info-value" id="perf-cpu-app">Loading...</span>
-              </div>
-              <div class="info-item">
-                <span class="info-label">System CPU:</span>
-                <span class="info-value" id="perf-cpu-system">Loading...</span>
-              </div>
-              <div class="info-item">
-                <span class="info-label">App RAM:</span>
-                <span class="info-value" id="perf-ram-app">Loading...</span>
-              </div>
-              <div class="info-item">
-                <span class="info-label">System RAM:</span>
-                <span class="info-value" id="perf-ram-system">Loading...</span>
-              </div>
-              <div class="info-item">
-                <span class="info-label">GPU:</span>
-                <span class="info-value" id="perf-gpu">Loading...</span>
-              </div>
-              <div class="info-item">
-                <span class="info-label">Network (10s avg):</span>
-                <span class="info-value" id="perf-network-rate">Loading...</span>
-              </div>
-              <div class="info-item">
-                <span class="info-label">Network Latency:</span>
-                <span class="info-value" id="perf-network-latency">Loading...</span>
-              </div>
-              <div class="info-item">
-                <span class="info-label">Requests (1 min):</span>
-                <span class="info-value" id="perf-network-requests">Loading...</span>
-              </div>
-            </div>
-            <div class="card-actions">
-              <div class="button-group">
-                <button id="refresh-monitor-btn" class="btn-primary">Refresh Monitor</button>
-                <button id="toggle-live-monitor-btn" class="btn-secondary">Start Live Monitor</button>
-              </div>
-            </div>
-          </div>
-
-          <div class="settings-card">
-            <div class="card-header">
-              <h4>Live Tuning</h4>
-              <p>Adjust resource behavior live. These values are persisted using your current storage.</p>
-            </div>
-            <div class="card-content">
-              <div class="setting-group">
-                <label for="memory-threshold-slider" class="setting-label">Memory Pressure Threshold</label>
-                <div class="slider-container">
-                  <input type="range" id="memory-threshold-slider" min="512" max="4096" value="1024" step="128" class="range-slider">
-                  <div class="slider-labels">
-                    <span>512 MB</span>
-                    <span id="memory-threshold-value">1024 MB</span>
-                    <span>4096 MB</span>
-                  </div>
-                </div>
-              </div>
-
-              <div class="setting-group">
-                <label for="max-inactive-tabs-slider" class="setting-label">Max Hibernated Tabs</label>
-                <div class="slider-container">
-                  <input type="range" id="max-inactive-tabs-slider" min="1" max="30" value="10" step="1" class="range-slider">
-                  <div class="slider-labels">
-                    <span>1</span>
-                    <span id="max-inactive-tabs-value">10</span>
-                    <span>30</span>
-                  </div>
-                </div>
-              </div>
-
-              <div class="setting-group">
-                <label for="hibernation-delay-slider" class="setting-label">Hibernate Delay</label>
-                <div class="slider-container">
-                  <input type="range" id="hibernation-delay-slider" min="1" max="60" value="10" step="1" class="range-slider">
-                  <div class="slider-labels">
-                    <span>1 min</span>
-                    <span id="hibernation-delay-value">10 min</span>
-                    <span>60 min</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-            <div class="card-actions">
-              <div class="button-group">
-                <button id="apply-performance-config-btn" class="btn-primary">Apply Live Tuning</button>
-              </div>
-            </div>
-          </div>
-        </div>
-        <div id="about-settings" class="settings-tab-content">
-          <div class="settings-tab-header">
-            <h3>About Vortex</h3>
-            <p>Information about your browser and version.</p>
-          </div>
-          
-          <div class="settings-card">
-            <div class="card-header">
-              <h4>Browser Information</h4>
-              <p>Current version and build details</p>
-            </div>
-            <div class="card-content">
-              <div class="info-item">
-                <span class="info-label">Application:</span>
-                <span class="info-value">Vortex Web Browser</span>
-              </div>
-              <div class="info-item">
-                <span class="info-label">Version:</span>
-                <span class="info-value" id="app-version">Loading...</span>
-              </div>
-              <div class="info-item">
-                <span class="info-label">Build Date:</span>
-                <span class="info-value">December 2025</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </main>
-    </div>
-  </div>
-  <script src="settings.js"></script>
-</body>
+        <script src="settings.js"></script>
+    </body>
 </html>
