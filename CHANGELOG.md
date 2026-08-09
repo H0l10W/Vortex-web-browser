@@ -1,5 +1,11 @@
 # Vortex Browser - Changelog
 
+## [0.4.1] - 2026-08-09
+
+### Fixed
+- Fixed restored Settings and History tabs opening as blank pages after updating the portable build.
+- Portable session restoration now remaps stale internal file URLs and their back/forward history entries to the current extraction directory while preserving History snapshot fragments.
+
 ## [0.4.0] - 2026-08-09
 
 ### Added

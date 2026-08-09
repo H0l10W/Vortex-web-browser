@@ -445,13 +445,26 @@ window.addEventListener("DOMContentLoaded", () => {
       ];
     }
 
-    // Ensure all tabs have proper structure
-    tabs = tabs.map((tab) => ({
-      ...tab,
-      history: tab.history || [tab.url || "newtab"],
-      historyIndex: tab.historyIndex || 0,
-      viewCreated: false, // Force recreation on restart
-    }));
+    // Portable builds extract to a version-specific directory. Remap saved
+    // internal file URLs from an older extraction path to this running build.
+    tabs = tabs.map((tab) => {
+      const url = normalizeRestoredInternalUrl(tab.url);
+      const history = (Array.isArray(tab.history) && tab.history.length
+        ? tab.history
+        : [url || "newtab"]
+      ).map(normalizeRestoredInternalUrl);
+      const historyIndex = Math.min(
+        Math.max(Number.isInteger(tab.historyIndex) ? tab.historyIndex : 0, 0),
+        history.length - 1,
+      );
+      return {
+        ...tab,
+        url,
+        history,
+        historyIndex,
+        viewCreated: false,
+      };
+    });
 
     let currentTabId = parseInt(
       (await storage.getItem(storageKey("currentTabId"))) ||
@@ -1140,6 +1153,24 @@ window.addEventListener("DOMContentLoaded", () => {
     try {
       webview.remove();
     } catch (e) {}
+  }
+
+  function normalizeRestoredInternalUrl(url) {
+    if (!url || typeof url !== "string" || url === "newtab") return url;
+    try {
+      const parsed = new URL(url, window.location.href);
+      if (parsed.protocol !== "file:") return url;
+      const fileName = (parsed.pathname.split("/").pop() || "").toLowerCase();
+      if (fileName !== "settings.html" && fileName !== "history.html") {
+        return url;
+      }
+      const currentUrl = new URL(fileName, window.location.href);
+      currentUrl.search = parsed.search;
+      currentUrl.hash = parsed.hash;
+      return currentUrl.href;
+    } catch (_error) {
+      return url;
+    }
   }
 
   async function applyAdBlockCosmetics(webview) {

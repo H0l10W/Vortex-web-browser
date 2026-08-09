@@ -1,6 +1,6 @@
 # Vortex Browser
 
-Vortex Browser is a lightweight Windows web browser built with Electron. The current version is **0.4.0**.
+Vortex Browser is a lightweight Windows web browser built with Electron. The current version is **0.4.1**.
 
 ## Features
 
