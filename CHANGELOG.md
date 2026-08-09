@@ -1,5 +1,67 @@
 # Vortex Browser - Changelog
 
+## [0.4.0] - 2026-08-09
+
+### Added
+- Added an OS-encrypted saved-login manager for website emails, usernames, and passwords, with add, edit, delete, timed reveal, and secure password-generation controls.
+- Added a generated-password control and a responsive saved-login form with compact Show and Generate actions.
+- Added a structured `src/` layout for reusable renderer, settings, and widget modules, with a source-layout guide for future development.
+- Added dedicated modules for settings storage, saved-login management, window controls, history management, renderer utilities, widget settings, weather, and news.
+- Added new-tab background customization with the theme color, three bundled Pexels wallpapers, or a locally uploaded JPEG, PNG, or WebP image.
+- Added local image resizing and compression for custom wallpapers, with uploaded backgrounds stored only on the user's device.
+- Added wallpaper attribution in the About section and full source details in `wallpapers/CREDITS.md`.
+- Added persistent download history with file size, start time, status, progress, and saved-path details.
+- Added a "Clear finished" action to remove completed, interrupted, and cancelled downloads while retaining active transfers.
+- Added origin-scoped permission prompts for media, location, notifications, and MIDI access.
+
+### Changed
+- Removed the light theme and made the neutral dark theme the default throughout the browser, settings, history, and suggestions interfaces.
+- Removed unused light-theme options and normalized old or invalid saved themes to the dark default.
+- Redesigned the Downloads interface to match the rest of Vortex, with a dark modal, clearer hierarchy, responsive sizing, progress states, and consistent controls.
+- Shortened suggestion URLs to readable forms such as `youtube.com/watch?v=...` and `google.com/search?q=...`, while preserving the full address as hover text.
+- Polished the Quick Settings side menu with clearer Vortex branding, improved section hierarchy, consistent cards and controls, better spacing, and more professional hover and focus states.
+- Added bundled-wallpaper treatment for new-tab widgets and quick links so content remains legible over photography.
+- Routed valid HTTP(S) popup links into normal Vortex tabs instead of allowing uncontrolled popup windows.
+- Changed Incognito from a separate native window to an isolated tab inside the existing custom Vortex window chrome.
+- Incognito tabs now retain normal-profile history suggestions while using a separate memory-only Electron session.
+- Incognito tabs now display the incognito symbol and a permanent `(Incognito)` title that websites cannot replace.
+- Restored consistent spacing between cards in the Appearance settings tab.
+- Reorganized reusable source files under `src/renderer`, `src/renderer/widgets`, and `src/settings`, replacing the temporary `*-modular` folders.
+- Converted the full Settings entry point to an ES module and expanded lint coverage to include every module under `src/`.
+
+### Performance
+- Made the browser window available before non-critical startup services initialize, improving perceived launch time.
+- Consolidated multiple automatic update checks into one delayed check so startup and early page loads no longer compete with update traffic.
+- Removed conflicting Chromium compositor flags.
+- Disabled detailed network telemetry during ordinary browsing and activate it only while the performance monitor is being used.
+- Replaced synchronous settings writes with batched asynchronous persistence, with a safe final flush when the app exits.
+- Removed repeated full-tab scans from tab-group rendering for smoother operation with larger tab collections.
+- Added module preload hints for startup-critical renderer and settings services so local dependencies load in parallel.
+- Deferred the larger weather and news modules until widget initialization after the main browser interface has painted, removing roughly 32 KB of JavaScript from the startup-critical path.
+- Cached deferred widget-module imports so refreshes reuse the loaded modules without additional parsing or file reads.
+- Reduced the size and startup responsibility of `renderer.js` and `settings.js` by extracting self-contained controllers and widgets.
+
+### Fixed
+- Fixed widget preferences resetting by consistently restoring and persisting news region/category, widget visibility, manual weather location, and the last successful automatic weather coordinates.
+- Fixed the United Kingdom news region falling back to US content because the saved `gb` region code did not match the widget's former `uk` feed keys.
+- Fixed the password input being too narrow, misaligned, or overlapped by the Show and Generate buttons at different settings-window sizes.
+- Fixed missing spacing between Appearance settings cards after the saved-login manager was introduced.
+- Fixed the Incognito button opening a separate window with native title chrome instead of a Vortex tab.
+- Incognito now reads normal-profile history for address suggestions without saving incognito navigation, restored-tab state, or recently closed-tab state.
+- Explicitly assigned incognito webviews to the ephemeral `incognito` partition before navigation so they cannot inherit normal-profile cookies.
+
+### Security
+- Hardened every webview attachment by enforcing sandboxing, context isolation, web security, disabled Node integration, and disabled experimental features.
+- Added strict preload validation so remote pages cannot attach unexpected privileged preload scripts.
+- Restricted local-file webview access to Vortex's approved internal Settings and History pages.
+- Blocked unsafe navigation protocols and uncontrolled popup window creation.
+- Replaced the permissive session-wide permission handler with HTTPS-only, origin-scoped decisions and deny-by-default handling for unknown permissions.
+- Kept normal and incognito permission decisions isolated from one another.
+- Restricted persistent-storage IPC to trusted local Vortex pages and rejected requests from remote or unrecognized senders.
+- Added storage-key validation and blocked prototype-pollution keys including `__proto__`, `prototype`, and `constructor`.
+- Kept incognito tabs out of persisted session-restore and recently closed-tab data while retaining an in-memory browsing session until Vortex exits.
+- Expanded the automated security audit to verify webview hardening, permission handling, storage IPC validation, unsafe-key rejection, and incognito isolation; all 33 checks now pass with no warnings.
+
 ## [0.3.8] - 2026-08-08
 
 ### ✨ Added
@@ -91,7 +153,7 @@
 ### ✨ Added
 - Force Web Dark Mode: per-view and global toggles with `apply-web-dark-mode` / `apply-web-dark-mode-all` and UI controls.
 - Global toast/notification system (`notifications.notify`) with main/preload forwarding and theme-aware toast CSS.
-- Modular history manager (`renderer-modular/history-manager.js`) and improved `history.html`/`history.js` layout and incremental rendering.
+- Modular history manager (`src/renderer/history-manager.js`) and improved `history.html`/`history.js` layout and incremental rendering.
  - Custom right-click context menu for links in web content (open link in new tab, open in new window, copy link, open in default browser).
  - Drag-and-drop tabs: reorder tabs within a window, drag a tab out to create a new window, and drag a tab into another window to attach it.
 
@@ -118,7 +180,7 @@
 - Hidden URL and bookmark bars on internal pages (history/settings) for cleaner UI.
 - Improved auto-updater UX and reliability: progress updates throttle every 10%, retry on download errors, dismissible notifications with short silence window, and moved notifications to bottom-left.
 - Performance & UX: debounce and batch storage writes, incremental history rendering, favicon caching, and reduced UI spam from progress events.
-- Refactored history buffering & persistence into a modular `renderer-modular/history-manager.js` for clarity and better error handling.
+- Refactored history buffering & persistence into `src/renderer/history-manager.js` for clarity and better error handling.
 - Minor fixes: small fixes and several small UI/behavior improvements.
 
 ---

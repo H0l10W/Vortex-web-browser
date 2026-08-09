@@ -13,9 +13,15 @@ contextBridge.exposeInMainWorld("electronAPI", {
   // --- New APIs ---
   broadcastThemeChange: (theme) =>
     ipcRenderer.send("broadcast-theme-change", theme),
+  broadcastNewTabBackground: (background) =>
+    ipcRenderer.send("broadcast-new-tab-background", background),
+  onNewTabBackgroundChanged: (callback) =>
+    ipcRenderer.on("new-tab-background-changed", (_event, background) =>
+      callback(background),
+    ),
   toggleAdBlock: (enabled) => ipcRenderer.send("toggle-adblock", enabled),
   setAdBlockMode: (mode) => ipcRenderer.send("set-adblock-mode", mode),
-  openIncognitoWindow: () => ipcRenderer.send("open-incognito"),
+  getAdBlockCosmetics: (url) => ipcRenderer.invoke("get-adblock-cosmetics", url),
   toggleDevTools: () => ipcRenderer.send("toggle-devtools"),
   registerWebviewDevToolsShortcut: (webContentsId) =>
     ipcRenderer.send("register-webview-devtools-shortcut", webContentsId),
@@ -90,6 +96,11 @@ contextBridge.exposeInMainWorld("electronAPI", {
   setStorageItem: (key, value) => ipcRenderer.invoke("storage-set", key, value),
   removeStorageItem: (key) => ipcRenderer.invoke("storage-remove", key),
   getAllStorageKeys: () => ipcRenderer.invoke("storage-get-all-keys"),
+  listCredentials: () => ipcRenderer.invoke("credentials-list"),
+  getCredentialSecret: (id) => ipcRenderer.invoke("credentials-get-secret", id),
+  saveCredential: (credential) => ipcRenderer.invoke("credentials-save", credential),
+  deleteCredential: (id) => ipcRenderer.invoke("credentials-delete", id),
+  generateCredentialPassword: () => ipcRenderer.invoke("credentials-generate-password"),
   deleteCookie: (name, domain) =>
     ipcRenderer.invoke("delete-cookie", { name, domain }),
 

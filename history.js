@@ -145,7 +145,9 @@
   async function renderHistory() {
     console.time('renderHistory');
     try {
-      const theme = await window.electronAPI?.getStorageItem?.('theme') || localStorage.getItem('theme') || 'theme-light';
+      const savedTheme = await window.electronAPI?.getStorageItem?.('theme') || localStorage.getItem('theme');
+      const darkThemes = new Set(['theme-dark', 'theme-dark-purple', 'theme-dark-nord', 'theme-dark-forest', 'theme-dark-rose', 'theme-dark-sakura', 'theme-dark-sunny']);
+      const theme = darkThemes.has(savedTheme) ? savedTheme : 'theme-dark';
       document.body.className = theme;
       const snapshotHistory = getSnapshotHistoryOnce();
       let raw = '[]';
@@ -303,7 +305,8 @@
   // Listen for theme changes (broadcast from main window)
   if (window.electronAPI && window.electronAPI.onThemeChanged) {
     window.electronAPI.onThemeChanged(theme => {
-      document.body.className = theme;
+      const darkThemes = new Set(['theme-dark', 'theme-dark-purple', 'theme-dark-nord', 'theme-dark-forest', 'theme-dark-rose', 'theme-dark-sakura', 'theme-dark-sunny']);
+      document.body.className = darkThemes.has(theme) ? theme : 'theme-dark';
     });
   }
 

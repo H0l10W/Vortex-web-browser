@@ -1,0 +1,2 @@
+make the ad blocker more robust so it works for youtube and twitch as well as other sites
+[x]fix news and weather widget not always saving between restarts

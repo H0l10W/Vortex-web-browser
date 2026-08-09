@@ -1,0 +1,19 @@
+[x] Upload images for the new-tab background
+[x] Offer free-to-use bundled wallpapers as an alternative to the theme color
+make it faster
+make it safer
+profiles
+[x]add an option to close last tab which will close the browser
+widgets e.g weather, news, stocks ----------------- Weather is done News is Done
+[x]themes
+plugins
+[x]incognito mode
+customizable shortcuts
+[x]dark mode
+[x]auto-update
+privacy settings
+[x]clear cookies and history options
+[x]make sure all UI is consistent such as the downloads page
+make the ad blocker better working on it
+[x]add search suggestions/ autofill
+[x]fix news and weather widget not always saving between restarts -------- Done

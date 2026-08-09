@@ -1,65 +1,8 @@
+import { createSettingsStorage } from "./src/settings/storage.js";
+import { initializeCredentialManager } from "./src/settings/credential-manager.js";
+
 window.addEventListener("DOMContentLoaded", () => {
-  // Persistent storage helper to replace localStorage
-  const hasElectronStorage = !!(
-    window.electronAPI &&
-    typeof window.electronAPI.getStorageItem === "function"
-  );
-  const storage = {
-    async getItem(key) {
-      try {
-        if (hasElectronStorage) {
-          const value = await window.electronAPI.getStorageItem(key);
-          if (value !== null && value !== undefined) return value;
-        }
-      } catch (error) {
-        console.error("Error getting storage item:", key, error);
-      }
-      try {
-        const legacy = localStorage.getItem(key);
-        return legacy !== null ? legacy : null;
-      } catch (_error) {
-        return null;
-      }
-    },
-    async setItem(key, value) {
-      let saved = false;
-      try {
-        if (
-          hasElectronStorage &&
-          typeof window.electronAPI.setStorageItem === "function"
-        ) {
-          saved = !!(await window.electronAPI.setStorageItem(key, value));
-        }
-      } catch (error) {
-        console.error("Error setting storage item:", key, error);
-      }
-      try {
-        localStorage.setItem(key, value);
-        return true;
-      } catch (_error) {
-        return saved;
-      }
-    },
-    async removeItem(key) {
-      let removed = false;
-      try {
-        if (
-          hasElectronStorage &&
-          typeof window.electronAPI.removeStorageItem === "function"
-        ) {
-          removed = !!(await window.electronAPI.removeStorageItem(key));
-        }
-      } catch (error) {
-        console.error("Error removing storage item:", key, error);
-      }
-      try {
-        localStorage.removeItem(key);
-        return true;
-      } catch (_error) {
-        return removed;
-      }
-    },
-  };
+  const storage = createSettingsStorage();
 
   const settingsTabButtons = document.querySelectorAll(".settings-tab-button");
   const settingsTabContents = document.querySelectorAll(
@@ -107,6 +50,89 @@ if (window.electronAPI?.getBuildDate && buildDateSpan) {
   const showTabPreviewsToggle = document.getElementById(
     "show-tab-previews-toggle",
   );
+  const wallpaperOptions = document.querySelectorAll(".wallpaper-option[data-wallpaper-type]");
+  const uploadWallpaperButton = document.getElementById("upload-wallpaper-button");
+  const wallpaperFileInput = document.getElementById("wallpaper-file-input");
+  const customWallpaperPreview = document.getElementById("custom-wallpaper-preview");
+
+  function updateWallpaperSelection(background) {
+    wallpaperOptions.forEach((option) => {
+      option.classList.toggle(
+        "selected",
+        option.dataset.wallpaperType === background.type &&
+          option.dataset.wallpaperValue === background.value,
+      );
+    });
+    if (background.type === "custom" && background.value && customWallpaperPreview) {
+      customWallpaperPreview.style.backgroundImage = `url("${background.value}")`;
+      customWallpaperPreview.textContent = "";
+      uploadWallpaperButton?.classList.add("selected");
+    } else {
+      uploadWallpaperButton?.classList.remove("selected");
+    }
+  }
+
+  async function saveNewTabBackground(background) {
+    await storage.setItem("newTabBackground", JSON.stringify(background));
+    updateWallpaperSelection(background);
+    window.electronAPI?.broadcastNewTabBackground?.(background);
+  }
+
+  function resizeWallpaper(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error("Unable to read image"));
+      reader.onload = () => {
+        const image = new Image();
+        image.onerror = () => reject(new Error("Unsupported image"));
+        image.onload = () => {
+          const maxWidth = 1920;
+          const maxHeight = 1080;
+          const scale = Math.min(1, maxWidth / image.width, maxHeight / image.height);
+          const canvas = document.createElement("canvas");
+          canvas.width = Math.max(1, Math.round(image.width * scale));
+          canvas.height = Math.max(1, Math.round(image.height * scale));
+          canvas.getContext("2d").drawImage(image, 0, 0, canvas.width, canvas.height);
+          resolve(canvas.toDataURL("image/jpeg", 0.86));
+        };
+        image.src = reader.result;
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  wallpaperOptions.forEach((option) => {
+    option.addEventListener("click", () => {
+      saveNewTabBackground({
+        type: option.dataset.wallpaperType,
+        value: option.dataset.wallpaperValue || "",
+      });
+    });
+  });
+
+  uploadWallpaperButton?.addEventListener("click", () => wallpaperFileInput?.click());
+  wallpaperFileInput?.addEventListener("change", async () => {
+    const file = wallpaperFileInput.files?.[0];
+    if (!file) return;
+    try {
+      const value = await resizeWallpaper(file);
+      await saveNewTabBackground({ type: "custom", value });
+      window.electronAPI?.notify?.("New tab background updated.", "success", 3000);
+    } catch (error) {
+      console.error("Wallpaper upload failed:", error);
+      window.electronAPI?.notify?.("Could not use that image.", "error", 4000);
+    } finally {
+      wallpaperFileInput.value = "";
+    }
+  });
+
+  storage.getItem("newTabBackground").then((saved) => {
+    try {
+      updateWallpaperSelection(JSON.parse(saved || '{"type":"color","value":""}'));
+    } catch (_error) {
+      updateWallpaperSelection({ type: "color", value: "" });
+    }
+  });
 
   if (
     window.electronAPI &&
@@ -119,13 +145,23 @@ if (window.electronAPI?.getBuildDate && buildDateSpan) {
     });
   }
 
-  function applyTheme(themeClassName, { broadcast = true } = {}) {
-    const themeClasses = [
-      "theme-light",
+  function normalizeTheme(themeClassName) {
+    const darkThemes = new Set([
       "theme-dark",
-      "theme-light-mint",
-      "theme-light-sakura",
-      "theme-light-sunny",
+      "theme-dark-purple",
+      "theme-dark-nord",
+      "theme-dark-forest",
+      "theme-dark-rose",
+      "theme-dark-sakura",
+      "theme-dark-sunny",
+    ]);
+    return darkThemes.has(themeClassName) ? themeClassName : "theme-dark";
+  }
+
+  function applyTheme(themeClassName, { broadcast = true } = {}) {
+    themeClassName = normalizeTheme(themeClassName);
+    const themeClasses = [
+      "theme-dark",
       "theme-dark-purple",
       "theme-dark-nord",
       "theme-dark-forest",
@@ -181,7 +217,7 @@ if (window.electronAPI?.getBuildDate && buildDateSpan) {
     themeOptions.forEach((option) => {
       option.addEventListener("click", () => {
         const themeName = option.dataset.theme; // e.g., 'dark-purple'
-        const themeClassName = `theme-${themeName}`; // e.g., 'theme-dark-purple'
+        const themeClassName = normalizeTheme(`theme-${themeName}`);
 
         localStorage.setItem("theme", themeClassName);
         storage.setItem("theme", themeClassName);
@@ -197,6 +233,7 @@ if (window.electronAPI?.getBuildDate && buildDateSpan) {
     typeof window.electronAPI.onThemeChanged === "function"
   ) {
     window.electronAPI.onThemeChanged((themeClassName) => {
+      themeClassName = normalizeTheme(themeClassName);
       localStorage.setItem("theme", themeClassName);
       storage.setItem("theme", themeClassName);
       applyTheme(themeClassName, { broadcast: false });
@@ -206,8 +243,11 @@ if (window.electronAPI?.getBuildDate && buildDateSpan) {
 
   // Apply saved theme on initial load
   storage.getItem("theme").then((currentTheme) => {
-    const theme =
-      currentTheme || localStorage.getItem("theme") || "theme-light";
+    const theme = normalizeTheme(
+      currentTheme || localStorage.getItem("theme"),
+    );
+    localStorage.setItem("theme", theme);
+    storage.setItem("theme", theme);
     applyTheme(theme, { broadcast: false });
     updateSelectedThemeUI(theme);
   });
@@ -396,7 +436,12 @@ if (window.electronAPI?.getBuildDate && buildDateSpan) {
   // News settings
   if (newsCountrySelect) {
     getWidgetSetting("newsCountry", "us").then((currentCountry) => {
-      newsCountrySelect.value = currentCountry || "us";
+      const normalizedCountry = currentCountry === "uk" ? "gb" : currentCountry;
+      const validCountry = ["us", "gb", "ca", "au", "de", "fr", "jp", "in"].includes(normalizedCountry)
+        ? normalizedCountry
+        : "us";
+      newsCountrySelect.value = validCountry;
+      if (validCountry !== currentCountry) setWidgetSetting("newsCountry", validCountry);
     });
 
     newsCountrySelect.onchange = async function () {
@@ -710,6 +755,8 @@ if (window.electronAPI?.getBuildDate && buildDateSpan) {
       }
     });
   }
+
+  initializeCredentialManager({ showToast });
 
   // --- Enhanced Privacy Controls ---
   const trackerBlockingToggle = document.getElementById(
@@ -1446,18 +1493,22 @@ if (window.electronAPI?.getBuildDate && buildDateSpan) {
 
   // News category radio buttons
   if (newsRadios.length > 0) {
-    storage.getItem("newsCategory").then((category) => {
-      const selectedValue = category || "general";
+    getWidgetSetting("newsCategory", "general").then((category) => {
+      const selectedValue = ["general", "technology", "business"].includes(category)
+        ? category
+        : "general";
       const targetRadio = document.getElementById(`news-${selectedValue}`);
       if (targetRadio) {
         targetRadio.checked = true;
       }
+      if (selectedValue !== category) setWidgetSetting("newsCategory", selectedValue);
     });
 
     newsRadios.forEach((radio) => {
-      radio.addEventListener("change", (e) => {
+      radio.addEventListener("change", async (e) => {
         if (e.target.checked) {
-          storage.setItem("newsCategory", e.target.value);
+          await setWidgetSetting("newsCategory", e.target.value);
+          window.electronAPI?.broadcastWidgetSettings?.("newsUpdate", true);
         }
       });
     });

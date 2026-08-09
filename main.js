@@ -1,8 +1,9 @@
-const { app, BrowserWindow, BrowserView, ipcMain, dialog, webContents } = require('electron');
+const { app, BrowserWindow, BrowserView, ipcMain, dialog, webContents, safeStorage, session } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const crypto = require('crypto');
 const { pathToFileURL, fileURLToPath } = require('url');
 
 const DEFAULT_WINDOW_WIDTH = 1200;
@@ -31,6 +32,95 @@ let memoryMonitoring = {
 // Persistent storage implementation
 const userDataPath = app.getPath('userData');
 const storageFilePath = path.join(userDataPath, 'browser-storage.json');
+const credentialVaultPath = path.join(userDataPath, 'credential-vault.dat');
+let credentialVaultWriteQueue = Promise.resolve();
+
+const trustedStoragePages = new Set([
+  'index.html',
+  'settings.html',
+  'history.html',
+]);
+
+function getTrustedLocalSenderPath(event) {
+  try {
+    const senderUrl = new URL(event.senderFrame.url);
+    if (senderUrl.protocol !== 'file:') return null;
+    const senderPath = path.resolve(fileURLToPath(senderUrl));
+    if (path.dirname(senderPath) !== path.resolve(__dirname)) return null;
+    return senderPath;
+  } catch (_error) {
+    return null;
+  }
+}
+
+function isTrustedStorageSender(event) {
+  const senderPath = getTrustedLocalSenderPath(event);
+  return !!senderPath && trustedStoragePages.has(path.basename(senderPath));
+}
+
+function isValidStorageKey(key) {
+  if (typeof key !== 'string' || key.length < 1 || key.length > 180) return false;
+  return !['__proto__', 'prototype', 'constructor'].includes(key);
+}
+
+function isTrustedCredentialSender(event) {
+  return getTrustedLocalSenderPath(event) === path.resolve(__dirname, 'settings.html');
+}
+
+function ensureCredentialEncryption() {
+  if (!safeStorage.isEncryptionAvailable()) {
+    throw new Error('Secure operating-system encryption is unavailable. The credential vault remains locked.');
+  }
+  if (process.platform === 'linux' && safeStorage.getSelectedStorageBackend() === 'basic_text') {
+    throw new Error('A secure Linux keyring is required. Plain-text credential storage is disabled.');
+  }
+}
+
+function normalizeCredentialOrigin(value) {
+  const candidate = String(value || '').trim();
+  if (!candidate) throw new Error('A website is required.');
+  const parsed = new URL(/^[a-z][a-z\d+.-]*:\/\//i.test(candidate) ? candidate : `https://${candidate}`);
+  if (parsed.protocol !== 'https:') throw new Error('Credentials can only be saved for HTTPS websites.');
+  return parsed.origin;
+}
+
+async function readCredentialVault() {
+  ensureCredentialEncryption();
+  try {
+    const encoded = await fs.promises.readFile(credentialVaultPath, 'utf8');
+    const decrypted = safeStorage.decryptString(Buffer.from(encoded, 'base64'));
+    const parsed = JSON.parse(decrypted);
+    return Array.isArray(parsed?.credentials) ? parsed.credentials : [];
+  } catch (error) {
+    if (error?.code === 'ENOENT') return [];
+    throw new Error('The encrypted credential vault could not be opened.');
+  }
+}
+
+async function writeCredentialVault(credentials) {
+  ensureCredentialEncryption();
+  const encrypted = safeStorage.encryptString(JSON.stringify({ version: 1, credentials }));
+  const encoded = encrypted.toString('base64');
+  credentialVaultWriteQueue = credentialVaultWriteQueue.then(async () => {
+    await fs.promises.mkdir(path.dirname(credentialVaultPath), { recursive: true });
+    const temporaryPath = `${credentialVaultPath}.tmp`;
+    await fs.promises.writeFile(temporaryPath, encoded, { encoding: 'utf8', mode: 0o600 });
+    await fs.promises.rename(temporaryPath, credentialVaultPath);
+  });
+  return credentialVaultWriteQueue;
+}
+
+function sanitizeCredentialInput(input = {}) {
+  const username = String(input.username || '').trim();
+  const password = String(input.password || '');
+  if (!username || username.length > 320) throw new Error('Enter a valid email address or username.');
+  if (!password || password.length > 4096) throw new Error('Enter a valid password.');
+  return {
+    origin: normalizeCredentialOrigin(input.origin),
+    username,
+    password
+  };
+}
 
 // Load storage data from file
 function loadStorageData() {
@@ -45,21 +135,35 @@ function loadStorageData() {
   return {};
 }
 
-// Save storage data to file
-function saveStorageData(data) {
+let pendingStorageWrite = null;
+
+function flushStorageData() {
+  if (pendingStorageWrite) {
+    clearTimeout(pendingStorageWrite);
+    pendingStorageWrite = null;
+  }
   try {
-    // Ensure the directory exists
     const dir = path.dirname(storageFilePath);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-    
-    fs.writeFileSync(storageFilePath, JSON.stringify(data, null, 2));
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(storageFilePath, JSON.stringify(storageData, null, 2));
     return true;
   } catch (error) {
     console.error('Error saving storage data:', error);
     return false;
   }
+}
+
+// Coalesce rapid settings changes and keep disk I/O off Electron's hot IPC path.
+function saveStorageData(data) {
+  storageData = data;
+  if (pendingStorageWrite) clearTimeout(pendingStorageWrite);
+  pendingStorageWrite = setTimeout(() => {
+    pendingStorageWrite = null;
+    fs.promises.mkdir(path.dirname(storageFilePath), { recursive: true })
+      .then(() => fs.promises.writeFile(storageFilePath, JSON.stringify(storageData, null, 2)))
+      .catch(error => console.error('Error saving storage data:', error));
+  }, 100);
+  return true;
 }
 
 // Global storage object
@@ -92,6 +196,7 @@ const networkTelemetry = {
 };
 
 const instrumentedSessions = new WeakSet();
+let detailedTelemetryUntil = 0;
 let previousSystemCpuSample = null;
 let gpuInfoCache = { ts: 0, data: null };
 
@@ -141,8 +246,10 @@ function attachNetworkTelemetry(sessionInstance) {
   sessionInstance.webRequest.onBeforeSendHeaders((details, callback) => {
     const now = Date.now();
     networkTelemetry.requestsStarted += 1;
-    networkTelemetry.activeRequests.set(details.id, now);
-    networkTelemetry.requestSamples.push({ ts: now });
+    if (now < detailedTelemetryUntil) {
+      networkTelemetry.activeRequests.set(details.id, now);
+      networkTelemetry.requestSamples.push({ ts: now });
+    }
     callback({ requestHeaders: details.requestHeaders });
   });
 
@@ -155,10 +262,12 @@ function attachNetworkTelemetry(sessionInstance) {
     }
 
     networkTelemetry.requestsCompleted += 1;
-    const bytes = getHeaderNumber(details.responseHeaders, 'content-length');
-    if (bytes > 0) {
-      networkTelemetry.bytesDownloaded += bytes;
-      networkTelemetry.byteSamples.push({ ts: now, bytes });
+    if (now < detailedTelemetryUntil) {
+      const bytes = getHeaderNumber(details.responseHeaders, 'content-length');
+      if (bytes > 0) {
+        networkTelemetry.bytesDownloaded += bytes;
+        networkTelemetry.byteSamples.push({ ts: now, bytes });
+      }
     }
   });
 
@@ -185,6 +294,10 @@ async function getCachedGpuInfo() {
 
 async function getSystemMetricsSnapshot() {
   const now = Date.now();
+  detailedTelemetryUntil = now + 5000;
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) attachNetworkTelemetry(win.webContents.session);
+  }
   cleanupTelemetrySamples(now);
 
   const appMetrics = app.getAppMetrics();
@@ -249,15 +362,141 @@ async function getSystemMetricsSnapshot() {
 // Increase max listeners to prevent memory leak warnings
 require('events').EventEmitter.defaultMaxListeners = 30;
 
-// Optimize app startup
-app.commandLine.appendSwitch('disable-features', 'VizDisplayCompositor');
-app.commandLine.appendSwitch('disable-dev-shm-usage');
-// Enable security features
-app.commandLine.appendSwitch('enable-features', 'VizDisplayCompositor');
-
 // Add this to track BrowserViews for each window
 const windows = new Map();
 const suggestionsOverlays = new Map();
+const securedPermissionSessions = new WeakSet();
+const permissionDecisions = new WeakMap();
+const SAFE_AUTOMATIC_PERMISSIONS = new Set(['fullscreen', 'clipboard-sanitized-write']);
+const PROMPTED_PERMISSIONS = new Set(['media', 'geolocation', 'notifications', 'midi', 'midiSysex']);
+
+function getSecureOrigin(rawUrl) {
+  try {
+    const parsed = new URL(rawUrl);
+    return parsed.protocol === 'https:' ? parsed.origin : null;
+  } catch (_error) {
+    return null;
+  }
+}
+
+function setupSecurePermissions(sessionInstance) {
+  if (!sessionInstance || securedPermissionSessions.has(sessionInstance)) return;
+  securedPermissionSessions.add(sessionInstance);
+  const decisions = new Map();
+  permissionDecisions.set(sessionInstance, decisions);
+
+  sessionInstance.setPermissionCheckHandler((_contents, permission, requestingOrigin) => {
+    if (SAFE_AUTOMATIC_PERMISSIONS.has(permission)) return true;
+    const origin = getSecureOrigin(requestingOrigin);
+    return origin ? decisions.get(`${origin}|${permission}`) === true : false;
+  });
+
+  sessionInstance.setPermissionRequestHandler((contents, permission, callback, details = {}) => {
+    if (SAFE_AUTOMATIC_PERMISSIONS.has(permission)) {
+      callback(true);
+      return;
+    }
+    if (!PROMPTED_PERMISSIONS.has(permission)) {
+      callback(false);
+      return;
+    }
+
+    const requestingUrl = details.requestingUrl || contents?.getURL() || '';
+    const origin = getSecureOrigin(requestingUrl);
+    if (!origin) {
+      callback(false);
+      return;
+    }
+    const decisionKey = `${origin}|${permission}`;
+    if (decisions.has(decisionKey)) {
+      callback(decisions.get(decisionKey));
+      return;
+    }
+
+    const parentWindow = contents ? BrowserWindow.fromWebContents(contents.hostWebContents || contents) : null;
+    dialog.showMessageBox(parentWindow || undefined, {
+      type: 'question',
+      buttons: ['Block', 'Allow'],
+      defaultId: 0,
+      cancelId: 0,
+      noLink: true,
+      title: 'Site permission',
+      message: `${origin} wants permission to use ${permission}.`,
+      detail: 'Only allow this if you trust the site and expected the request.'
+    }).then(result => {
+      const allowed = result.response === 1;
+      decisions.set(decisionKey, allowed);
+      callback(allowed);
+    }).catch(() => callback(false));
+  });
+}
+
+function isAllowedWebviewUrl(rawUrl) {
+  if (!rawUrl || rawUrl === 'about:blank') return true;
+  try {
+    const parsed = new URL(rawUrl);
+    if (parsed.protocol === 'https:' || parsed.protocol === 'http:') return true;
+    if (parsed.protocol !== 'file:') return false;
+    const filePath = path.resolve(fileURLToPath(parsed));
+    const allowedFiles = [
+      path.resolve(__dirname, 'settings.html'),
+      path.resolve(__dirname, 'history.html')
+    ];
+    return allowedFiles.includes(filePath);
+  } catch (_error) {
+    return false;
+  }
+}
+
+function resolvePreloadPath(rawPreload) {
+  if (!rawPreload) return null;
+  try {
+    const value = String(rawPreload);
+    return path.resolve(value.startsWith('file:') ? fileURLToPath(value) : value);
+  } catch (_error) {
+    return null;
+  }
+}
+
+function isHttpUrl(rawUrl) {
+  try {
+    return ['http:', 'https:'].includes(new URL(rawUrl).protocol);
+  } catch (_error) {
+    return false;
+  }
+}
+
+app.on('web-contents-created', (_event, contents) => {
+  contents.on('will-attach-webview', (attachEvent, webPreferences, params) => {
+    webPreferences.nodeIntegration = false;
+    webPreferences.nodeIntegrationInWorker = false;
+    webPreferences.nodeIntegrationInSubFrames = false;
+    webPreferences.contextIsolation = true;
+    webPreferences.sandbox = true;
+    webPreferences.webSecurity = true;
+    webPreferences.allowRunningInsecureContent = false;
+    webPreferences.experimentalFeatures = false;
+    webPreferences.enableRemoteModule = false;
+
+    const preloadPath = resolvePreloadPath(webPreferences.preload);
+    const expectedPreload = path.resolve(__dirname, 'preload.js');
+    const isInternalPage = isAllowedWebviewUrl(params.src) && String(params.src || '').startsWith('file:');
+    if (!isInternalPage || preloadPath !== expectedPreload) delete webPreferences.preload;
+
+    delete params.allowpopups;
+    if (!isAllowedWebviewUrl(params.src)) attachEvent.preventDefault();
+  });
+
+  contents.on('did-attach-webview', (_attachEvent, guestContents) => {
+    guestContents.on('will-navigate', (navigationEvent, targetUrl) => {
+      if (!isAllowedWebviewUrl(targetUrl)) navigationEvent.preventDefault();
+    });
+    guestContents.setWindowOpenHandler(({ url }) => {
+      if (isHttpUrl(url) && !contents.isDestroyed()) contents.send('guest-open-url', url);
+      return { action: 'deny' };
+    });
+  });
+});
 
 function hideSuggestionsOverlayForWindow(winId) {
   const overlay = suggestionsOverlays.get(winId);
@@ -352,56 +591,40 @@ function ensureSuggestionsOverlay(parentWin) {
   return overlay;
 }
 
-// Ad blocker initialization using @cliqz/adblocker with uBlock Origin filters
+// Ad blocker initialization using maintained EasyList and uBlock Origin filters.
 let adblocker = null;
-let blockers = new Map();
+const blockers = new Map();
 let adBlockEnabled = false;
 let adBlockMode = 'balanced';
 const adBlockInstrumentedSessions = new WeakSet();
 const imageBlockingWebContents = new Map();
 
-async function initAdBlocker() {
-  try {
-    const { FiltersEngine } = require('@cliqz/adblocker');
-    
-    // Try to use cached filters first
-    const cacheDir = path.join(app.getPath('userData'), 'adblock-cache');
-    const filtersCachePath = path.join(cacheDir, 'easylist-easyprivacy-v3.txt');
-    
-    try {
-      await fs.promises.mkdir(cacheDir, { recursive: true });
-    } catch (e) {}
-    
-    let filtersData = null;
-    
-    // Try to load from cache
-    try {
-      filtersData = await fs.promises.readFile(filtersCachePath, 'utf-8');
-      console.log('Loaded AdBlock filters from cache');
-    } catch (e) {
-      console.log('Fetching EasyList ad-blocking filters...');
-      try {
-        // Fetch standard advertising and privacy filters with a bounded startup delay.
-        const filterListUrls = [
-          'https://easylist.to/easylist/easylist.txt',
-          'https://easylist.to/easylist/easyprivacy.txt'
-        ];
-        const responses = await Promise.all(
-          filterListUrls.map(url => fetch(url, { signal: AbortSignal.timeout(8000) }))
-        );
-        if (responses.every(response => response.ok)) {
-          filtersData = (await Promise.all(responses.map(response => response.text()))).join('\n');
-          // Cache the combined filters for fast and offline subsequent starts.
-          try {
-            await fs.promises.writeFile(filtersCachePath, filtersData);
-          } catch (cacheErr) {
-            console.debug('Could not cache filters:', cacheErr);
-          }
-        }
-      } catch (fetchErr) {
-        console.warn('Could not fetch EasyList filters, using built-in fallback');
-        // Keep blocking common ad networks when the filter server is unavailable
-        filtersData = `! Vortex built-in offline ad and tracker rules
+const AD_BLOCK_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+const AD_BLOCK_FILTER_URLS = {
+  balanced: [
+    'https://easylist.to/easylist/easylist.txt',
+    'https://easylist.to/easylist/easyprivacy.txt',
+    'https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/filters.txt',
+    'https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/privacy.txt',
+    'https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/quick-fixes.txt'
+  ],
+  strict: [
+    'https://easylist.to/easylist/fanboy-annoyance.txt'
+  ]
+};
+
+function getRegistrableDomain(hostname) {
+  const labels = hostname.toLowerCase().split('.').filter(Boolean);
+  if (labels.length <= 2) return labels.join('.');
+  const publicSuffix = labels.slice(-2).join('.');
+  const commonCountrySuffixes = new Set([
+    'co.uk', 'org.uk', 'ac.uk', 'com.au', 'net.au', 'org.au',
+    'co.nz', 'co.jp', 'co.in', 'com.br', 'com.mx'
+  ]);
+  return labels.slice(commonCountrySuffixes.has(publicSuffix) ? -3 : -2).join('.');
+}
+
+const BUILT_IN_AD_BLOCK_RULES = `! Vortex offline and site-specific rules
 ||doubleclick.net^
 ||googlesyndication.com^
 ||googleadservices.com^
@@ -430,14 +653,81 @@ async function initAdBlocker() {
 /pagead/$third-party
 /adsbygoogle.js
 /prebid.js$script,third-party
+||youtube.com/pagead/$xmlhttprequest
+||youtube.com/api/stats/ads$xmlhttprequest
+||youtube.com/ptracking$xmlhttprequest
+||youtube.com/get_midroll_info$xmlhttprequest
+||imasdk.googleapis.com^$domain=youtube.com|twitch.tv
+||amazon-adsystem.com^$domain=twitch.tv
+youtube.com##ytd-display-ad-renderer
+youtube.com##ytd-promoted-sparkles-web-renderer
+youtube.com##ytd-promoted-video-renderer
+youtube.com##ytd-ad-slot-renderer
+youtube.com###player-ads
+youtube.com##ytd-banner-promo-renderer
+twitch.tv##.stream-display-ad__container
 `;
+
+async function readFreshFilterCache(cachePath) {
+  try {
+    const stat = await fs.promises.stat(cachePath);
+    if (Date.now() - stat.mtimeMs > AD_BLOCK_CACHE_MAX_AGE_MS) return null;
+    return await fs.promises.readFile(cachePath, 'utf-8');
+  } catch (_error) {
+    return null;
+  }
+}
+
+async function fetchFilterLists(urls) {
+  const results = await Promise.allSettled(urls.map(async url => {
+    const response = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    if (!response.ok) throw new Error(`HTTP ${response.status} for ${url}`);
+    return response.text();
+  }));
+
+  const filters = results
+    .filter(result => result.status === 'fulfilled')
+    .map(result => result.value);
+  const failedCount = results.length - filters.length;
+  if (failedCount) console.warn(`Could not refresh ${failedCount} ad-block filter list(s)`);
+  return filters.length ? filters.join('\n') : null;
+}
+
+async function initAdBlocker() {
+  try {
+    const { FiltersEngine } = require('@cliqz/adblocker');
+    const cacheDir = path.join(app.getPath('userData'), 'adblock-cache');
+    await fs.promises.mkdir(cacheDir, { recursive: true });
+
+    const balancedCachePath = path.join(cacheDir, 'balanced-v4.txt');
+    const strictCachePath = path.join(cacheDir, 'strict-v4.txt');
+    let balancedFilters = await readFreshFilterCache(balancedCachePath);
+    let strictExtraFilters = await readFreshFilterCache(strictCachePath);
+
+    if (!balancedFilters) {
+      console.log('Refreshing balanced ad-block filters...');
+      balancedFilters = await fetchFilterLists(AD_BLOCK_FILTER_URLS.balanced);
+      if (balancedFilters) {
+        await fs.promises.writeFile(balancedCachePath, balancedFilters).catch(() => {});
+      } else {
+        balancedFilters = await fs.promises.readFile(balancedCachePath, 'utf-8').catch(() => '');
       }
     }
-    
-    if (filtersData) {
-      adblocker = await FiltersEngine.parse(filtersData);
-      console.log('AdBlock engine initialized with EasyList filters');
+    if (!strictExtraFilters) {
+      console.log('Refreshing strict ad-block filters...');
+      strictExtraFilters = await fetchFilterLists(AD_BLOCK_FILTER_URLS.strict);
+      if (strictExtraFilters) {
+        await fs.promises.writeFile(strictCachePath, strictExtraFilters).catch(() => {});
+      } else {
+        strictExtraFilters = await fs.promises.readFile(strictCachePath, 'utf-8').catch(() => '');
+      }
     }
+
+    const balancedData = `${balancedFilters || ''}\n${BUILT_IN_AD_BLOCK_RULES}`;
+    blockers.set('balanced', await FiltersEngine.parse(balancedData));
+    blockers.set('strict', await FiltersEngine.parse(`${balancedData}\n${strictExtraFilters || ''}`));
+    adblocker = blockers.get('balanced');
+    console.log('AdBlock engines initialized (balanced and strict)');
     
     const persisted = storageData?.adblockEnabled;
     adBlockEnabled = persisted === true || persisted === 'true';
@@ -452,7 +742,8 @@ async function initAdBlocker() {
 
 // Check if a request should be blocked by adblocker
 function shouldBlockAdRequest(details) {
-  if (!adblocker) return false;
+  const activeBlocker = blockers.get(adBlockMode) || adblocker;
+  if (!activeBlocker) return false;
   
   try {
     const { Request } = require('@cliqz/adblocker');
@@ -464,7 +755,7 @@ function shouldBlockAdRequest(details) {
       type: details.resourceType || 'other',
       _originalRequestDetails: details
     });
-    const result = adblocker.match(request);
+    const result = activeBlocker.match(request);
     return result?.match === true && !result.exception;
   } catch (err) {
     console.debug('Error in shouldBlockAdRequest:', err);
@@ -485,21 +776,12 @@ function setupAdBlockerForSession(session) {
       return;
     }
     
-    // Check if it's a request that should be blocked
     if (shouldBlockAdRequest(details)) {
       console.debug('Blocked ad request:', details.url);
       callback({ cancel: true });
       return;
     }
-    
-    // For image blocking (only in strict mode)
-    if (adBlockMode === 'strict' && details.resourceType === 'image') {
-      if (shouldBlockAdRequest(details)) {
-        callback({ cancel: true });
-        return;
-      }
-    }
-    
+
     callback({ cancel: false });
   });
 }
@@ -511,7 +793,6 @@ const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 // FORCE dev config for testing
 autoUpdater.forceDevUpdateConfig = true;
 
-autoUpdater.checkForUpdatesAndNotify();
 // Auto-download for production for reliability, but keep disabled in development
 autoUpdater.autoDownload = !isDev;
 autoUpdater.autoInstallOnAppQuit = false; // We'll handle installation manually
@@ -857,7 +1138,7 @@ function createWindow(initialUrl, isFresh = false) {
 
   // --- Ad Blocker Implementation ---
   const session = win.webContents.session;
-  attachNetworkTelemetry(session);
+  setupSecurePermissions(session);
   setupAdBlockerForSession(session);
 
   // --- Enhanced Download Handling with Security ---
@@ -1015,8 +1296,8 @@ function createWindow(initialUrl, isFresh = false) {
 ipcMain.removeAllListeners('suggestions-overlay:update');
 ipcMain.removeAllListeners('suggestions-overlay:hide');
 ipcMain.removeAllListeners('suggestions-overlay:select');
-ipcMain.removeAllListeners('open-incognito');
 ipcMain.removeAllListeners('broadcast-theme-change');
+ipcMain.removeAllListeners('broadcast-new-tab-background');
 ipcMain.removeAllListeners('toggle-adblock');
 ipcMain.removeAllListeners('set-adblock-mode');
 ipcMain.removeAllListeners('toggle-devtools');
@@ -2085,14 +2366,33 @@ ipcMain.on('suggestions-overlay:select', (event, selectedIndex) => {
   hideSuggestionsOverlayForWindow(parent.id);
 });
 
-ipcMain.on('open-incognito', () => {
-  createIncognitoWindow();
-});
-
 ipcMain.on('broadcast-theme-change', (event, theme) => {
+  const darkThemes = new Set([
+    'theme-dark',
+    'theme-dark-purple',
+    'theme-dark-nord',
+    'theme-dark-forest',
+    'theme-dark-rose',
+    'theme-dark-sakura',
+    'theme-dark-sunny'
+  ]);
+  const normalizedTheme = darkThemes.has(theme) ? theme : 'theme-dark';
   BrowserWindow.getAllWindows().forEach(win => {
     if (win.webContents !== event.sender) {
-      win.webContents.send('theme-changed', theme);
+      win.webContents.send('theme-changed', normalizedTheme);
+    }
+  });
+});
+
+ipcMain.on('broadcast-new-tab-background', (event, background) => {
+  const allowedTypes = new Set(['color', 'built-in', 'custom']);
+  const normalized = {
+    type: allowedTypes.has(background?.type) ? background.type : 'color',
+    value: typeof background?.value === 'string' ? background.value : ''
+  };
+  BrowserWindow.getAllWindows().forEach(win => {
+    if (win.webContents !== event.sender) {
+      win.webContents.send('new-tab-background-changed', normalized);
     }
   });
 });
@@ -2110,6 +2410,26 @@ ipcMain.on('toggle-adblock', (_event, enabled) => {
       // ignore per-window session setup failures
     }
   });
+});
+
+ipcMain.handle('get-adblock-cosmetics', (_event, pageUrl) => {
+  if (!adBlockEnabled || typeof pageUrl !== 'string') return '';
+
+  try {
+    const parsedUrl = new URL(pageUrl);
+    if (!['http:', 'https:'].includes(parsedUrl.protocol)) return '';
+    const activeBlocker = blockers.get(adBlockMode) || adblocker;
+    if (!activeBlocker) return '';
+
+    const result = activeBlocker.getCosmeticsFilters({
+      url: parsedUrl.href,
+      hostname: parsedUrl.hostname,
+      domain: getRegistrableDomain(parsedUrl.hostname)
+    });
+    return typeof result?.styles === 'string' ? result.styles : '';
+  } catch (_error) {
+    return '';
+  }
 });
 
 ipcMain.on('set-adblock-mode', (_event, mode) => {
@@ -2253,10 +2573,12 @@ ipcMain.handle('delete-cookie', async (event, { name, domain }) => {
 
 // Storage API handlers
 ipcMain.handle('storage-get', (event, key) => {
+  if (!isTrustedStorageSender(event) || !isValidStorageKey(key)) return null;
   return Object.prototype.hasOwnProperty.call(storageData, key) ? storageData[key] : null;
 });
 
 ipcMain.handle('storage-set', (event, key, value) => {
+  if (!isTrustedStorageSender(event) || !isValidStorageKey(key)) return false;
   storageData[key] = value;
   const ok = saveStorageData(storageData);
   try { console.debug(`storage-set ${key}: ${ok}`); } catch (e) { /* ignore */ }
@@ -2264,12 +2586,84 @@ ipcMain.handle('storage-set', (event, key, value) => {
 });
 
 ipcMain.handle('storage-remove', (event, key) => {
+  if (!isTrustedStorageSender(event) || !isValidStorageKey(key)) return false;
   delete storageData[key];
   return saveStorageData(storageData);
 });
 
-ipcMain.handle('storage-get-all-keys', () => {
+ipcMain.handle('storage-get-all-keys', (event) => {
+  if (!isTrustedStorageSender(event)) return [];
   return Object.keys(storageData);
+});
+
+ipcMain.handle('credentials-list', async (event) => {
+  if (!isTrustedCredentialSender(event)) return { success: false, error: 'Unauthorized credential request.' };
+  try {
+    const credentials = await readCredentialVault();
+    return {
+      success: true,
+      credentials: credentials
+        .map(({ id, origin, username, createdAt, updatedAt }) => ({ id, origin, username, createdAt, updatedAt }))
+        .sort((left, right) => left.origin.localeCompare(right.origin) || left.username.localeCompare(right.username))
+    };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('credentials-get-secret', async (event, id) => {
+  if (!isTrustedCredentialSender(event)) return { success: false, error: 'Unauthorized credential request.' };
+  try {
+    const credentials = await readCredentialVault();
+    const credential = credentials.find(entry => entry.id === String(id));
+    if (!credential) return { success: false, error: 'Saved login not found.' };
+    return { success: true, credential: { ...credential } };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('credentials-save', async (event, input) => {
+  if (!isTrustedCredentialSender(event)) return { success: false, error: 'Unauthorized credential request.' };
+  try {
+    const sanitized = sanitizeCredentialInput(input);
+    const credentials = await readCredentialVault();
+    const now = new Date().toISOString();
+    const requestedId = typeof input?.id === 'string' ? input.id : '';
+    const existingIndex = requestedId ? credentials.findIndex(entry => entry.id === requestedId) : -1;
+    if (existingIndex >= 0) {
+      credentials[existingIndex] = { ...credentials[existingIndex], ...sanitized, updatedAt: now };
+    } else {
+      credentials.push({ id: crypto.randomUUID(), ...sanitized, createdAt: now, updatedAt: now });
+    }
+    await writeCredentialVault(credentials);
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('credentials-delete', async (event, id) => {
+  if (!isTrustedCredentialSender(event)) return { success: false, error: 'Unauthorized credential request.' };
+  try {
+    const credentials = await readCredentialVault();
+    const filtered = credentials.filter(entry => entry.id !== String(id));
+    if (filtered.length === credentials.length) return { success: false, error: 'Saved login not found.' };
+    await writeCredentialVault(filtered);
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('credentials-generate-password', (event) => {
+  if (!isTrustedCredentialSender(event)) return { success: false, error: 'Unauthorized credential request.' };
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%^&*_-+=';
+  let password = '';
+  for (let index = 0; index < 24; index += 1) {
+    password += alphabet[crypto.randomInt(alphabet.length)];
+  }
+  return { success: true, password };
 });
 
 // Apply or remove web dark mode CSS to a specific BrowserView
@@ -2402,15 +2796,6 @@ ipcMain.handle('apply-browser-settings', async (event, viewId, settings) => {
     const pageZoom = settings?.pageZoom || '100';
     
     console.log('Applying browser settings:', { javascriptEnabled, imagesEnabled, popupBlockerEnabled, userAgent, smoothScrolling, reducedAnimations, pageZoom });
-    
-    // Apply JavaScript setting via webPreferences
-    view.webContents.session.setPermissionRequestHandler((webContents, permission, callback) => {
-      if (permission === 'javascript') {
-        callback(javascriptEnabled);
-      } else {
-        callback(true);
-      }
-    });
     
     // Apply images setting without resetting global onBeforeRequest handlers
     imageBlockingWebContents.set(view.webContents.id, !imagesEnabled);
@@ -2601,44 +2986,12 @@ ipcMain.handle('set-tab-previews-enabled', async (event, enabled) => {
   }
 });
 
-// Create incognito window (no session persistence)
-function createIncognitoWindow() {
-  const incognitoWin = new BrowserWindow({
-    width: 1200,
-    height: 800,
-    title: 'Vortex - Incognito',
-    webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
-      contextIsolation: true,
-      nodeIntegration: false,
-      partition: 'incognito',
-      webSecurity: true,
-      allowRunningInsecureContent: false,
-      experimentalFeatures: false,
-      enableRemoteModule: false,
-      sandbox: true,
-      safeDialogs: true
-    }
-  });
+app.whenReady().then(() => {
+  // Partitions without a "persist:" prefix are memory-only and discarded on exit.
+  const incognitoSession = session.fromPartition('incognito');
+  setupSecurePermissions(incognitoSession);
+  setupAdBlockerForSession(incognitoSession);
 
-  // Remove menu bar
-  incognitoWin.setMenuBarVisibility(false);
-  setupAdBlockerForSession(incognitoWin.webContents.session);
-
-  incognitoWin.loadFile('index.html');
-  
-  const incognitoState = {
-    win: incognitoWin,
-    views: new Map(),
-    activeViewId: null,
-    viewMeta: new Map(),
-  };
-  windows.set(incognitoWin.id, incognitoState);
-
-  return incognitoWin;
-}
-
-app.whenReady().then(async () => {
   console.log('=== AUTO-UPDATER DEBUG INFO ===');
   console.log('App version:', app.getVersion());
   console.log('Repository configured: H0l10W/Vortex-web-browser');
@@ -2646,20 +2999,13 @@ app.whenReady().then(async () => {
   console.log('Auto-updater provider:', autoUpdater.getFeedURL());
   console.log('================================');
 
-  await initAdBlocker();
-  
-  // Initialize non-critical components after window creation
-  setImmediate(() => {
-    // Initialize auto-updater in production (restored from working v0.1.12)
-    if (!isDev) { // Using forced production mode
-      setTimeout(() => {
-        console.log('=== SETIMMEDIATE AUTO-UPDATE CHECK ===');
-        autoUpdater.checkForUpdatesAndNotify();
-      }, 5000); // Wait 5 seconds after app start
-    }
-  });
-  
   createWindow();
+
+  // Filter parsing is CPU-heavy and stale lists may require network access. Let
+  // the local browser UI paint first, then initialize blocking in the background.
+  setTimeout(() => {
+    initAdBlocker().catch(error => console.error('Deferred ad blocker initialization failed:', error));
+  }, 1000);
 
   // Send debug info to renderer console after window is created
   setTimeout(() => {
@@ -2699,7 +3045,7 @@ app.whenReady().then(async () => {
     } else {
       console.log('Auto-update check skipped - development mode');
     }
-  }, 3000);
+  }, 15000);
 
   // Handle IPC messages for updates
   ipcMain.handle('check-for-updates', async () => {
@@ -2967,6 +3313,7 @@ app.on('before-quit', () => {
     storageData.currentTabId = null;
     saveStorageData(storageData);
   }
+  if (pendingStorageWrite) flushStorageData();
   
   try {
     // Clean up all BrowserViews first

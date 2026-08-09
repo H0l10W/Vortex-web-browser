@@ -5,8 +5,12 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' https://wttr.in https://nominatim.openstreetmap.org https://api.rss2json.com https://feeds.reuters.com https://newsapi.org https://api.open-meteo.com; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data: https:; object-src 'none'; base-uri 'self'; form-action 'self' https:; frame-ancestors 'none'; upgrade-insecure-requests;">
   <title>Vortex</title>
   <link rel="stylesheet" href="style.css">
+  <link rel="modulepreload" href="src/renderer/utils.js">
+  <link rel="modulepreload" href="src/renderer/history-manager.js">
+  <link rel="modulepreload" href="src/renderer/window-controls.js">
+  <link rel="modulepreload" href="src/renderer/widgets/widget-settings.js">
 </head>
-<body>
+<body class="theme-dark">
   <div id="title-bar">
     <div id="tabs"></div>
     <div id="window-controls">
@@ -32,13 +36,13 @@
     <input id="url" type="text" placeholder="Enter URL and press Enter" />
     <div class="button-group-right">
       <button id="bookmark-add" class="icon-btn"><img src="icons/bookmark.png" alt="Bookmark"></button>
-      <button id="incognito-btn" class="icon-btn"><img src="icons/incognito.png" alt="Add Quick Link"></button>
+      <button id="incognito-btn" class="icon-btn"><img src="icons/incognito.png" alt="Open incognito tab"></button>
       <button id="history-btn" class="icon-btn"><img src="icons/history.png" alt="History"></button>
       <button id="settings" class="icon-btn"><img src="icons/settings.png" alt="Settings"></button>
     </div>
   </div>
   <div id="main-content">
-    <webview id="content-webview" allowpopups></webview>
+    <webview id="content-webview"></webview>
     <div id="newtab">
       <div id="widgets-container">
         <div id="weather-widget">
@@ -82,8 +86,11 @@
   <!-- Settings Panel (Right Side) -->
   <div id="settings-panel" class="side-panel">
     <div class="settings-header">
-      <h2>Settings</h2>
-      <button id="close-settings" class="close-panel">&times;</button>
+      <div class="side-menu-title">
+        <span>Vortex Browser</span>
+        <h2>Quick settings</h2>
+      </div>
+      <button id="close-settings" class="close-panel" aria-label="Close quick settings">&times;</button>
     </div>
     <div class="settings-content">
       <div class="settings-section non-collapsible" id="quick-actions-section">

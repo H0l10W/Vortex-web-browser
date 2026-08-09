@@ -19,26 +19,7 @@
         <div id="themes-settings" class="settings-tab-content active">
           <h3>Themes</h3>
           <div class="theme-selector">
-            <h4>Light Themes</h4>
-            <div class="theme-options">
-              <button class="theme-option" data-theme="light">
-                <div class="theme-preview" style="background: #fff; border-color: #ddd;"></div>
-                <span>Default Light</span>
-              </button>
-              <button class="theme-option" data-theme="light-mint">
-                <div class="theme-preview" style="background: #f0fff4; border-color: #98fb98;"></div>
-                <span>Mint Light</span>
-              </button>
-              <button class="theme-option" data-theme="light-sakura">
-                <div class="theme-preview" style="background: #fff0f5; border-color: #ffb6c1;"></div>
-                <span>Sakura Light</span>
-              </button>
-               <button class="theme-option" data-theme="light-sunny">
-                <div class="theme-preview" style="background: #fffaf0; border-color: #ffd700;"></div>
-                <span>Sunny Light</span>
-              </button>
-            </div>
-            <h4>Dark Themes</h4>
+            <h4>Themes</h4>
             <div class="theme-options">
               <button class="theme-option" data-theme="dark">
                 <div class="theme-preview" style="background: #1a1a1a; border-color: #404040;"></div>
@@ -58,7 +39,7 @@
               </button>
               <button class="theme-option" data-theme="dark-rose">
                 <div class="theme-preview" style="background: #3e2d3b; border-color: #b48ead;"></div>
-                <span>Rosé Dark</span>
+                <span>RosÃ© Dark</span>
               </button>
             </div>
           </div>

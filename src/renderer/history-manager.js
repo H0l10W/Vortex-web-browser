@@ -1,6 +1,6 @@
 import { createStorage, perfStart, perfEnd } from './utils.js';
 
-export function createHistoryManager(electronAPI) {
+export function createHistoryManager(electronAPI, { readOnly = false } = {}) {
   const storage = createStorage(electronAPI);
   const buffer = { entries: [] };
   let flushTimeout = null;
@@ -15,6 +15,7 @@ export function createHistoryManager(electronAPI) {
   }
 
   async function addToHistory(entry) {
+    if (readOnly) return;
     if (!entry || !entry.url) return;
     const last = buffer.entries[buffer.entries.length - 1];
     if (last && last.url === entry.url) return;
@@ -44,6 +45,7 @@ export function createHistoryManager(electronAPI) {
   }
 
   async function flush() {
+    if (readOnly) return;
     if (flushTimeout) clearTimeout(flushTimeout);
     try { await storage.setItem('browserHistory', JSON.stringify(buffer.entries || [])); } catch (e) { try { localStorage.setItem('browserHistory', JSON.stringify(buffer.entries || [])); } catch (e) {} }
     try { localStorage.setItem('browserHistory', JSON.stringify(buffer.entries || [])); } catch (e) {}
@@ -51,6 +53,7 @@ export function createHistoryManager(electronAPI) {
   }
 
   async function clear() {
+    if (readOnly) return;
     buffer.entries = [];
     if (flushTimeout) clearTimeout(flushTimeout);
     try {

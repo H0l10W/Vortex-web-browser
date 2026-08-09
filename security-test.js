@@ -7,6 +7,7 @@ const outputLines = [];
 const files = {
   package: path.join(root, 'package.json'),
   main: path.join(root, 'main.js'),
+  renderer: path.join(root, 'renderer.js'),
   preload: path.join(root, 'preload.js'),
   index: path.join(root, 'index.html'),
   settings: path.join(root, 'settings.html')
@@ -130,6 +131,12 @@ function main() {
     process.exit(1);
   }
 
+  const rendererSource = read(files.renderer);
+  if (!rendererSource) {
+    printResult(false, 'renderer.js found', 'Missing renderer.js');
+    process.exit(1);
+  }
+
   const htmlSource = read(files.index) || read(files.settings) || '';
 
   let passed = 0;
@@ -194,11 +201,55 @@ function main() {
 
     const webviewResult = parseOption(block, 'webviewTag');
     if (webviewResult.found && webviewResult.value === 'true') {
-      warn(`${prefix} - webviewTag usage`, false, 'WebView is enabled; review content isolation for embedded webviews');
+      const hasAttachmentGuard = /will-attach-webview/.test(mainSource)
+        && /webPreferences\.nodeIntegration\s*=\s*false/.test(mainSource)
+        && /delete\s+webPreferences\.preload/.test(mainSource);
+      assert(`${prefix} - webviewTag attachment is hardened`, hasAttachmentGuard,
+        hasAttachmentGuard ? '' : 'WebView is enabled without a will-attach-webview preference guard');
     } else {
       assert(`${prefix} - webviewTag disabled or absent`, true);
     }
   });
+
+  assert(
+    'Remote-content sessions use a permission request handler',
+    /setPermissionRequestHandler\s*\(/.test(mainSource),
+  );
+  assert(
+    'Credential vault uses operating-system encryption',
+    /safeStorage\.encryptString\s*\(/.test(mainSource) && /safeStorage\.decryptString\s*\(/.test(mainSource),
+  );
+  assert(
+    'Credential IPC validates its sender',
+    /isTrustedCredentialSender\s*\(event\)/.test(mainSource),
+  );
+  assert(
+    'Credential vault rejects insecure plaintext fallback',
+    /basic_text/.test(mainSource) && /Plain-text credential storage is disabled/.test(mainSource),
+  );
+  assert(
+    'Persistent storage IPC validates local senders',
+    /isTrustedStorageSender\(event\)/.test(mainSource)
+      && /senderUrl\.protocol\s*!==\s*['"]file:['"]/.test(mainSource),
+  );
+  assert(
+    'Persistent storage IPC rejects unsafe keys',
+    /isValidStorageKey\(key\)/.test(mainSource)
+      && /['"]__proto__['"]/.test(mainSource),
+  );
+  assert(
+    'Incognito session uses a non-persistent partition',
+    /session\.fromPartition\(['"]incognito['"]\)/.test(mainSource)
+      && !/session\.fromPartition\(['"]persist:incognito['"]\)/.test(mainSource),
+  );
+  assert(
+    'Incognito tabs are excluded from session restore',
+    /tabs\.filter\(\(tab\)\s*=>\s*!tab\.isIncognito\)/.test(rendererSource),
+  );
+  assert(
+    'Incognito navigation is excluded from browsing history',
+    /!tab\.isIncognito\s*&&\s*!isIncognitoWindow\s*&&\s*!isSkippableHistoryUrl/.test(rendererSource),
+  );
 
   const cspPresent = findCSPMeta(htmlSource);
   warn('Content Security Policy meta tag present in HTML', cspPresent, cspPresent ? '' : 'No CSP meta tag found in index/settings HTML');

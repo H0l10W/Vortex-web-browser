@@ -3,24 +3,69 @@ import {
   perfStart,
   perfEnd,
   createStorage,
-} from "./renderer-modular/utils.js";
-import { createHistoryManager } from "./renderer-modular/history-manager.js";
+} from "./src/renderer/utils.js";
+import { createHistoryManager } from "./src/renderer/history-manager.js";
+import { initializeWindowControls } from "./src/renderer/window-controls.js";
+import { getWidgetSetting } from "./src/renderer/widgets/widget-settings.js";
+
+let WeatherWidget;
+let NewsWidget;
+let widgetModulesPromise;
+function loadWidgetModules() {
+  if (!widgetModulesPromise) {
+    widgetModulesPromise = Promise.all([
+      import("./src/renderer/widgets/weather-widget.js"),
+      import("./src/renderer/widgets/news-widget.js"),
+    ]).then(([weatherModule, newsModule]) => {
+      WeatherWidget = weatherModule.WeatherWidget;
+      NewsWidget = newsModule.NewsWidget;
+    });
+  }
+  return widgetModulesPromise;
+}
 
 // Create a storage wrapper using the preload electronAPI
-const storage = createStorage(window.electronAPI);
+const _urlParams = new URLSearchParams(window.location.search || "");
+const isIncognitoWindow = _urlParams.get("incognito") === "1";
+const persistentStorage = createStorage(window.electronAPI);
+const storage = isIncognitoWindow
+  ? {
+      getItem: (key) => persistentStorage.getItem(key),
+      setItem: async () => true,
+      removeItem: async () => true,
+      getAllKeys: () => persistentStorage.getAllKeys?.() || Promise.resolve([]),
+    }
+  : persistentStorage;
 window.storage = storage;
 
+const DARK_THEMES = new Set([
+  "theme-dark",
+  "theme-dark-purple",
+  "theme-dark-nord",
+  "theme-dark-forest",
+  "theme-dark-rose",
+  "theme-dark-sakura",
+  "theme-dark-sunny",
+]);
+const normalizeTheme = (theme) =>
+  DARK_THEMES.has(theme) ? theme : "theme-dark";
+
 // Persist tabs under a stable scope so they survive app restarts
-const _urlParams = new URLSearchParams(window.location.search || "");
 const _windowId = _urlParams.get("windowId") || "global";
 const storageKey = (key) => `global:${key}`;
 
 // Initialize the history manager to replace inline buffer/flush logic
-const historyManager = createHistoryManager(window.electronAPI);
+const historyManager = createHistoryManager(window.electronAPI, {
+  readOnly: isIncognitoWindow,
+});
 historyManager.init().catch(() => {});
 window.historyManager = historyManager;
 
 window.addEventListener("DOMContentLoaded", () => {
+  if (isIncognitoWindow) {
+    document.body.classList.add("incognito-mode");
+    document.title = "Vortex — Incognito";
+  }
   // --- Settings Panel History Logic ---
   const settingsHistoryList = document.getElementById("settings-history-list");
   const clearHistoryBtn = document.getElementById("clear-history-btn");
@@ -159,7 +204,12 @@ window.addEventListener("DOMContentLoaded", () => {
       });
     }
     // Clear history
+    if (isIncognitoWindow) {
+      clearHistoryBtn.disabled = true;
+      clearHistoryBtn.title = "History cannot be changed from an incognito window";
+    }
     clearHistoryBtn.onclick = async () => {
+      if (isIncognitoWindow) return;
       if (confirm("Are you sure you want to clear all browsing history?")) {
         try {
           await historyManager.clear();
@@ -198,8 +248,9 @@ window.addEventListener("DOMContentLoaded", () => {
   }
   // Apply theme immediately to prevent flash
   storage.getItem("theme").then((savedTheme) => {
-    const themeToApply = savedTheme || "theme-light";
-    document.body.className = themeToApply; // Set theme class directly
+    const themeToApply = normalizeTheme(savedTheme);
+    storage.setItem("theme", themeToApply);
+    document.body.className = `${themeToApply}${isIncognitoWindow ? " incognito-mode" : ""}`;
   });
 
   // Apply UI settings immediately
@@ -802,11 +853,15 @@ window.addEventListener("DOMContentLoaded", () => {
       if (toggle) toggle.checked = normalized.enabled;
       const strictToggle = document.getElementById("adblock-strict-toggle");
       if (strictToggle) strictToggle.checked = normalized.mode === "strict";
+
+      for (const webview of tabWebviews.values()) {
+        applyAdBlockCosmetics(webview);
+      }
     });
 
     // Listen for widget settings changes from other windows (like settings page)
     if (window.electronAPI && window.electronAPI.onWidgetSettingsChanged) {
-      window.electronAPI.onWidgetSettingsChanged((data) => {
+      window.electronAPI.onWidgetSettingsChanged(async (data) => {
         if (data.widget === "forceWebDark") {
           try {
             forceWebDarkToggle.checked = !!data.enabled;
@@ -846,6 +901,7 @@ window.addEventListener("DOMContentLoaded", () => {
           document.body.classList.toggle("effects-disabled", !effectsEnabled);
         }
         if (data.widget === "weatherUpdate") {
+          await loadWidgetModules();
           // Reload weather widget when location settings change
           const weatherWidget = document.querySelector("#weather-widget");
           if (weatherWidget && !weatherWidget.classList.contains("hidden")) {
@@ -901,6 +957,52 @@ window.addEventListener("DOMContentLoaded", () => {
   const mainContent = document.getElementById("main-content");
   const quickLinksDiv = document.getElementById("quick-links");
   const reloadBtn = document.getElementById("reload");
+
+  const BUILT_IN_WALLPAPERS = new Set([
+    "wallpapers/desert-stars.jpg",
+    "wallpapers/aurora-lake.jpg",
+    "wallpapers/mountain-twilight.jpg",
+  ]);
+
+  function normalizeNewTabBackground(background) {
+    if (background?.type === "built-in" && BUILT_IN_WALLPAPERS.has(background.value)) {
+      return background;
+    }
+    if (
+      background?.type === "custom" &&
+      /^data:image\/(?:jpeg|png|webp);base64,/i.test(background.value || "")
+    ) {
+      return background;
+    }
+    return { type: "color", value: "" };
+  }
+
+  function applyNewTabBackground(background) {
+    if (!newTabPage) return;
+    const normalized = normalizeNewTabBackground(background);
+    if (normalized.type === "color") {
+      newTabPage.classList.remove("has-wallpaper");
+      newTabPage.style.removeProperty("background-image");
+      return;
+    }
+    const imageUrl = normalized.value.replaceAll('"', '%22');
+    newTabPage.classList.add("has-wallpaper");
+    newTabPage.style.backgroundImage =
+      `linear-gradient(rgba(10, 10, 13, 0.46), rgba(10, 10, 13, 0.62)), url("${imageUrl}")`;
+  }
+
+  storage.getItem("newTabBackground").then((saved) => {
+    try {
+      applyNewTabBackground(JSON.parse(saved || "null"));
+    } catch (_error) {
+      applyNewTabBackground(null);
+    }
+  });
+
+  window.electronAPI?.onNewTabBackgroundChanged?.((background) => {
+    storage.setItem("newTabBackground", JSON.stringify(background));
+    applyNewTabBackground(background);
+  });
   const settingsBtn = document.getElementById("settings");
   const historyBtn = document.getElementById("history-btn");
   const controlsDiv = document.getElementById("controls"); // Add controls div reference
@@ -1040,11 +1142,39 @@ window.addEventListener("DOMContentLoaded", () => {
     } catch (e) {}
   }
 
+  async function applyAdBlockCosmetics(webview) {
+    if (!webview || !window.electronAPI?.getAdBlockCosmetics) return;
+
+    const updateId = (webview._adBlockCssUpdateId || 0) + 1;
+    webview._adBlockCssUpdateId = updateId;
+    if (webview._adBlockCssKey) {
+      try {
+        await webview.removeInsertedCSS(webview._adBlockCssKey);
+      } catch (_error) {}
+      webview._adBlockCssKey = null;
+    }
+
+    if (localStorage.getItem("adblockEnabled") !== "true") return;
+
+    try {
+      const styles = await window.electronAPI.getAdBlockCosmetics(webview.getURL());
+      if (!styles || webview._adBlockCssUpdateId !== updateId) return;
+      webview._adBlockCssKey = await webview.insertCSS(styles);
+    } catch (_error) {
+      // Navigations can replace the guest while its filters are being resolved.
+    }
+  }
+
   function bindWebviewEvents(webview, tabId) {
     if (!webview || webview._listenersBound) return;
 
     webview.addEventListener("dom-ready", () => {
       registerWebviewDevToolsShortcut(webview);
+      applyAdBlockCosmetics(webview);
+    });
+
+    window.electronAPI.on("guest-open-url", (_event, url) => {
+      if (typeof url === "string" && /^https?:\/\//i.test(url)) newTab(url);
     });
 
     webview.addEventListener("before-input-event", (event) => {
@@ -1073,7 +1203,11 @@ window.addEventListener("DOMContentLoaded", () => {
       persistTabs();
       renderTabs();
 
-      if (!isSkippableHistoryUrl(url)) {
+      if (
+        !tab.isIncognito &&
+        !isIncognitoWindow &&
+        !isSkippableHistoryUrl(url)
+      ) {
         try {
           const host = (() => {
             try {
@@ -1112,11 +1246,6 @@ window.addEventListener("DOMContentLoaded", () => {
       renderTabs();
     });
 
-    webview.addEventListener("new-window", (event) => {
-      if (!event.url) return;
-      newTab(event.url);
-    });
-
     webview.addEventListener(
       "mousedown",
       () => {
@@ -1142,11 +1271,10 @@ window.addEventListener("DOMContentLoaded", () => {
 
     let webview = tabWebviews.get(tab.id);
     if (!webview) {
-      if (tabWebviews.size === 0 && contentWebview) {
+      if (tabWebviews.size === 0 && contentWebview && !tab.isIncognito) {
         webview = contentWebview;
       } else {
         webview = document.createElement("webview");
-        webview.setAttribute("allowpopups", "");
         webview.style.position = "absolute";
         webview.style.inset = "0";
         webview.style.width = "100%";
@@ -1158,6 +1286,13 @@ window.addEventListener("DOMContentLoaded", () => {
       }
       tabWebviews.set(tab.id, webview);
       bindWebviewEvents(webview, tab.id);
+    }
+
+    if (
+      (isIncognitoWindow || tab.isIncognito) &&
+      webview.getAttribute("partition") !== "incognito"
+    ) {
+      webview.setAttribute("partition", "incognito");
     }
 
     const shouldUseInternalPreload = isInternalAppPageUrl(tab.url);
@@ -1802,6 +1937,12 @@ window.addEventListener("DOMContentLoaded", () => {
     normalizeTabGroups();
     tabsDiv.innerHTML = "";
     const frag = document.createDocumentFragment();
+    const groupTabCounts = new Map();
+    for (const tab of tabs) {
+      if (tab.groupId) {
+        groupTabCounts.set(tab.groupId, (groupTabCounts.get(tab.groupId) || 0) + 1);
+      }
+    }
 
     // Track which groups we've already rendered a header for
     const renderedGroupHeaders = new Set();
@@ -1823,7 +1964,7 @@ window.addEventListener("DOMContentLoaded", () => {
           : "Click to collapse group";
         header.dataset.groupId = groupId;
         // Show tab count on the pill when the group is collapsed
-        const groupTabCount = tabs.filter((t) => t.groupId === groupId).length;
+        const groupTabCount = groupTabCounts.get(groupId) || 0;
         const countText =
           group.collapsed && groupTabCount > 0 ? ` (${groupTabCount})` : "";
         const renderPillContent = () => {
@@ -1916,9 +2057,12 @@ window.addEventListener("DOMContentLoaded", () => {
       tabEl.dataset.tabId = String(tab.id);
       if (group) tabEl.style.setProperty("--group-color", group.color);
       // Favicon and title
-      if (tabPreviewsEnabled) {
+      if (tabPreviewsEnabled || tab.isIncognito) {
         const favicon = document.createElement("img");
-        favicon.src = getFavicon(tab.url);
+        favicon.src = tab.isIncognito
+          ? "icons/incognito.png"
+          : getFavicon(tab.url);
+        favicon.alt = tab.isIncognito ? "Incognito" : "";
         favicon.onerror = function () {
           this.src = "icons/newtab.png";
         };
@@ -1926,7 +2070,9 @@ window.addEventListener("DOMContentLoaded", () => {
         favicon.style.height = "16px";
         tabEl.appendChild(favicon);
         const titleSpan = document.createElement("span");
-        let displayTitle = tab.title || tab.url || "New Tab";
+        let displayTitle = tab.isIncognito
+          ? "(Incognito)"
+          : tab.title || tab.url || "New Tab";
         if (displayTitle.length > 32)
           displayTitle = displayTitle.substring(0, 32) + "...";
         titleSpan.textContent = displayTitle;
@@ -1941,7 +2087,9 @@ window.addEventListener("DOMContentLoaded", () => {
         }
       } else {
         const titleSpan = document.createElement("span");
-        let displayTitle = tab.title || tab.url || "New Tab";
+        let displayTitle = tab.isIncognito
+          ? "(Incognito)"
+          : tab.title || tab.url || "New Tab";
         if (displayTitle.length > 32)
           displayTitle = displayTitle.substring(0, 32) + "...";
         titleSpan.textContent = displayTitle;
@@ -2393,7 +2541,7 @@ window.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  function newTab(url = "newtab", fromNavigate = false) {
+  function newTab(url = "newtab", fromNavigate = false, options = {}) {
     if (fromNavigate) {
       // This is a navigation within the current tab, not a new tab creation
       const tab = tabs.find((t) => t.id === currentTabId);
@@ -2415,6 +2563,7 @@ window.addEventListener("DOMContentLoaded", () => {
         history: [url],
         historyIndex: 0,
         viewCreated: true,
+        isIncognito: options.incognito === true,
       };
       tabs.push(newTabObj);
       currentTabId = newTabId;
@@ -2430,7 +2579,8 @@ window.addEventListener("DOMContentLoaded", () => {
   console.log("newTab function assigned to window:", typeof window.newTab);
 
   // Make weather widget update function globally accessible
-  window.updateWeatherWidget = function () {
+  window.updateWeatherWidget = async function () {
+    await loadWidgetModules();
     console.log("Global weather widget update called");
     const weatherWidget = document.getElementById("weather-widget");
     if (weatherWidget && !weatherWidget.classList.contains("hidden")) {
@@ -2441,7 +2591,8 @@ window.addEventListener("DOMContentLoaded", () => {
   };
 
   // Add a test function to manually trigger weather refresh
-  window.testWeatherRefresh = function () {
+  window.testWeatherRefresh = async function () {
+    await loadWidgetModules();
     console.log("=== MANUAL WEATHER REFRESH TEST ===");
     const weatherWidget = document.querySelector("#weather-widget");
     if (weatherWidget) {
@@ -2455,7 +2606,8 @@ window.addEventListener("DOMContentLoaded", () => {
   console.log("updateWeatherWidget function assigned to window");
 
   // Make news widget update function globally accessible
-  window.updateNewsWidget = function () {
+  window.updateNewsWidget = async function () {
+    await loadWidgetModules();
     console.log("Global news widget update called");
     const newsWidget = document.getElementById("news-widget");
     if (newsWidget && !newsWidget.classList.contains("hidden")) {
@@ -2495,6 +2647,7 @@ window.addEventListener("DOMContentLoaded", () => {
   // --- Tab Group Management ---
 
   function persistGroups() {
+    if (isIncognitoWindow) return;
     try {
       storage.setItem(storageKey("tabGroups"), JSON.stringify(tabGroups));
     } catch (e) {}
@@ -3351,10 +3504,17 @@ window.addEventListener("DOMContentLoaded", () => {
   // Persist tabs throttled to avoid many writes during rapid changes
   let _persistTabsTimeout = null;
   function persistTabs() {
+    if (isIncognitoWindow) return;
     if (_persistTabsTimeout) clearTimeout(_persistTabsTimeout);
     _persistTabsTimeout = setTimeout(() => {
-      storage.setItem(storageKey("tabs"), JSON.stringify(tabs));
-      storage.setItem(storageKey("currentTabId"), currentTabId);
+      const persistentTabs = tabs.filter((tab) => !tab.isIncognito);
+      const persistentCurrentTabId = persistentTabs.some(
+        (tab) => tab.id === currentTabId,
+      )
+        ? currentTabId
+        : persistentTabs[0]?.id || null;
+      storage.setItem(storageKey("tabs"), JSON.stringify(persistentTabs));
+      storage.setItem(storageKey("currentTabId"), persistentCurrentTabId);
       _persistTabsTimeout = null;
     }, 500);
   }
@@ -4019,7 +4179,7 @@ window.addEventListener("DOMContentLoaded", () => {
 
     const themeSelect = document.getElementById("theme-select");
     if (themeSelect) {
-      themeSelect.value = localStorage.getItem("theme") || "light";
+      themeSelect.value = normalizeTheme(localStorage.getItem("theme"));
     }
 
     const fontSizeInput = document.getElementById("font-size-input");
@@ -4052,8 +4212,9 @@ window.addEventListener("DOMContentLoaded", () => {
     }
 
     // Apply current theme to settings panel
-    const currentTheme = localStorage.getItem("theme") || "light";
-    settingsPanel.classList.add("theme-" + currentTheme);
+    const currentTheme = normalizeTheme(localStorage.getItem("theme"));
+    settingsPanel.classList.remove(...DARK_THEMES);
+    settingsPanel.classList.add(currentTheme);
 
     // First, make the panel visible but keep it off-screen
     // This ensures it's in the DOM and rendered
@@ -4686,12 +4847,9 @@ window.addEventListener("DOMContentLoaded", () => {
   // --- Settings Panel Feature Logic ---
   // Theme switching
   function applyTheme(themeClassName) {
+    themeClassName = normalizeTheme(themeClassName);
     const themeClasses = [
-      "theme-light",
       "theme-dark",
-      "theme-light-mint",
-      "theme-light-sakura",
-      "theme-light-sunny",
       "theme-dark-purple",
       "theme-dark-nord",
       "theme-dark-forest",
@@ -4709,6 +4867,7 @@ window.addEventListener("DOMContentLoaded", () => {
   // --- Theme Broadcasting ---
   // Listen for theme changes from other windows (like the settings page)
   window.electronAPI.onThemeChanged((themeClassName) => {
+    themeClassName = normalizeTheme(themeClassName);
     console.log("Theme change received in main window:", themeClassName);
     storage.setItem("theme", themeClassName);
     applyTheme(themeClassName);
@@ -4722,7 +4881,8 @@ window.addEventListener("DOMContentLoaded", () => {
 
   // Apply the initial theme on load
   storage.getItem("theme").then((initialTheme) => {
-    const theme = initialTheme || "theme-light";
+    const theme = normalizeTheme(initialTheme);
+    storage.setItem("theme", theme);
     applyTheme(theme);
 
     // Update theme select handler in the slide-out panel
@@ -4731,7 +4891,7 @@ window.addEventListener("DOMContentLoaded", () => {
       themeSelect.value = theme;
       console.log("Set theme select to:", theme);
       themeSelect.onchange = () => {
-        const themeClassName = themeSelect.value;
+        const themeClassName = normalizeTheme(themeSelect.value);
         console.log("Theme changed to:", themeClassName);
         storage.setItem("theme", themeClassName);
         applyTheme(themeClassName);
@@ -4801,7 +4961,12 @@ window.addEventListener("DOMContentLoaded", () => {
   // Clear browsing data
   const clearDataBtn = document.getElementById("clear-data-btn");
   if (clearDataBtn) {
+    if (isIncognitoWindow) {
+      clearDataBtn.disabled = true;
+      clearDataBtn.title = "Browsing data cannot be changed from an incognito window";
+    }
     clearDataBtn.onclick = async () => {
+      if (isIncognitoWindow) return;
       localStorage.clear();
       await storage.setItem("browserHistory", "[]");
       location.reload();
@@ -4817,27 +4982,11 @@ window.addEventListener("DOMContentLoaded", () => {
     };
   }
 
-  // Incognito mode - opens new incognito tab
+  // Incognito tabs use an in-memory Electron session with the existing chrome.
   const incognitoBtn = document.getElementById("incognito-btn");
   if (incognitoBtn) {
     incognitoBtn.onclick = () => {
-      // Create new incognito tab with proper BrowserView
-      const incognitoTabId = Date.now();
-      const incognitoTab = {
-        id: incognitoTabId,
-        url: "newtab",
-        title: "New Tab (Incognito)",
-        history: ["newtab"],
-        historyIndex: 0,
-        isIncognito: true,
-      };
-
-      tabs.push(incognitoTab);
-      currentTabId = incognitoTabId;
-
-      persistTabs();
-      renderTabs();
-      updateView();
+      newTab("newtab", false, { incognito: true });
     };
   }
 
@@ -4883,7 +5032,7 @@ window.addEventListener("DOMContentLoaded", () => {
   closeTab = function (id) {
     const closedTabs = JSON.parse(localStorage.getItem("closedTabs") || "[]");
     const tabToClose = tabs.find((t) => t.id === id);
-    if (tabToClose) {
+    if (tabToClose && !tabToClose.isIncognito) {
       closedTabs.push(tabToClose);
     }
     localStorage.setItem("closedTabs", JSON.stringify(closedTabs));
@@ -4906,6 +5055,47 @@ window.addEventListener("DOMContentLoaded", () => {
 
   // --- Download Manager ---
   let downloads = JSON.parse(localStorage.getItem("downloads") || "[]");
+
+  storage.getItem("downloads").then((savedDownloads) => {
+    try {
+      const parsed = JSON.parse(savedDownloads || "[]");
+      if (Array.isArray(parsed) && parsed.length) {
+        downloads = parsed;
+        localStorage.setItem("downloads", JSON.stringify(downloads));
+      }
+    } catch (error) {
+      console.warn("Unable to restore downloads:", error);
+    }
+  });
+
+  function persistDownloads() {
+    const serialized = JSON.stringify(downloads);
+    localStorage.setItem("downloads", serialized);
+    debouncedSetItem("downloads", serialized);
+  }
+
+  function escapeDownloadText(value) {
+    return String(value ?? "")
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#039;");
+  }
+
+  function formatDownloadSize(bytes) {
+    const size = Number(bytes);
+    if (!Number.isFinite(size) || size <= 0) return "Size unknown";
+    if (size < 1024) return `${size} B`;
+    if (size < 1024 ** 2) return `${(size / 1024).toFixed(1)} KB`;
+    if (size < 1024 ** 3) return `${(size / 1024 ** 2).toFixed(1)} MB`;
+    return `${(size / 1024 ** 3).toFixed(1)} GB`;
+  }
+
+  function refreshDownloadsModal() {
+    const list = document.querySelector("#downloads-modal #downloads-list");
+    if (list) renderDownloadsList(list, downloads);
+  }
 
   function closeDownloadsModal() {
     const modal = document.getElementById("downloads-modal");
@@ -4936,17 +5126,33 @@ window.addEventListener("DOMContentLoaded", () => {
           0,
           Math.min(100, Math.round((item.progress || 0) * 100)),
         );
+        const state = ["completed", "interrupted", "cancelled"].includes(
+          item.state,
+        )
+          ? item.state
+          : "downloading";
+        const name = escapeDownloadText(item.name || "Unknown file");
+        const path = escapeDownloadText(item.savePath || "");
+        const started = item.startTime
+          ? new Date(item.startTime).toLocaleString()
+          : "Unknown time";
         return `
-        <div class="download-item">
-          <div class="download-name" title="${item.name || ""}">${item.name || "Unknown file"}</div>
+        <article class="download-item download-${state}">
+          <div class="download-file-icon" aria-hidden="true">↓</div>
+          <div class="download-details">
+            <div class="download-item-heading">
+              <div class="download-name" title="${name}">${name}</div>
+              <span class="download-status">${getDownloadStatusText(item)}</span>
+            </div>
+            <div class="download-meta">${formatDownloadSize(item.size)} · ${escapeDownloadText(started)}</div>
           <div class="download-progress">
             <div class="progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${progress}">
               <div class="progress-fill" style="width: ${progress}%"></div>
             </div>
-            <span class="progress-text">${getDownloadStatusText(item)}</span>
           </div>
-          ${item.savePath ? `<div class="download-path" title="${item.savePath}">${item.savePath}</div>` : ""}
-        </div>
+          ${path ? `<div class="download-path" title="${path}">${path}</div>` : ""}
+          </div>
+        </article>
       `;
       })
       .join("");
@@ -4962,8 +5168,14 @@ window.addEventListener("DOMContentLoaded", () => {
     modal.innerHTML = `
       <div class="downloads-content" role="dialog" aria-modal="true" aria-label="Downloads">
         <div class="downloads-header">
-          <h2>Downloads</h2>
-          <button class="close-button" aria-label="Close downloads">&times;</button>
+          <div>
+            <h2>Downloads</h2>
+            <p>Files saved from your browsing sessions</p>
+          </div>
+          <div class="downloads-header-actions">
+            <button class="downloads-clear-button" type="button">Clear finished</button>
+            <button class="close-button" aria-label="Close downloads">&times;</button>
+          </div>
         </div>
         <div id="downloads-list" class="downloads-list"></div>
       </div>
@@ -4975,6 +5187,14 @@ window.addEventListener("DOMContentLoaded", () => {
     if (closeBtn) {
       closeBtn.addEventListener("click", closeDownloadsModal);
     }
+
+    modal
+      .querySelector(".downloads-clear-button")
+      ?.addEventListener("click", () => {
+        downloads = downloads.filter((item) => item.state === "downloading");
+        persistDownloads();
+        refreshDownloadsModal();
+      });
 
     modal.addEventListener("click", (event) => {
       if (event.target === modal) {
@@ -4996,7 +5216,8 @@ window.addEventListener("DOMContentLoaded", () => {
         state: "downloading",
         startTime: Date.now(),
       });
-      debouncedSetItem("downloads", JSON.stringify(downloads));
+      persistDownloads();
+      refreshDownloadsModal();
     });
 
   window.electronAPI.onDownloadProgress &&
@@ -5004,7 +5225,8 @@ window.addEventListener("DOMContentLoaded", () => {
       const download = downloads.find((d) => d.name === data.name);
       if (download) {
         download.progress = data.progress;
-        debouncedSetItem("downloads", JSON.stringify(downloads));
+        persistDownloads();
+        refreshDownloadsModal();
       }
     });
 
@@ -5014,7 +5236,8 @@ window.addEventListener("DOMContentLoaded", () => {
       if (download) {
         download.state = data.state;
         download.savePath = data.savePath;
-        debouncedSetItem("downloads", JSON.stringify(downloads));
+        persistDownloads();
+        refreshDownloadsModal();
       }
     });
 
@@ -5022,10 +5245,7 @@ window.addEventListener("DOMContentLoaded", () => {
   function showDownloadsModal() {
     const modal = ensureDownloadsModal();
     const list = modal.querySelector("#downloads-list");
-    const currentDownloads = JSON.parse(
-      localStorage.getItem("downloads") || "[]",
-    );
-    renderDownloadsList(list, currentDownloads);
+    renderDownloadsList(list, downloads);
     modal.classList.add("active");
   }
 
@@ -5220,949 +5440,13 @@ window.addEventListener("DOMContentLoaded", () => {
   // Page title updates come from webview event listeners now.
 });
 
-// --- Weather Widget Functionality ---
-class WeatherWidget {
-  constructor() {
-    console.log(
-      "Creating WeatherWidget instance at:",
-      new Date().toLocaleTimeString(),
-    );
-
-    // Access the storage helper from the global scope
-    this.storage = storage;
-
-    this.loadingEl = document.getElementById("weather-loading");
-    this.locationEl = document.getElementById("weather-location");
-    this.tempEl = document.getElementById("weather-temp");
-    this.descEl = document.getElementById("weather-description");
-    this.feelsLikeEl = document.getElementById("weather-feels-like");
-    this.humidityEl = document.getElementById("weather-humidity");
-    this.windEl = document.getElementById("weather-wind");
-
-    console.log("Weather elements found:", {
-      loading: !!this.loadingEl,
-      location: !!this.locationEl,
-      temp: !!this.tempEl,
-      desc: !!this.descEl,
-    });
-
-    if (!this.locationEl) {
-      console.error("Critical weather widget elements not found!");
-      return;
-    }
-
-    this.init();
-  }
-
-  async init() {
-    try {
-      if (this.loadingEl) {
-        this.loadingEl.style.display = "block";
-        this.loadingEl.textContent = "Loading weather...";
-      }
-
-      // Small delay to prevent immediate API rate limiting
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-
-      // Add overall timeout for the entire weather loading process
-      const weatherPromise = this.loadWeatherData();
-      const timeoutPromise = new Promise((_, reject) => {
-        setTimeout(() => reject(new Error("Weather loading timeout")), 25000); // 25 second timeout to allow fallback
-      });
-
-      await Promise.race([weatherPromise, timeoutPromise]);
-    } catch (error) {
-      console.error("Weather widget init error:", error);
-      // Provide user-friendly error messages
-      let userMessage = "Weather service temporarily unavailable";
-      if (error.message.includes("timeout")) {
-        userMessage = "Weather loading timed out";
-      } else if (error.message.includes("JSON")) {
-        userMessage = "Weather data format error";
-      } else if (
-        error.message.includes("network") ||
-        error.message.includes("fetch")
-      ) {
-        userMessage = "Unable to connect to weather service";
-      } else if (error.message.includes("location")) {
-        userMessage = "Location not available";
-      }
-      this.showError(userMessage);
-    }
-  }
-
-  async loadWeatherData() {
-    console.log("Starting weather data load...");
-
-    console.log("Step 1: Getting location...");
-    const position = await this.getLocationForWeather();
-    console.log("Step 1 complete: Position obtained:", position);
-
-    console.log("Step 2: Fetching weather...");
-    const weather = await this.fetchWeather(
-      position.latitude,
-      position.longitude,
-      position.customName,
-    );
-    console.log("Step 2 complete: Weather data obtained:", weather);
-
-    console.log("Step 3: Getting location name...");
-    const locationName =
-      position.customName ||
-      (await this.getLocationName(position.latitude, position.longitude));
-    console.log("Step 3 complete: Location name obtained:", locationName);
-
-    console.log("Step 4: Updating display...");
-    this.updateDisplay(weather, locationName);
-    console.log("Step 4 complete: Weather widget loaded successfully");
-  }
-
-  async getLocationForWeather() {
-    console.log("=== GETTING WEATHER LOCATION ===");
-    try {
-      // Check if manual location is enabled and set
-      const useAutoLocation = await this.storage.getItem("useAutoLocation");
-      const customLocation = await this.storage.getItem("weatherLocation");
-      const storedCoords = await this.storage.getItem("weatherCoords");
-
-      console.log("Weather location check:");
-      console.log("- useAutoLocation:", useAutoLocation);
-      console.log("- customLocation:", customLocation);
-      console.log("- storedCoords:", storedCoords);
-
-      if (
-        useAutoLocation === "false" &&
-        customLocation &&
-        customLocation.trim()
-      ) {
-        console.log("✓ Using manual weather location:", customLocation);
-
-        // Use stored coordinates if available, otherwise geocode
-        if (storedCoords) {
-          try {
-            const coords = JSON.parse(storedCoords);
-            console.log("✓ Using stored coordinates:", coords);
-            return {
-              latitude: coords.lat,
-              longitude: coords.lon,
-              customName: customLocation,
-            };
-          } catch (parseError) {
-            console.warn(
-              "Failed to parse stored coordinates, geocoding instead",
-            );
-          }
-        }
-
-        // Fallback to geocoding if no stored coordinates
-        console.log("⚠ Geocoding location:", customLocation);
-        const coordinates = await this.geocodeLocation(customLocation);
-        // Store the geocoded coordinates for future use
-        await this.storage.setItem(
-          "weatherCoords",
-          JSON.stringify({
-            lat: coordinates.latitude,
-            lon: coordinates.longitude,
-          }),
-        );
-        console.log("✓ Geocoded and stored coordinates:", coordinates);
-        return { ...coordinates, customName: customLocation };
-      }
-
-      // Use automatic location detection
-      console.log("⚠ Using automatic location detection");
-      return await this.getCurrentLocation();
-    } catch (error) {
-      console.error("Error getting weather location:", error);
-      // Fallback to automatic location
-      return await this.getCurrentLocation();
-    }
-  }
-
-  async geocodeLocation(locationName) {
-    try {
-      console.log("Geocoding location with Nominatim:", locationName);
-      // Using Nominatim (OpenStreetMap) geocoding API - completely free
-      const response = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(locationName)}&limit=1`,
-      );
-      const data = await response.json();
-      console.log("Geocoding response:", data);
-
-      if (data && data.length > 0) {
-        const result = data[0];
-        return {
-          latitude: parseFloat(result.lat),
-          longitude: parseFloat(result.lon),
-        };
-      } else {
-        throw new Error("Location not found");
-      }
-    } catch (error) {
-      console.error("Geocoding failed for location:", locationName, error);
-      throw new Error(`Unable to find coordinates for "${locationName}"`);
-    }
-  }
-
-  getCurrentLocation() {
-    return new Promise((resolve, reject) => {
-      if (!navigator.geolocation) {
-        reject(new Error("Geolocation not supported"));
-        return;
-      }
-
-      navigator.geolocation.getCurrentPosition(
-        (position) =>
-          resolve({
-            latitude: position.coords.latitude,
-            longitude: position.coords.longitude,
-          }),
-        (error) => {
-          console.warn("Geolocation failed, using default location (London)");
-          // Fallback to London coordinates
-          resolve({ latitude: 51.5074, longitude: -0.1278 });
-        },
-        { timeout: 10000 },
-      );
-    });
-  }
-
-  async fetchWeather(lat, lon, customLocationName = null) {
-    console.log(
-      `Fetching weather for coordinates: ${lat}, ${lon}, custom location: ${customLocationName}`,
-    );
-
-    // Try primary API first, then fallback APIs
-    const apis = [
-      () => this.fetchFromWttr(lat, lon, customLocationName),
-      () => this.fetchFromOpenMeteo(lat, lon, customLocationName),
-    ];
-
-    let lastError = null;
-
-    for (let i = 0; i < apis.length; i++) {
-      try {
-        console.log(`Trying weather API ${i + 1}/${apis.length}...`);
-        const result = await apis[i]();
-        console.log(`Weather API ${i + 1} succeeded!`);
-        return result;
-      } catch (error) {
-        console.warn(`Weather API ${i + 1} failed:`, error.message);
-        lastError = error;
-        if (i < apis.length - 1) {
-          console.log("Trying next API...");
-          // Small delay between API attempts
-          await new Promise((resolve) => setTimeout(resolve, 500));
-        }
-      }
-    }
-
-    // If all APIs failed, throw the last error
-    throw new Error(
-      `All weather APIs failed. Last error: ${lastError.message}`,
-    );
-  }
-
-  async fetchFromWttr(lat, lon, customLocationName = null, retryCount = 0) {
-    console.log(
-      `Fetching from wttr.in for coordinates: ${lat}, ${lon}, custom location: ${customLocationName}, attempt: ${retryCount + 1}`,
-    );
-
-    try {
-      // Using wttr.in API - completely free, no API key needed
-      const url = `https://wttr.in/${lat},${lon}?format=j1`;
-      console.log("Wttr.in API URL:", url);
-
-      // Add delay between requests to avoid rate limiting
-      if (retryCount > 0) {
-        const delay = 500; // Just 500ms delay
-        console.log(`Waiting ${delay}ms before retry...`);
-        await new Promise((resolve) => setTimeout(resolve, delay));
-      }
-
-      console.log("Making fetch request to wttr.in...");
-
-      // Add timeout to prevent hanging
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 2000); // 2 second timeout for wttr.in
-
-      const response = await fetch(url, {
-        signal: controller.signal,
-        headers: {
-          "User-Agent": "VortexBrowser/1.0",
-        },
-      });
-
-      clearTimeout(timeoutId);
-
-      console.log("Wttr.in fetch completed. Response status:", response.status);
-
-      if (!response.ok) {
-        throw new Error(
-          `Wttr.in API request failed with status ${response.status}`,
-        );
-      }
-
-      // Get response text first to see what we're actually getting
-      const responseText = await response.text();
-      console.log("Wttr.in response text length:", responseText.length);
-
-      if (!responseText || responseText.trim().length === 0) {
-        throw new Error("Wttr.in API returned empty response");
-      }
-
-      // Check for rate limiting message
-      if (responseText.includes("This query is already being processed")) {
-        console.log("Wttr.in API rate limit detected, retrying...");
-        if (retryCount < 1) {
-          // Only 1 retry for wttr.in since we have fallback
-          return await this.fetchFromWttr(lat, lon, retryCount + 1);
-        } else {
-          throw new Error("Wttr.in API is overloaded");
-        }
-      }
-
-      let data;
-      try {
-        data = JSON.parse(responseText);
-      } catch (parseError) {
-        console.error("Wttr.in JSON parse error:", parseError);
-        if (
-          responseText.includes("This query is already being processed") &&
-          retryCount < 1
-        ) {
-          return await this.fetchFromWttr(lat, lon, retryCount + 1);
-        }
-        throw new Error("Wttr.in API returned invalid JSON");
-      }
-
-      // Validate data structure
-      if (!data.current_condition || !data.current_condition[0]) {
-        throw new Error("Wttr.in API response missing current conditions");
-      }
-
-      // Transform wttr.in data to match our expected format
-      const current = data.current_condition[0];
-      const transformedData = {
-        current: {
-          temperature_2m: parseFloat(current.temp_C),
-          apparent_temperature: parseFloat(current.FeelsLikeC),
-          relative_humidity_2m: parseFloat(current.humidity),
-          wind_speed_10m: parseFloat(current.windspeedKmph),
-          weather_code: this.mapWttrCodeToOurCode(current.weatherCode),
-        },
-        location: {
-          name:
-            customLocationName ||
-            data.nearest_area[0]?.areaName[0]?.value ||
-            "Unknown",
-          country: data.nearest_area[0]?.country[0]?.value || "",
-        },
-      };
-
-      console.log("Wttr.in transformed weather data:", transformedData);
-      return transformedData;
-    } catch (error) {
-      console.error("Wttr.in fetch error:", error);
-      throw error;
-    }
-  }
-
-  async fetchFromOpenMeteo(lat, lon, customLocationName = null) {
-    console.log(
-      `Fetching from Open-Meteo for coordinates: ${lat}, ${lon}, custom location: ${customLocationName}`,
-    );
-
-    try {
-      // Using Open-Meteo API - free and reliable
-      const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true&temperature_unit=celsius&wind_speed_unit=kmh`;
-      console.log("Open-Meteo API URL:", url);
-
-      console.log("Making fetch request to Open-Meteo...");
-
-      // Add timeout to prevent hanging
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
-
-      const response = await fetch(url, {
-        signal: controller.signal,
-        headers: {
-          "User-Agent": "VortexBrowser/1.0",
-        },
-      });
-
-      clearTimeout(timeoutId);
-
-      console.log(
-        "Open-Meteo fetch completed. Response status:",
-        response.status,
-      );
-
-      if (!response.ok) {
-        throw new Error(
-          `Open-Meteo API request failed with status ${response.status}`,
-        );
-      }
-
-      const responseText = await response.text();
-      console.log("Open-Meteo response text length:", responseText.length);
-
-      if (!responseText || responseText.trim().length === 0) {
-        throw new Error("Open-Meteo API returned empty response");
-      }
-
-      let data;
-      try {
-        data = JSON.parse(responseText);
-      } catch (parseError) {
-        console.error("Open-Meteo JSON parse error:", parseError);
-        throw new Error("Open-Meteo API returned invalid JSON");
-      }
-
-      // Validate data structure for Open-Meteo API
-      if (!data.current_weather) {
-        throw new Error("Open-Meteo API response missing current weather data");
-      }
-
-      // Transform Open-Meteo data to match our expected format
-      const current = data.current_weather;
-      const transformedData = {
-        current: {
-          temperature_2m: parseFloat(current.temperature),
-          apparent_temperature: parseFloat(current.temperature), // Open-Meteo doesn't have feels-like in basic API
-          relative_humidity_2m: 50, // Default value since not available in basic API
-          wind_speed_10m: parseFloat(current.windspeed),
-          weather_code: this.mapOpenMeteoCodeToOurCode(current.weathercode),
-        },
-        location: {
-          name: customLocationName || "Current Location", // Use custom location name if provided
-          country: "",
-        },
-      };
-
-      console.log("Open-Meteo transformed weather data:", transformedData);
-      return transformedData;
-    } catch (error) {
-      console.error("Open-Meteo fetch error:", error);
-      throw error;
-    }
-  }
-
-  mapWttrCodeToOurCode(wttrCode) {
-    // Map wttr.in weather codes to our simplified codes
-    const code = parseInt(wttrCode);
-    if ([200, 201, 202, 210, 211, 212, 221, 230, 231, 232].includes(code))
-      return 95; // Thunderstorm
-    if ([300, 301, 302, 310, 311, 312, 313, 314, 321].includes(code)) return 61; // Drizzle
-    if ([500, 501, 502, 503, 504, 511, 520, 521, 522, 531].includes(code))
-      return 63; // Rain
-    if ([600, 601, 602, 611, 612, 613, 615, 616, 620, 621, 622].includes(code))
-      return 71; // Snow
-    if ([701, 711, 721, 731, 741, 751, 761, 762, 771, 781].includes(code))
-      return 45; // Fog/Mist
-    if (code === 800) return 0; // Clear
-    if ([801, 802, 803, 804].includes(code)) return 3; // Clouds
-    return 0; // Default to clear
-  }
-
-  mapOpenMeteoCodeToOurCode(weatherCode) {
-    // Map Open-Meteo weather codes to our simplified codes
-    const code = parseInt(weatherCode);
-    switch (code) {
-      case 0:
-        return 0; // Clear sky
-      case 1:
-      case 2:
-      case 3:
-        return code; // Mainly clear, partly cloudy, overcast
-      case 45:
-      case 48:
-        return 45; // Fog
-      case 51:
-      case 53:
-      case 55:
-        return 61; // Drizzle
-      case 56:
-      case 57:
-        return 61; // Freezing drizzle
-      case 61:
-      case 63:
-      case 65:
-        return code; // Rain (slight, moderate, heavy)
-      case 66:
-      case 67:
-        return 63; // Freezing rain
-      case 71:
-      case 73:
-      case 75:
-        return code; // Snow (slight, moderate, heavy)
-      case 77:
-        return 71; // Snow grains
-      case 80:
-      case 81:
-      case 82:
-        return 63; // Rain showers
-      case 85:
-      case 86:
-        return 75; // Snow showers
-      case 95:
-        return 95; // Thunderstorm
-      case 96:
-      case 99:
-        return 95; // Thunderstorm with hail
-      default:
-        return 0; // Default to clear
-    }
-  }
-
-  async getLocationName(lat, lon) {
-    // OpenWeatherMap already provides location name, so we don't need reverse geocoding
-    return "Location";
-  }
-
-  getWeatherDescription(code) {
-    const weatherCodes = {
-      0: "Clear sky",
-      1: "Mainly clear",
-      2: "Partly cloudy",
-      3: "Overcast",
-      45: "Foggy",
-      48: "Depositing rime fog",
-      51: "Light drizzle",
-      53: "Moderate drizzle",
-      55: "Dense drizzle",
-      61: "Slight rain",
-      63: "Moderate rain",
-      65: "Heavy rain",
-      71: "Slight snow",
-      73: "Moderate snow",
-      75: "Heavy snow",
-      77: "Snow grains",
-      80: "Slight rain showers",
-      81: "Moderate rain showers",
-      82: "Violent rain showers",
-      85: "Slight snow showers",
-      86: "Heavy snow showers",
-      95: "Thunderstorm",
-      96: "Thunderstorm with hail",
-      99: "Thunderstorm with heavy hail",
-    };
-
-    return weatherCodes[code] || "Unknown";
-  }
-
-  updateDisplay(weather, locationName) {
-    console.log("Updating weather display with:", { weather, locationName });
-
-    if (this.loadingEl) {
-      this.loadingEl.style.display = "none";
-    }
-
-    const current = weather.current;
-
-    // Use location from weather data if available, otherwise use provided name
-    const displayLocation = weather.location
-      ? `${weather.location.name}, ${weather.location.country}`
-      : locationName;
-
-    if (this.locationEl) this.locationEl.textContent = displayLocation;
-    if (this.tempEl)
-      this.tempEl.textContent = `${Math.round(current.temperature_2m)}°C`;
-    if (this.descEl)
-      this.descEl.textContent = this.getWeatherDescription(
-        current.weather_code,
-      );
-    if (this.feelsLikeEl)
-      this.feelsLikeEl.textContent = `Feels like: ${Math.round(current.apparent_temperature)}°C`;
-    if (this.humidityEl)
-      this.humidityEl.textContent = `Humidity: ${current.relative_humidity_2m}%`;
-    if (this.windEl)
-      this.windEl.textContent = `Wind: ${Math.round(current.wind_speed_10m)} km/h`;
-
-    console.log("Weather display updated successfully");
-  }
-
-  showError(errorMessage = "Unable to load weather data") {
-    console.log("Showing weather error:", errorMessage);
-    if (this.loadingEl) this.loadingEl.style.display = "none";
-
-    if (this.locationEl) this.locationEl.textContent = "Weather Unavailable";
-    if (this.tempEl) this.tempEl.textContent = "--°C";
-    if (this.descEl) this.descEl.textContent = errorMessage;
-    if (this.feelsLikeEl) this.feelsLikeEl.textContent = "Feels like: --°C";
-    if (this.humidityEl) this.humidityEl.textContent = "Humidity: --%";
-    if (this.windEl) this.windEl.textContent = "Wind: -- km/h";
-  }
-}
-
-// --- News Widget Functionality ---
-class NewsWidget {
-  constructor() {
-    this.newsEl = document.getElementById("news-articles");
-    this.loadingEl = document.getElementById("news-loading");
-
-    this.init();
-  }
-
-  async init() {
-    try {
-      const newsSettings = await this.getNewsSettings();
-      const articles = await this.fetchNews(
-        newsSettings.country,
-        newsSettings.category,
-      );
-      this.updateDisplay(articles);
-    } catch (error) {
-      console.error("News widget error:", error);
-      this.showError();
-    }
-  }
-
-  async getNewsSettings() {
-    const country = await getWidgetSetting("newsCountry", "us");
-    const category = await getWidgetSetting("newsCategory", "general");
-    return {
-      country: country || "us",
-      category: category || "general",
-    };
-  }
-
-  async fetchNews(country, category) {
-    try {
-      // Use more diverse news sources by country for better category support
-      const feeds = {
-        "us-general": "https://feeds.reuters.com/reuters/topNews",
-        "us-technology": "https://feeds.reuters.com/reuters/technologyNews",
-        "us-business": "https://feeds.reuters.com/reuters/businessNews",
-        "us-science": "https://feeds.reuters.com/reuters/scienceNews",
-        "us-health": "https://feeds.reuters.com/reuters/healthNews",
-        "us-sports": "https://feeds.reuters.com/reuters/sportsNews",
-        "uk-general": "https://feeds.reuters.com/reuters/UKdomesticNews",
-        "uk-technology": "https://feeds.reuters.com/reuters/technologyNews",
-        "uk-business": "https://feeds.reuters.com/reuters/UKbusinessNews",
-        "uk-science": "https://feeds.reuters.com/reuters/scienceNews",
-        "uk-health": "https://feeds.reuters.com/reuters/healthNews",
-        "uk-sports": "https://feeds.reuters.com/reuters/UKsportsNews",
-        "ca-general": "https://feeds.reuters.com/reuters/CAdomesticNews",
-        "ca-technology": "https://feeds.reuters.com/reuters/technologyNews",
-        "ca-business": "https://feeds.reuters.com/reuters/CAbusinessNews",
-        "au-general": "https://feeds.reuters.com/reuters/worldNews",
-        "au-technology": "https://feeds.reuters.com/reuters/technologyNews",
-        "au-business": "https://feeds.reuters.com/reuters/businessNews",
-        "de-general": "https://feeds.reuters.com/reuters/worldNews",
-        "de-technology": "https://feeds.reuters.com/reuters/technologyNews",
-        "de-business": "https://feeds.reuters.com/reuters/businessNews",
-        "fr-general": "https://feeds.reuters.com/reuters/worldNews",
-        "fr-technology": "https://feeds.reuters.com/reuters/technologyNews",
-        "fr-business": "https://feeds.reuters.com/reuters/businessNews",
-        "jp-general": "https://feeds.reuters.com/reuters/worldNews",
-        "jp-technology": "https://feeds.reuters.com/reuters/technologyNews",
-        "jp-business": "https://feeds.reuters.com/reuters/businessNews",
-        "in-general": "https://feeds.reuters.com/reuters/INdomesticNews",
-        "in-technology": "https://feeds.reuters.com/reuters/technologyNews",
-        "in-business": "https://feeds.reuters.com/reuters/INbusinessNews",
-      };
-
-      const feedKey = `${country}-${category}`;
-      const feedUrl =
-        feeds[feedKey] || feeds[`${country}-general`] || feeds["us-general"];
-
-      const rss2jsonUrl = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(feedUrl)}&count=10&api_key=`;
-
-      try {
-        const response = await fetch(rss2jsonUrl, {
-          method: "GET",
-          headers: {
-            Accept: "application/json",
-            "User-Agent":
-              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-          },
-        });
-
-        if (response.ok) {
-          const data = await response.json();
-
-          if (data.status === "ok" && data.items && data.items.length > 0) {
-            const articles = data.items
-              .slice(0, 8)
-              .map((item, index) => {
-                const title = (item.title || "News Article")
-                  .replace(/&lt;/g, "<")
-                  .replace(/&gt;/g, ">")
-                  .replace(/&amp;/g, "&");
-                const url = item.link || item.guid || "#";
-
-                return {
-                  title: title,
-                  url: url,
-                  publishedAt: item.pubDate || new Date().toISOString(),
-                  source: {
-                    name: "Reuters",
-                  },
-                };
-              })
-              .filter(
-                (article) =>
-                  article.url && article.url !== "#" && article.url !== "null",
-              );
-
-            if (articles.length > 0) {
-              return articles;
-            }
-          }
-        }
-      } catch (apiError) {
-        console.error("RSS2JSON service failed:", apiError);
-      }
-
-      return this.getReliableNews(country, category);
-    } catch (error) {
-      console.error("All news fetch methods failed:", error);
-      return this.getReliableNews(country, category);
-    }
-  }
-
-  getSourceNameFromUrl(url) {
-    if (url.includes("cnn.com")) return "CNN";
-    if (url.includes("bbc")) return "BBC News";
-    if (url.includes("cbc.ca")) return "CBC News";
-    if (url.includes("abc.net.au")) return "ABC News";
-    if (url.includes("tagesschau")) return "Tagesschau";
-    if (url.includes("france")) return "France Info";
-    if (url.includes("nhk")) return "NHK News";
-    if (url.includes("ndtv")) return "NDTV";
-    return "News Source";
-  }
-
-  getSourceName(country) {
-    const sources = {
-      us: "CNN",
-      uk: "BBC News",
-      ca: "CBC News",
-      au: "ABC News",
-      de: "Tagesschau",
-      fr: "France Info",
-      jp: "NHK News",
-      in: "NDTV",
-    };
-    return sources[country] || "News Source";
-  }
-
-  getReliableNews(country = "us", category = "general") {
-    // Provide current, real news headlines that reflect the current settings
-    const currentDate = new Date().toISOString();
-    const hoursAgo1 = new Date(Date.now() - 1 * 60 * 60 * 1000).toISOString();
-    const hoursAgo2 = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
-    const hoursAgo3 = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString();
-    const hoursAgo4 = new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString();
-
-    // Create country-specific fallback headlines
-    const countryNews = {
-      us: {
-        general: "US Breaking News & Headlines",
-        technology: "US Technology News & Updates",
-        business: "US Business & Markets News",
-        science: "US Science & Research News",
-        health: "US Health & Medical News",
-        sports: "US Sports & Athletics News",
-      },
-      uk: {
-        general: "UK Breaking News & Headlines",
-        technology: "UK Technology & Innovation News",
-        business: "UK Business & Economy News",
-        science: "UK Science & Research News",
-        health: "UK Health & NHS News",
-        sports: "UK Sports & Football News",
-      },
-      ca: {
-        general: "Canada Breaking News & Headlines",
-        technology: "Canadian Technology News",
-        business: "Canadian Business & Economy News",
-        science: "Canadian Science & Research News",
-        health: "Canadian Health News",
-        sports: "Canadian Sports & Hockey News",
-      },
-    };
-
-    const selectedNews = countryNews[country] || countryNews["us"];
-    const categoryTitle = selectedNews[category] || selectedNews["general"];
-
-    return [
-      {
-        title: categoryTitle,
-        source: { name: this.getSourceName(country) },
-        publishedAt: currentDate,
-        url: this.getCountryNewsUrl(country),
-      },
-      {
-        title: `${country.toUpperCase()} ${category.charAt(0).toUpperCase() + category.slice(1)} Update`,
-        source: { name: "Reuters" },
-        publishedAt: hoursAgo1,
-        url: "https://www.reuters.com/",
-      },
-      {
-        title: `Latest ${category.charAt(0).toUpperCase() + category.slice(1)} News from ${country.toUpperCase()}`,
-        source: { name: "AP News" },
-        publishedAt: hoursAgo2,
-        url: "https://apnews.com/",
-      },
-    ];
-  }
-
-  getCountryNewsUrl(country) {
-    const urls = {
-      us: "https://www.reuters.com/world/us/",
-      uk: "https://www.bbc.com/news",
-      ca: "https://www.cbc.ca/news",
-      au: "https://www.abc.net.au/news",
-      de: "https://www.dw.com/en",
-      fr: "https://www.france24.com/en/",
-      jp: "https://www.japantimes.co.jp/",
-      in: "https://www.thehindu.com/",
-    };
-    return urls[country] || "https://www.reuters.com/";
-  }
-
-  updateDisplay(articles) {
-    if (this.loadingEl) this.loadingEl.style.display = "none";
-
-    if (!this.newsEl) {
-      console.error("News articles element not found!");
-      return;
-    }
-
-    this.newsEl.innerHTML = "";
-
-    if (!articles || articles.length === 0) {
-      this.newsEl.innerHTML =
-        '<div style="padding: 8px; color: #666;">No articles available</div>';
-      return;
-    }
-
-    articles.slice(0, 3).forEach((article, index) => {
-      const articleEl = document.createElement("div");
-      articleEl.className = "news-article";
-      articleEl.style.cursor = "pointer";
-      articleEl.setAttribute("data-url", article.url);
-
-      const timeAgo = this.getTimeAgo(new Date(article.publishedAt));
-
-      articleEl.innerHTML = `
-        <div class="news-title">${article.title}</div>
-        <div class="news-source">${article.source.name}</div>
-        <div class="news-time">${timeAgo}</div>
-      `;
-
-      articleEl.addEventListener("click", (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-
-        const url = article.url;
-        if (
-          !url ||
-          url === "#" ||
-          url === "" ||
-          url === "null" ||
-          url === "undefined"
-        ) {
-          return;
-        }
-
-        try {
-          if (typeof newTab === "function") {
-            newTab(url);
-          } else {
-            if (window.electronAPI && window.electronAPI.openExternal) {
-              window.electronAPI.openExternal(url);
-            } else {
-              window.open(url, "_blank");
-            }
-          }
-        } catch (error) {
-          console.error("Failed to open article:", error);
-          try {
-            if (window.electronAPI && window.electronAPI.openExternal) {
-              window.electronAPI.openExternal(url);
-            } else {
-              window.open(url, "_blank");
-            }
-          } catch (fallbackError) {
-            console.error("All opening methods failed:", fallbackError);
-          }
-        }
-      });
-
-      this.newsEl.appendChild(articleEl);
-    });
-  }
-
-  getTimeAgo(date) {
-    const now = new Date();
-    const diffMs = now - date;
-    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
-    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-
-    if (diffDays > 0) {
-      return `${diffDays}d ago`;
-    } else if (diffHours > 0) {
-      return `${diffHours}h ago`;
-    } else {
-      return "Just now";
-    }
-  }
-
-  showError() {
-    this.loadingEl.textContent = "Unable to load news";
-  }
-
-  async refresh() {
-    try {
-      if (this.loadingEl) {
-        this.loadingEl.style.display = "block";
-        this.loadingEl.textContent = "Updating news...";
-      }
-
-      const { country, category } = await this.getNewsSettings();
-
-      const articles = await this.fetchNews(country, category);
-
-      if (articles && articles.length > 0) {
-        this.updateDisplay(articles);
-      } else {
-        this.showError();
-      }
-    } catch (error) {
-      console.error("News widget refresh error:", error);
-      this.showError();
-    }
-  }
-}
-
 // Global widget instances
 let globalNewsWidget = null;
 let globalWeatherWidget = null;
 
-async function getWidgetSetting(key, fallback = null) {
-  try {
-    const persisted = await storage.getItem(key);
-    if (persisted !== null && persisted !== undefined) return persisted;
-  } catch (error) {
-    console.error(
-      `Failed to read widget setting ${key} from persistent storage`,
-      error,
-    );
-  }
-
-  try {
-    const legacy = localStorage.getItem(key);
-    return legacy !== null ? legacy : fallback;
-  } catch (_error) {
-    return fallback;
-  }
-}
-
 // Global function to update news widget - defined early
-function updateNewsWidget() {
+async function updateNewsWidget() {
+  await loadWidgetModules();
   if (globalNewsWidget && typeof globalNewsWidget.refresh === "function") {
     try {
       globalNewsWidget.refresh();
@@ -6187,75 +5471,6 @@ function updateNewsWidget() {
 
 // Make function globally accessible immediately
 window.updateNewsWidget = updateNewsWidget;
-
-// Window Controls Functions
-function initializeWindowControls() {
-  const minimizeBtn = document.getElementById("minimize-btn");
-  const maximizeBtn = document.getElementById("maximize-btn");
-  const closeBtn = document.getElementById("close-btn");
-  const titleBar = document.getElementById("title-bar");
-
-  if (minimizeBtn) {
-    minimizeBtn.addEventListener("click", () => {
-      window.electronAPI.minimizeWindow();
-    });
-  }
-
-  if (maximizeBtn) {
-    maximizeBtn.addEventListener("click", async () => {
-      await window.electronAPI.maximizeWindow();
-      // Update the maximize button appearance
-      updateMaximizeButton();
-    });
-  }
-
-  if (closeBtn) {
-    closeBtn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      // Close the current window via the main process
-      try {
-        window.electronAPI.closeWindow();
-      } catch (err) {
-        console.error("Failed to close window via electronAPI:", err);
-      }
-    });
-  }
-
-  // Initialize maximize button state
-  updateMaximizeButton();
-
-  // Listen for window resize to update maximize button
-  window.addEventListener("resize", () => {
-    setTimeout(updateMaximizeButton, 100);
-  });
-}
-
-// NOTE: the main DOMContentLoaded listener will be closed at the end of the file
-
-async function updateMaximizeButton() {
-  const maximizeBtn = document.getElementById("maximize-btn");
-  if (maximizeBtn && window.electronAPI.isMaximized) {
-    try {
-      const isMaximized = await window.electronAPI.isMaximized();
-      const img = maximizeBtn.querySelector("img");
-      if (img) {
-        if (isMaximized) {
-          maximizeBtn.classList.add("maximized");
-          img.src = "icons/window-restore.png";
-          img.alt = "Restore Down";
-          maximizeBtn.title = "Restore Down";
-        } else {
-          maximizeBtn.classList.remove("maximized");
-          img.src = "icons/window-maximize.png";
-          img.alt = "Maximize";
-          maximizeBtn.title = "Maximize";
-        }
-      }
-    } catch (err) {
-      console.error("Error checking maximize state:", err);
-    }
-  }
-}
 
 // Initialize widgets when page loads
 document.addEventListener("DOMContentLoaded", () => {
@@ -6290,6 +5505,7 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 async function initializeWidgets() {
+  await loadWidgetModules();
   console.log("Initializing widgets...");
   // Check widget visibility settings
   const showWeather =
@@ -6331,7 +5547,8 @@ async function initializeWidgets() {
   }
 }
 
-function handleWidgetSettingsChange(data) {
+async function handleWidgetSettingsChange(data) {
+  await loadWidgetModules();
   const { widget, enabled } = data;
 
   if (widget === "weather") {

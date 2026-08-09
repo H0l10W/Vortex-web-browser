@@ -12,7 +12,7 @@ body { padding: 32px 24px !important; background: #f4f6fa !important; }
 .history-filter-field input { min-height: 38px !important; padding: 0 11px !important; border-radius: 10px !important; }
 .history-list { padding: 10px 16px 18px !important; max-height: calc(100vh - 300px) !important; }
 .history-item { gap: 14px !important; min-height: 48px; margin-top: 6px !important; padding: 9px 12px !important; border-color: transparent !important; border-radius: 14px !important; }
-.history-item:hover { background: color-mix(in srgb,var(--accent-color-light,#4285f4) 8%,white) !important; border-color: color-mix(in srgb,var(--accent-color-light,#4285f4) 22%,transparent) !important; }
+.history-item:hover { background: color-mix(in srgb,var(--accent-color-dark,#4285f4) 8%,white) !important; border-color: color-mix(in srgb,var(--accent-color-dark,#4285f4) 22%,transparent) !important; }
 .history-favicon { width: 20px !important; height: 20px !important; }
 .history-title { font-size: .92rem !important; }
 .history-item-time { padding-left: 12px; }
@@ -33,7 +33,7 @@ body { background: #eceef1 !important; }
 .history-header { background: #d7dbe1 !important; }
 .history-filters { background: #e1e4e8 !important; }
 .history-item { background: #f8f9fa !important; }
-.btn-secondary.primary { background: var(--accent-color-light, #4285f4) !important; border-color: var(--accent-color-light, #4285f4) !important; }
+.btn-secondary.primary { background: var(--accent-color-dark, #4285f4) !important; border-color: var(--accent-color-dark, #4285f4) !important; }
 body[class*="theme-dark"] { background: #1d2025 !important; }
 body[class*="theme-dark"] .history-container { background: #292e35 !important; border-color: #373d46 !important; }
 body[class*="theme-dark"] .history-header { background: #292d33 !important; }

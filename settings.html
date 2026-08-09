@@ -10,8 +10,20 @@
         <script>
             // Apply theme immediately to prevent FOUC (Flash of Unstyled Content)
             (function () {
-                const themeClassName =
-                    localStorage.getItem("theme") || "theme-light";
+                const savedTheme = localStorage.getItem("theme");
+                const darkThemes = [
+                    "theme-dark",
+                    "theme-dark-purple",
+                    "theme-dark-nord",
+                    "theme-dark-forest",
+                    "theme-dark-rose",
+                    "theme-dark-sakura",
+                    "theme-dark-sunny",
+                ];
+                const themeClassName = darkThemes.includes(savedTheme)
+                    ? savedTheme
+                    : "theme-dark";
+                localStorage.setItem("theme", themeClassName);
                 // The CSS expects the class on the body, so we'll apply it there.
                 // We can't access body directly in the head, so we'll set an attribute on html
                 // and have a script right after body opens to move it.
@@ -22,6 +34,7 @@
             })();
         </script>
         <link rel="stylesheet" href="settings.css" />
+        <link rel="modulepreload" href="src/settings/storage.js" />
     </head>
     <body>
         <script>
@@ -32,11 +45,7 @@
                 if (themeClassName) {
                     // Remove any existing theme classes first
                     const themeClasses = [
-                        "theme-light",
                         "theme-dark",
-                        "theme-light-mint",
-                        "theme-light-sakura",
-                        "theme-light-sunny",
                         "theme-dark-purple",
                         "theme-dark-nord",
                         "theme-dark-forest",
@@ -530,6 +539,39 @@
 
                         <div class="settings-card">
                             <div class="card-header">
+                                <h4>New Tab Background</h4>
+                                <p>Use the theme color, a bundled wallpaper, or your own image</p>
+                            </div>
+                            <div class="card-content">
+                                <div id="wallpaper-options" class="wallpaper-options">
+                                    <button class="wallpaper-option" type="button" data-wallpaper-type="color" data-wallpaper-value="">
+                                        <span class="wallpaper-preview wallpaper-color-preview"></span>
+                                        <span>Theme color</span>
+                                    </button>
+                                    <button class="wallpaper-option" type="button" data-wallpaper-type="built-in" data-wallpaper-value="wallpapers/desert-stars.jpg">
+                                        <span class="wallpaper-preview" style="background-image: url('wallpapers/desert-stars.jpg')"></span>
+                                        <span>Desert stars</span>
+                                    </button>
+                                    <button class="wallpaper-option" type="button" data-wallpaper-type="built-in" data-wallpaper-value="wallpapers/aurora-lake.jpg">
+                                        <span class="wallpaper-preview" style="background-image: url('wallpapers/aurora-lake.jpg')"></span>
+                                        <span>Aurora lake</span>
+                                    </button>
+                                    <button class="wallpaper-option" type="button" data-wallpaper-type="built-in" data-wallpaper-value="wallpapers/mountain-twilight.jpg">
+                                        <span class="wallpaper-preview" style="background-image: url('wallpapers/mountain-twilight.jpg')"></span>
+                                        <span>Mountain twilight</span>
+                                    </button>
+                                    <button id="upload-wallpaper-button" class="wallpaper-option wallpaper-upload" type="button">
+                                        <span id="custom-wallpaper-preview" class="wallpaper-preview wallpaper-upload-preview">+</span>
+                                        <span>Upload image</span>
+                                    </button>
+                                </div>
+                                <input id="wallpaper-file-input" type="file" accept="image/png,image/jpeg,image/webp" hidden />
+                                <p class="wallpaper-help">Uploaded images are resized to fit a 1920×1080 background and stored only on this device.</p>
+                            </div>
+                        </div>
+
+                        <div class="settings-card">
+                            <div class="card-header">
                                 <h4>Themes</h4>
                                 <p>
                                     Choose a theme to personalize your browser's
@@ -538,71 +580,7 @@
                             </div>
 
                             <div class="theme-selector">
-                                <h5>Light Themes</h5>
-                                <div class="theme-options">
-                                    <div
-                                        class="theme-option"
-                                        data-theme="light"
-                                    >
-                                        <div
-                                            class="theme-preview"
-                                            style="background: #fff"
-                                        ></div>
-                                        <span>Default Light</span>
-                                    </div>
-                                    <div
-                                        class="theme-option"
-                                        data-theme="light-mint"
-                                    >
-                                        <div
-                                            class="theme-preview"
-                                            style="
-                                                background: radial-gradient(
-                                                    circle,
-                                                    #c1fdd1 0%,
-                                                    #a8eec1 100%
-                                                );
-                                            "
-                                        ></div>
-                                        <span>Mint</span>
-                                    </div>
-                                    <div
-                                        class="theme-option"
-                                        data-theme="light-sakura"
-                                    >
-                                        <div
-                                            class="theme-preview"
-                                            style="
-                                                background: radial-gradient(
-                                                    circle,
-                                                    #ffc0cb 0%,
-                                                    #ffb6c1 100%
-                                                );
-                                            "
-                                        ></div>
-                                        <span>Sakura</span>
-                                    </div>
-                                    <div
-                                        class="theme-option"
-                                        data-theme="light-sunny"
-                                    >
-                                        <div
-                                            class="theme-preview"
-                                            style="
-                                                background: radial-gradient(
-                                                    circle,
-                                                    #fff176 0%,
-                                                    #ffeb3b 100%
-                                                );
-                                            "
-                                        ></div>
-                                        <span>Sunny</span>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div class="theme-selector">
-                                <h5>Dark Themes</h5>
+                                <h5>Themes</h5>
                                 <div class="theme-options">
                                     <div class="theme-option" data-theme="dark">
                                         <div
@@ -908,6 +886,7 @@
                                 </div>
                             </div>
                         </div>
+
                     </div>
 
                     <div id="widgets-settings" class="settings-tab-content">
@@ -1157,6 +1136,36 @@
                                         </button>
                                     </div>
                                 </div>
+                            </div>
+
+                            <div class="settings-card credential-manager-card">
+                                <div class="credential-manager-heading">
+                                    <div class="card-header">
+                                        <h4>Saved Logins</h4>
+                                        <p>Store website emails, usernames, and passwords in the operating system's encrypted vault.</p>
+                                    </div>
+                                    <button id="credential-add-button" class="btn-primary" type="button">Add login</button>
+                                </div>
+                                <p class="credential-security-note">Passwords are never stored in browser settings or localStorage. Vortex will not autofill or expose them to websites without a future explicit-consent flow.</p>
+                                <form id="credential-form" class="credential-form" hidden autocomplete="off">
+                                    <input id="credential-id" type="hidden" />
+                                    <label><span>Website</span><input id="credential-origin" type="text" inputmode="url" placeholder="https://example.com" maxlength="2048" required /></label>
+                                    <label><span>Email or username</span><input id="credential-username" type="text" maxlength="320" required autocomplete="off" /></label>
+                                    <label class="credential-password-group">
+                                        <span>Password</span>
+                                        <span class="credential-password-field">
+                                            <input id="credential-password" type="password" maxlength="4096" required autocomplete="new-password" />
+                                            <button id="credential-password-toggle" type="button" class="btn-secondary">Show</button>
+                                            <button id="credential-generate-button" type="button" class="btn-secondary">Generate</button>
+                                        </span>
+                                    </label>
+                                    <div class="credential-form-actions">
+                                        <button id="credential-cancel-button" type="button" class="btn-secondary">Cancel</button>
+                                        <button type="submit" class="btn-primary">Save securely</button>
+                                    </div>
+                                </form>
+                                <div id="credential-manager-status" class="credential-manager-status" role="status"></div>
+                                <div id="credential-list" class="credential-list"></div>
                             </div>
 
                             <div class="settings-card">
@@ -1600,10 +1609,23 @@
                                 </div>
                             </div>
                         </div>
+
+                        <div class="settings-card">
+                            <div class="card-header">
+                                <h4>Wallpaper Credits</h4>
+                                <p>Bundled photography from Pexels</p>
+                            </div>
+                            <div class="card-content">
+                                <div class="info-item"><span class="info-label">Desert stars:</span><span class="info-value">Walid Ahmad</span></div>
+                                <div class="info-item"><span class="info-label">Aurora lake:</span><span class="info-value">Саша</span></div>
+                                <div class="info-item"><span class="info-label">Mountain twilight:</span><span class="info-value">Aqib Shahid</span></div>
+                                <p class="wallpaper-credit-note">Photos are provided under the Pexels license. Full source links are recorded in <code>wallpapers/CREDITS.md</code>.</p>
+                            </div>
+                        </div>
                     </div>
                 </main>
             </div>
         </div>
-        <script src="settings.js"></script>
+        <script type="module" src="settings.js"></script>
     </body>
 </html>

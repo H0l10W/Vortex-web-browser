@@ -1,11 +1,11 @@
 {
   "name": "vortexwebbrowser",
-  "version": "0.3.8",
+  "version": "0.4.0",
   "description": "A fast, lightweight web browser built with Electron",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "lint": "eslint main.js renderer.js preload.js settings.js history.js suggestions-overlay.js suggestions-overlay-preload.js security-test.js renderer-modular/history-manager.js renderer-modular/utils.js",
+    "lint": "eslint main.js renderer.js preload.js settings.js history.js suggestions-overlay.js suggestions-overlay-preload.js security-test.js src/**/*.js",
     "check": "npm run lint && npm run security:test",
     "security:test": "node security-test.js",
     "build": "electron-builder --win --publish=never",
