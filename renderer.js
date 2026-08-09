@@ -1216,15 +1216,17 @@ window.addEventListener("DOMContentLoaded", () => {
       }
     });
 
-    webview.addEventListener("did-navigate", (event) => {
-      const url = event.url;
+    const handleTrackedNavigation = (url) => {
+      if (!url) return;
       const tab = tabs.find((t) => t.id === tabId);
       if (!tab) return;
 
+      if (tab.url !== url) tab.title = "";
       tab.url = url;
       if (tab.history[tab.historyIndex] !== url) {
+        tab.history = tab.history.slice(0, tab.historyIndex + 1);
         tab.history.push(url);
-        tab.historyIndex++;
+        tab.historyIndex = tab.history.length - 1;
       }
 
       if (tab.id === currentTabId) {
@@ -1249,7 +1251,7 @@ window.addEventListener("DOMContentLoaded", () => {
           })();
           historyManager.addToHistory({
             url,
-            title: tab.title || url,
+            title: url,
             host,
             timestamp: Date.now(),
           });
@@ -1267,12 +1269,22 @@ window.addEventListener("DOMContentLoaded", () => {
           console.error("historyManager.addToHistory failed (webview)", e);
         }
       }
+    };
+
+    webview.addEventListener("did-navigate", (event) => {
+      handleTrackedNavigation(event.url);
+    });
+
+    webview.addEventListener("did-navigate-in-page", (event) => {
+      if (event.isMainFrame === false) return;
+      handleTrackedNavigation(event.url);
     });
 
     webview.addEventListener("page-title-updated", (event) => {
       const tab = tabs.find((t) => t.id === tabId);
       if (!tab || tab.url === "newtab") return;
       tab.title = event.title;
+      historyManager.updateTitle(tab.url, event.title).catch(() => {});
       persistTabs();
       renderTabs();
     });

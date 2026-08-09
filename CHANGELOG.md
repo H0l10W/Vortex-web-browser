@@ -1,5 +1,16 @@
 # Vortex Browser - Changelog
 
+## [0.4.2] - 2026-08-09
+
+### Fixed
+- Fixed early navigation racing with history initialization and overwriting newly recorded visits.
+- Added history tracking for same-document and single-page-app navigation used by sites such as YouTube.
+- Fixed back/forward history branching after navigating from an older entry and updated stored visit titles when the final page title arrives.
+- Made new visits immediately available to address-bar suggestions while retaining batched persistent writes.
+- Fixed custom window controls disappearing when the browser was resized to a very short height.
+- Fixed uploaded new-tab wallpapers scaling against an oversized scrolling surface instead of the visible app viewport.
+- Wallpapers now retain their aspect ratio, remain centered, and resize with the live content area.
+
 ## [0.4.1] - 2026-08-09
 
 ### Fixed

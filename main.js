@@ -1064,6 +1064,7 @@ function createWindow(initialUrl, isFresh = false) {
   const win = new BrowserWindow({
     width: DEFAULT_WINDOW_WIDTH,
     height: DEFAULT_WINDOW_HEIGHT,
+    minHeight: 180,
     frame: false, // Remove default window frame
     titleBarStyle: 'hidden', // Hide title bar
     icon: path.join(__dirname, 'icons', 'icon.png'), // Add icon for running app
