@@ -185,6 +185,17 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.send("toggle-https-upgrade", enabled),
   toggleReferrerPolicy: (strict) =>
     ipcRenderer.send("toggle-referrer-policy", strict),
+  setPrivacySetting: (key, value) =>
+    ipcRenderer.invoke("set-privacy-setting", { key, value }),
+  setAutoCleanupDays: (days) => ipcRenderer.invoke("set-auto-cleanup-days", days),
+  getPrivacyDashboard: () => ipcRenderer.invoke("get-privacy-dashboard"),
+  resetPrivacyDashboard: () => ipcRenderer.invoke("reset-privacy-dashboard"),
+  getPermissionDecisions: () => ipcRenderer.invoke("get-permission-decisions"),
+  clearPermissionDecisions: () => ipcRenderer.invoke("clear-permission-decisions"),
+  getSitePrivacy: (url) => ipcRenderer.invoke("get-site-privacy", url),
+  setSitePrivacyException: (url, disabled) =>
+    ipcRenderer.invoke("set-site-privacy-exception", { url, disabled }),
+  clearSiteData: (url) => ipcRenderer.invoke("clear-site-data", url),
 });
 
 // Set up a global notification UI inside the page from the preload context

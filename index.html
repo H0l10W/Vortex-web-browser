@@ -11,6 +11,11 @@
   <link rel="modulepreload" href="src/renderer/widgets/widget-settings.js">
 </head>
 <body class="theme-dark">
+  <svg class="connection-icon-sprite" aria-hidden="true">
+    <symbol id="connection-lock-icon" viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="11" rx="2"></rect><path d="M8 10V7a4 4 0 0 1 8 0v3"></path><path d="M12 14v3"></path></symbol>
+    <symbol id="connection-warning-icon" viewBox="0 0 24 24"><path d="M10.3 3.9 2.4 18a2 2 0 0 0 1.7 3h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"></path><path d="M12 9v4"></path><path d="M12 17h.01"></path></symbol>
+    <symbol id="connection-info-icon-vector" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><path d="M12 11v6"></path><path d="M12 7h.01"></path></symbol>
+  </svg>
   <aside id="resource-control" aria-label="Resource controls">
     <button id="resource-control-toggle" aria-expanded="false" aria-controls="resource-control-panel" title="Resource controls">⚡</button>
     <div id="resource-control-panel" hidden>
@@ -61,7 +66,51 @@
       <button id="reload" class="icon-btn"><img src="icons/reload.png" alt="Reload"></button>
       <button id="set-home" class="icon-btn"><img src="icons/home.png" alt="Set Home"></button>
     </div>
-    <input id="url" type="text" placeholder="Enter URL and press Enter" />
+    <div id="url-bar-shell">
+      <button id="connection-info-btn" type="button" aria-expanded="false" aria-label="Connection information" data-tooltip="Connection information">
+        <svg id="connection-info-icon" aria-hidden="true" viewBox="0 0 24 24"><use href="#connection-lock-icon"></use></svg>
+      </button>
+      <input id="url" type="text" placeholder="Enter URL and press Enter" />
+      <div id="connection-info-panel" hidden>
+        <div class="connection-info-heading">
+          <span id="connection-info-large-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><use href="#connection-lock-icon"></use></svg></span>
+          <div><strong id="connection-info-title">Connection is secure</strong><span id="connection-info-origin"></span></div>
+        </div>
+        <p id="connection-info-message"></p>
+        <div id="connection-info-detail"></div>
+      </div>
+    </div>
+    <div id="connection-hover-tooltip" role="tooltip" hidden></div>
+    <button id="media-controls-btn" class="icon-btn" type="button" title="Media controls" aria-label="Media controls" aria-expanded="false" hidden>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7Z"></path></svg>
+    </button>
+    <div id="media-controls-panel" hidden>
+      <div class="media-panel-heading"><div><span>Now playing</span><strong id="media-panel-title">Media in this tab</strong></div><span id="media-panel-state">Playing</span></div>
+      <div class="media-panel-actions">
+        <button id="media-play-pause" type="button">Pause</button>
+        <button id="media-mute" type="button">Mute tab</button>
+        <button id="media-pip" type="button">Picture in picture</button>
+      </div>
+      <p id="media-panel-message" role="status"></p>
+    </div>
+    <button id="privacy-shield-btn" class="icon-btn privacy-shield-btn" title="Privacy protection" aria-expanded="false" aria-label="Privacy protection">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 19 6v5c0 4.8-2.8 8.1-7 10-4.2-1.9-7-5.2-7-10V6l7-3Z"></path><path d="m9 12 2 2 4-4"></path></svg>
+    </button>
+    <div id="privacy-shield-panel" class="privacy-shield-panel" hidden>
+      <div class="privacy-shield-heading">
+        <div><span>Privacy shield</span><strong id="privacy-shield-site">Privacy protection</strong></div>
+        <span id="privacy-shield-status" class="privacy-shield-status">Active</span>
+      </div>
+      <p id="privacy-shield-summary">Open a website to view its protections.</p>
+      <label class="privacy-shield-exception">
+        <span><strong>Site protection</strong><small>Disable protections for this site</small></span>
+        <span class="privacy-shield-switch"><input id="privacy-site-exception" type="checkbox"><span></span></span>
+      </label>
+      <div class="privacy-shield-actions">
+        <button id="privacy-clear-site-data" class="privacy-secondary-action" type="button">Clear site data</button>
+        <button id="privacy-open-settings" class="privacy-primary-action" type="button">Privacy settings</button>
+      </div>
+    </div>
     <div class="button-group-right">
       <button id="bookmark-add" class="icon-btn"><img src="icons/bookmark.png" alt="Bookmark"></button>
       <button id="incognito-btn" class="icon-btn"><img src="icons/incognito.png" alt="Open incognito tab"></button>
@@ -217,6 +266,7 @@
     <div class="settings-content quick-history-content">
       <div id="quick-history-list" class="quick-history-list"></div>
       <div class="quick-history-actions">
+        <button id="reopen-tab-btn" class="settings-button" disabled>Reopen closed tab</button>
         <button id="view-all-history-btn" class="settings-button">View All History</button>
       </div>
     </div>

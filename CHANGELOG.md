@@ -1,5 +1,42 @@
 # Vortex Browser - Changelog
 
+## [0.4.6] - 2026-08-10
+
+### Added
+- Added third-party cookie blocking, Chromium third-party storage partitioning, tracking-parameter removal, HTTPS-only mode, WebRTC IP-leak protection, and conservative blocking of known fingerprinting services.
+- Added automatic privacy cleanup on exit or every 1, 7, or 30 days, plus current-site data clearing from the privacy shield.
+- Added persistent site-permission decisions with a global reset action.
+- Added a local privacy dashboard for blocked trackers, advertisements, cross-site cookies, tracking parameters, insecure-connection upgrades, and denied permission requests.
+- Added a privacy shield beside the address bar with current-site status, per-site protection exceptions, site-data clearing, and a shortcut to Privacy settings.
+- Added an address-bar connection indicator with crisp vector icons for secure HTTPS, insecure HTTP, and internal browser pages.
+- Added hover and click connection details explaining the current hostname, encryption state, and appropriate safety guidance.
+- Added recently closed-tab recovery for up to 20 tabs, available from Recent History, the tab context menu, and `Ctrl+Shift+T`.
+- Added per-tab audio detection and mute/unmute controls with persistent mute state and a tab context-menu action.
+- Added a media hub with playback status, Play/Pause, tab muting, and Picture-in-Picture controls, plus matching media commands in the tab context menu.
+
+### Changed
+- Centralized privacy enforcement across normal and memory-only incognito sessions.
+- Consolidated Privacy settings into Browsing Data & Cleanup, Saved Logins, Tracking Protection, Connection Privacy, and Privacy Dashboard & Permissions cards.
+- Moved recently closed-tab recovery from an ambiguous tab-strip icon into the Recent History panel with a descriptive action label.
+- Replaced connection-state and privacy-shield emoji with DPI-independent SVG icons and consistent theme-aware strokes.
+- Refined the address bar, privacy shield, connection panel, media panel, cleanup controls, selectors, dashboard metrics, and permission actions with responsive graphite styling.
+- Standardized the visible spacing around the address bar and compensated for the Home button's circular visual footprint.
+
+### Fixed
+- Fixed privacy and connection popovers remaining open after clicking inside an embedded webpage; outside clicks, webpage focus, repeated button clicks, and Escape now dismiss them correctly.
+- Fixed the connection tooltip appearing only briefly after the pointer left the lock by moving it into a dedicated fixed overlay.
+- Fixed redirects such as `youtube.com` to `www.youtube.com` becoming separate Back entries and requiring two Back clicks.
+- Back and Forward now prefer Chromium's native webview history and synchronize Vortex's saved tab history after redirects and single-page-app navigation.
+- Fixed the full Settings page failing to load when a competing `about:blank` teardown aborted its webview navigation.
+- Prevented reused base webviews from retaining stale tab event listeners after their original tab closes.
+- Fixed the recently closed-tab action being treated as part of the draggable title bar instead of an interactive control before it was moved into Recent History.
+- Kept incognito tabs out of recently closed-tab recovery and excluded transient media/navigation state from restored sessions.
+
+### Security
+- Added per-site privacy exceptions without weakening protections globally.
+- Continued applying tracker, cookie, HTTPS, referrer, permission, fingerprinting, and WebRTC protections to incognito's isolated in-memory session.
+- Retained all 33 automated browser security audit checks with no failures or warnings.
+
 ## [0.4.5] - 2026-08-10
 
 ### Changed

@@ -25,6 +25,10 @@ const portableExecutablePath = process.env.PORTABLE_EXECUTABLE_FILE
   : null;
 const isPortableBuild = process.platform === 'win32' && !!portableExecutablePath;
 
+// Keep third-party storage separated by the top-level site and prevent WebRTC
+// from exposing local addresses unless the user explicitly disables protection.
+app.commandLine.appendSwitch('enable-features', 'ThirdPartyStoragePartitioning,PartitionedCookies');
+
 // Memory management configuration
 const MEMORY_CONFIG = {
   maxInactiveTabs: 10, // Maximum inactive tabs before hibernation
@@ -75,6 +79,18 @@ function getTrustedLocalSenderPath(event) {
 function isTrustedStorageSender(event) {
   const senderPath = getTrustedLocalSenderPath(event);
   return !!senderPath && trustedStoragePages.has(path.basename(senderPath));
+}
+
+function isTrustedLocalContents(contents) {
+  try {
+    const contentsUrl = new URL(contents.getURL());
+    if (contentsUrl.protocol !== 'file:') return false;
+    const contentsPath = path.resolve(fileURLToPath(contentsUrl));
+    return path.dirname(contentsPath) === path.resolve(__dirname)
+      && trustedStoragePages.has(path.basename(contentsPath));
+  } catch (_error) {
+    return false;
+  }
 }
 
 function isValidStorageKey(key) {
@@ -187,6 +203,9 @@ function saveStorageData(data) {
 
 // Global storage object
 let storageData = loadStorageData();
+if (storageData.webrtcProtectionEnabled !== false && storageData.webrtcProtectionEnabled !== 'false') {
+  app.commandLine.appendSwitch('webrtc-ip-handling-policy', 'disable_non_proxied_udp');
+}
 
 // Apply persisted memory configuration overrides (if present)
 if (storageData && storageData.memoryConfig && typeof storageData.memoryConfig === 'object') {
@@ -270,6 +289,13 @@ function attachNetworkTelemetry(sessionInstance) {
       networkTelemetry.requestSamples.push({ ts: now });
     }
     const requestHeaders = { ...details.requestHeaders };
+    if (thirdPartyCookiesBlocked && !isPrivacyException(details.initiator || details.referrer || details.url) && isThirdPartyRequest(details)) {
+      const cookieKey = Object.keys(requestHeaders).find(key => key.toLowerCase() === 'cookie');
+      if (cookieKey) {
+        delete requestHeaders[cookieKey];
+        recordPrivacyStat('cookiesBlocked');
+      }
+    }
     if (dntEnabled) {
       requestHeaders.DNT = '1';
       requestHeaders['Sec-GPC'] = '1';
@@ -424,7 +450,7 @@ if (storageData && storageData.resourceLimits && typeof storageData.resourceLimi
 function setupSecurePermissions(sessionInstance) {
   if (!sessionInstance || securedPermissionSessions.has(sessionInstance)) return;
   securedPermissionSessions.add(sessionInstance);
-  const decisions = new Map();
+  const decisions = new Map(Object.entries(storageData.permissionDecisions || {}));
   permissionDecisions.set(sessionInstance, decisions);
 
   sessionInstance.setPermissionCheckHandler((_contents, permission, requestingOrigin) => {
@@ -439,6 +465,7 @@ function setupSecurePermissions(sessionInstance) {
       return;
     }
     if (!PROMPTED_PERMISSIONS.has(permission)) {
+      recordPrivacyStat('permissionsBlocked');
       callback(false);
       return;
     }
@@ -446,6 +473,7 @@ function setupSecurePermissions(sessionInstance) {
     const requestingUrl = details.requestingUrl || contents?.getURL() || '';
     const origin = getSecureOrigin(requestingUrl);
     if (!origin) {
+      recordPrivacyStat('permissionsBlocked');
       callback(false);
       return;
     }
@@ -468,6 +496,9 @@ function setupSecurePermissions(sessionInstance) {
     }).then(result => {
       const allowed = result.response === 1;
       decisions.set(decisionKey, allowed);
+      storageData.permissionDecisions = Object.fromEntries(decisions);
+      saveStorageData(storageData);
+      if (!allowed) recordPrivacyStat('permissionsBlocked');
       callback(allowed);
     }).catch(() => callback(false));
   });
@@ -659,12 +690,81 @@ let trackerBlockEnabled = storageData.trackerBlockEnabled === true || storageDat
 let dntEnabled = storageData.dntEnabled === true || storageData.dntEnabled === 'true';
 let httpsUpgradeEnabled = storageData.httpsUpgradeEnabled === true || storageData.httpsUpgradeEnabled === 'true';
 let referrerPolicyStrict = storageData.referrerPolicyStrict === true || storageData.referrerPolicyStrict === 'true';
+let thirdPartyCookiesBlocked = storageData.thirdPartyCookiesBlocked !== false && storageData.thirdPartyCookiesBlocked !== 'false';
+let stripTrackingParamsEnabled = storageData.stripTrackingParamsEnabled !== false && storageData.stripTrackingParamsEnabled !== 'false';
+let httpsOnlyMode = storageData.httpsOnlyMode === true || storageData.httpsOnlyMode === 'true';
+let fingerprintProtectionEnabled = storageData.fingerprintProtectionEnabled === true || storageData.fingerprintProtectionEnabled === 'true';
+let clearOnExitEnabled = storageData.clearOnExitEnabled === true || storageData.clearOnExitEnabled === 'true';
+let autoCleanupDays = [0, 1, 7, 30].includes(Number(storageData.autoCleanupDays)) ? Number(storageData.autoCleanupDays) : 0;
+let privacyExceptions = new Set(Array.isArray(storageData.privacyExceptions) ? storageData.privacyExceptions : []);
+const TRACKING_QUERY_PARAMS = new Set([
+  'fbclid', 'gclid', 'dclid', 'msclkid', 'mc_cid', 'mc_eid', '_ga', '_gl',
+  'yclid', 'twclid', 'igshid', 'vero_id', 'wickedid'
+]);
+const privacyStats = Object.assign({
+  trackersBlocked: 0,
+  adsBlocked: 0,
+  cookiesBlocked: 0,
+  parametersStripped: 0,
+  httpsUpgrades: 0,
+  permissionsBlocked: 0,
+}, storageData.privacyStats || {});
 const KNOWN_TRACKER_DOMAINS = new Set([
   'google-analytics.com', 'googletagmanager.com', 'doubleclick.net',
   'facebook.net', 'connect.facebook.net', 'hotjar.com', 'segment.io',
   'segment.com', 'mixpanel.com', 'amplitude.com', 'scorecardresearch.com',
   'quantserve.com', 'newrelic.com', 'clarity.ms'
 ]);
+const KNOWN_FINGERPRINT_DOMAINS = new Set([
+  'fingerprint.com', 'fpjs.io', 'fingerprintjs.com', 'deviceid.com', 'maxmind.com'
+]);
+
+function hostnameFromUrl(rawUrl) {
+  try { return new URL(rawUrl).hostname.toLowerCase(); } catch (_error) { return ''; }
+}
+
+function isPrivacyException(rawUrl) {
+  const hostname = hostnameFromUrl(rawUrl);
+  return !!hostname && Array.from(privacyExceptions).some(domain => hostname === domain || hostname.endsWith(`.${domain}`));
+}
+
+function isThirdPartyRequest(details) {
+  try {
+    const target = getRegistrableDomain(new URL(details.url).hostname);
+    const sourceUrl = details.initiator || details.referrer || webContents.fromId(details.webContentsId)?.getURL() || '';
+    const source = getRegistrableDomain(new URL(sourceUrl).hostname);
+    return !!target && !!source && target !== source;
+  } catch (_error) {
+    return false;
+  }
+}
+
+function stripTrackingParameters(rawUrl) {
+  try {
+    const parsed = new URL(rawUrl);
+    if (!['http:', 'https:'].includes(parsed.protocol)) return null;
+    let removed = 0;
+    for (const key of Array.from(parsed.searchParams.keys())) {
+      if (key.toLowerCase().startsWith('utm_') || TRACKING_QUERY_PARAMS.has(key.toLowerCase())) {
+        parsed.searchParams.delete(key);
+        removed++;
+      }
+    }
+    return removed ? { url: parsed.href, removed } : null;
+  } catch (_error) {
+    return null;
+  }
+}
+
+let privacyStatsSaveTimer = null;
+function recordPrivacyStat(key, amount = 1) {
+  privacyStats[key] = (Number(privacyStats[key]) || 0) + amount;
+  clearTimeout(privacyStatsSaveTimer);
+  privacyStatsSaveTimer = setTimeout(() => {
+    storageData.privacyStats = privacyStats;
+    saveStorageData(storageData);
+  }, 500);
+}
 
 function isKnownTrackerRequest(details) {
   try {
@@ -673,6 +773,12 @@ function isKnownTrackerRequest(details) {
   } catch (_error) {
     return false;
   }
+}
+
+function isKnownFingerprintRequest(details) {
+  const hostname = hostnameFromUrl(details.url);
+  return KNOWN_FINGERPRINT_DOMAINS.has(hostname)
+    || Array.from(KNOWN_FINGERPRINT_DOMAINS).some(domain => hostname.endsWith(`.${domain}`));
 }
 const adBlockInstrumentedSessions = new WeakSet();
 const imageBlockingWebContents = new Map();
@@ -857,18 +963,35 @@ function setupAdBlockerForSession(session) {
       callback({ cancel: true });
       return;
     }
-    if (httpsUpgradeEnabled && details.url.startsWith('http://')) {
+    const excepted = isPrivacyException(details.initiator || details.referrer || details.url);
+    if (!excepted && stripTrackingParamsEnabled && details.resourceType === 'mainFrame') {
+      const cleaned = stripTrackingParameters(details.url);
+      if (cleaned) {
+        recordPrivacyStat('parametersStripped', cleaned.removed);
+        callback({ redirectURL: cleaned.url });
+        return;
+      }
+    }
+    if (!excepted && (httpsUpgradeEnabled || httpsOnlyMode) && details.url.startsWith('http://')) {
       try {
         const target = new URL(details.url);
         if (!['localhost', '127.0.0.1', '::1'].includes(target.hostname)) {
           target.protocol = 'https:';
+          recordPrivacyStat('httpsUpgrades');
           callback({ redirectURL: target.href });
           return;
         }
       } catch (_error) {}
     }
 
-    if (trackerBlockEnabled && isKnownTrackerRequest(details)) {
+    if (!excepted && trackerBlockEnabled && isKnownTrackerRequest(details)) {
+      recordPrivacyStat('trackersBlocked');
+      callback({ cancel: true });
+      return;
+    }
+
+    if (!excepted && fingerprintProtectionEnabled && isKnownFingerprintRequest(details)) {
+      recordPrivacyStat('trackersBlocked');
       callback({ cancel: true });
       return;
     }
@@ -881,11 +1004,27 @@ function setupAdBlockerForSession(session) {
     
     if (shouldBlockAdRequest(details)) {
       console.debug('Blocked ad request:', details.url);
+      recordPrivacyStat('adsBlocked');
       callback({ cancel: true });
       return;
     }
 
     callback({ cancel: false });
+  });
+
+  session.webRequest.onHeadersReceived((details, callback) => {
+    if (!thirdPartyCookiesBlocked || isPrivacyException(details.initiator || details.referrer || details.url) || !isThirdPartyRequest(details)) {
+      callback({ responseHeaders: details.responseHeaders });
+      return;
+    }
+    const responseHeaders = { ...details.responseHeaders };
+    for (const key of Object.keys(responseHeaders)) {
+      if (key.toLowerCase() === 'set-cookie') {
+        recordPrivacyStat('cookiesBlocked', Array.isArray(responseHeaders[key]) ? responseHeaders[key].length : 1);
+        delete responseHeaders[key];
+      }
+    }
+    callback({ responseHeaders });
   });
 }
 
@@ -2815,6 +2954,13 @@ function broadcastPrivacySettings() {
     dntEnabled,
     httpsUpgradeEnabled,
     referrerPolicyStrict,
+    thirdPartyCookiesBlocked,
+    stripTrackingParamsEnabled,
+    httpsOnlyMode,
+    fingerprintProtectionEnabled,
+    clearOnExitEnabled,
+    autoCleanupDays,
+    webrtcProtectionEnabled: storageData.webrtcProtectionEnabled !== false && storageData.webrtcProtectionEnabled !== 'false',
   };
   BrowserWindow.getAllWindows().forEach(win => {
     if (!win.isDestroyed()) win.webContents.send('privacy-settings-changed', privacySettings);
@@ -2826,7 +2972,94 @@ ipcMain.handle('get-privacy-settings', () => ({
   dntEnabled,
   httpsUpgradeEnabled,
   referrerPolicyStrict,
+  thirdPartyCookiesBlocked,
+  stripTrackingParamsEnabled,
+  httpsOnlyMode,
+  fingerprintProtectionEnabled,
+  clearOnExitEnabled,
+  autoCleanupDays,
+  webrtcProtectionEnabled: storageData.webrtcProtectionEnabled !== false && storageData.webrtcProtectionEnabled !== 'false',
 }));
+
+ipcMain.handle('set-privacy-setting', (_event, { key, value } = {}) => {
+  const setters = {
+    thirdPartyCookiesBlocked: next => { thirdPartyCookiesBlocked = next; },
+    stripTrackingParamsEnabled: next => { stripTrackingParamsEnabled = next; },
+    httpsOnlyMode: next => { httpsOnlyMode = next; },
+    fingerprintProtectionEnabled: next => { fingerprintProtectionEnabled = next; },
+    clearOnExitEnabled: next => { clearOnExitEnabled = next; },
+    webrtcProtectionEnabled: () => {},
+  };
+  if (!Object.prototype.hasOwnProperty.call(setters, key)) return false;
+  const normalized = !!value;
+  setters[key](normalized);
+  storageData[key] = normalized;
+  saveStorageData(storageData);
+  broadcastPrivacySettings();
+  return { success: true, restartRequired: key === 'webrtcProtectionEnabled' };
+});
+
+ipcMain.handle('set-auto-cleanup-days', (_event, days) => {
+  const normalized = Number(days);
+  if (![0, 1, 7, 30].includes(normalized)) return false;
+  autoCleanupDays = normalized;
+  storageData.autoCleanupDays = normalized;
+  saveStorageData(storageData);
+  broadcastPrivacySettings();
+  return true;
+});
+
+ipcMain.handle('get-privacy-dashboard', () => ({ ...privacyStats }));
+ipcMain.handle('reset-privacy-dashboard', () => {
+  Object.keys(privacyStats).forEach(key => { privacyStats[key] = 0; });
+  storageData.privacyStats = privacyStats;
+  saveStorageData(storageData);
+  return { ...privacyStats };
+});
+
+ipcMain.handle('get-permission-decisions', () => ({ ...(storageData.permissionDecisions || {}) }));
+ipcMain.handle('clear-permission-decisions', () => {
+  storageData.permissionDecisions = {};
+  // WeakMaps cannot be iterated; newly created sessions will load the cleared state.
+  BrowserWindow.getAllWindows().forEach(win => permissionDecisions.get(win.webContents.session)?.clear());
+  permissionDecisions.get(session.fromPartition('incognito'))?.clear();
+  saveStorageData(storageData);
+  return true;
+});
+
+ipcMain.handle('get-site-privacy', (_event, rawUrl) => {
+  const hostname = hostnameFromUrl(rawUrl);
+  return { hostname, exception: hostname ? isPrivacyException(rawUrl) : false, settings: {
+    trackerBlockEnabled, thirdPartyCookiesBlocked, stripTrackingParamsEnabled,
+    httpsOnlyMode, fingerprintProtectionEnabled,
+  }, stats: { ...privacyStats } };
+});
+
+ipcMain.handle('set-site-privacy-exception', (_event, { url, disabled } = {}) => {
+  const hostname = hostnameFromUrl(url);
+  if (!hostname) return false;
+  if (disabled) privacyExceptions.add(hostname); else privacyExceptions.delete(hostname);
+  storageData.privacyExceptions = Array.from(privacyExceptions);
+  saveStorageData(storageData);
+  return true;
+});
+
+ipcMain.handle('clear-site-data', async (_event, rawUrl) => {
+  const hostname = hostnameFromUrl(rawUrl);
+  if (!hostname) return false;
+  const targets = new Set([session.defaultSession, session.fromPartition('incognito')]);
+  await Promise.all(Array.from(targets).map(async sessionInstance => {
+    const cookies = await sessionInstance.cookies.get({ domain: hostname });
+    await Promise.all(cookies.map(cookie => {
+      const domain = cookie.domain.replace(/^\./, '');
+      const scheme = cookie.secure ? 'https' : 'http';
+      return sessionInstance.cookies.remove(`${scheme}://${domain}${cookie.path || '/'}`, cookie.name);
+    }));
+    await sessionInstance.clearStorageData({ origin: `https://${hostname}` });
+    await sessionInstance.clearStorageData({ origin: `http://${hostname}` });
+  }));
+  return true;
+});
 
 ipcMain.on('toggle-tracker-blocking', (_event, enabled) => {
   trackerBlockEnabled = !!enabled;
@@ -2860,9 +3093,9 @@ ipcMain.on('set-resource-control-visibility', (_event, visible) => {
   const normalized = visible !== false;
   storageData.showResourceControl = normalized ? 'true' : 'false';
   saveStorageData(storageData);
-  BrowserWindow.getAllWindows().forEach(win => {
-    if (!win.isDestroyed()) {
-      win.webContents.send('resource-control-visibility-changed', normalized);
+  webContents.getAllWebContents().forEach(contents => {
+    if (!contents.isDestroyed() && isTrustedLocalContents(contents)) {
+      contents.send('resource-control-visibility-changed', normalized);
     }
   });
 });
@@ -3322,6 +3555,21 @@ app.whenReady().then(() => {
   attachNetworkTelemetry(incognitoSession);
   setupAdBlockerForSession(incognitoSession);
 
+  const cleanupIntervalMs = autoCleanupDays * 24 * 60 * 60 * 1000;
+  const lastCleanupAt = Number(storageData.lastAutomaticCleanupAt) || 0;
+  if (cleanupIntervalMs && Date.now() - lastCleanupAt >= cleanupIntervalMs) {
+    Promise.all([
+      session.defaultSession.clearCache(),
+      session.defaultSession.clearStorageData({
+        storages: ['cookies', 'filesystem', 'indexdb', 'localstorage', 'websql', 'serviceworkers', 'cachestorage']
+      })
+    ]).then(() => {
+      storageData.lastAutomaticCleanupAt = Date.now();
+      saveStorageData(storageData);
+      console.log('Scheduled privacy cleanup completed');
+    }).catch(error => console.warn('Scheduled privacy cleanup failed:', error.message));
+  }
+
   console.log('=== AUTO-UPDATER DEBUG INFO ===');
   console.log('App version:', app.getVersion());
   console.log('Repository configured: H0l10W/Vortex-web-browser');
@@ -3729,8 +3977,23 @@ ipcMain.handle('set-as-default-browser', () => {
   return httpSet && httpsSet;
 });
 
-app.on('before-quit', () => {
+let privacyExitCleanupComplete = false;
+app.on('before-quit', (event) => {
   console.log('App is quitting, performing final cleanup...');
+  if (clearOnExitEnabled && !privacyExitCleanupComplete) {
+    event.preventDefault();
+    const sessions = new Set([session.defaultSession, session.fromPartition('incognito')]);
+    Promise.all(Array.from(sessions).map(async sessionInstance => {
+      await sessionInstance.clearCache();
+      await sessionInstance.clearStorageData({
+        storages: ['cookies', 'filesystem', 'indexdb', 'localstorage', 'shadercache', 'websql', 'serviceworkers', 'cachestorage']
+      });
+    })).catch(error => console.warn('Privacy exit cleanup failed:', error.message)).finally(() => {
+      privacyExitCleanupComplete = true;
+      app.quit();
+    });
+    return;
+  }
   
   // Check close tabs on exit setting
   if (storageData.closeTabsOnExit === 'true') {

@@ -634,6 +634,13 @@ window.addEventListener("DOMContentLoaded", () => {
       document.documentElement.style.setProperty("--base-font-size", `${value}px`);
     if (key === "visualEffectsEnabled")
       document.body.classList.toggle("effects-disabled", value === "false");
+    if (key === "showResourceControl" && resourceControl) {
+      resourceControl.hidden = value === "false";
+      if (value === "false") {
+        if (resourcePanel) resourcePanel.hidden = true;
+        resourceToggle?.setAttribute("aria-expanded", "false");
+      }
+    }
   });
 
   // Tab groups state
@@ -1067,6 +1074,125 @@ window.addEventListener("DOMContentLoaded", () => {
 
   // --- DOM Elements ---
   const urlInput = document.getElementById("url");
+  const connectionInfoBtn = document.getElementById("connection-info-btn");
+  const connectionInfoIcon = document.getElementById("connection-info-icon");
+  const connectionInfoPanel = document.getElementById("connection-info-panel");
+  const connectionInfoLargeIcon = document.getElementById("connection-info-large-icon");
+  const connectionInfoTitle = document.getElementById("connection-info-title");
+  const connectionInfoOrigin = document.getElementById("connection-info-origin");
+  const connectionInfoMessage = document.getElementById("connection-info-message");
+  const connectionInfoDetail = document.getElementById("connection-info-detail");
+  const connectionHoverTooltip = document.getElementById("connection-hover-tooltip");
+  const mediaControlsBtn = document.getElementById("media-controls-btn");
+  const mediaControlsPanel = document.getElementById("media-controls-panel");
+  const mediaPanelTitle = document.getElementById("media-panel-title");
+  const mediaPanelState = document.getElementById("media-panel-state");
+  const mediaPanelMessage = document.getElementById("media-panel-message");
+  const mediaPlayPauseBtn = document.getElementById("media-play-pause");
+  const mediaMuteBtn = document.getElementById("media-mute");
+  const mediaPipBtn = document.getElementById("media-pip");
+
+  function syncMediaControlsVisibility() {
+    const tab = tabs.find((item) => item.id === currentTabId);
+    if (!mediaControlsBtn) return;
+    mediaControlsBtn.hidden = !(tab?.hasMedia || tab?.audible || tab?.muted);
+    mediaControlsBtn.classList.toggle("is-playing", !!tab?.audible && !tab?.muted);
+    if (mediaMuteBtn) mediaMuteBtn.textContent = tab?.muted ? "Unmute tab" : "Mute tab";
+  }
+
+  async function queryActiveMediaState() {
+    const webview = getActiveWebview();
+    if (!webview?.executeJavaScript) return null;
+    try {
+      return await webview.executeJavaScript(`(() => {
+        const items = Array.from(document.querySelectorAll('video, audio'));
+        const media = items.find(item => !item.paused && !item.ended) || items[0];
+        if (!media) return null;
+        return {
+          paused: media.paused,
+          isVideo: media.tagName === 'VIDEO',
+          pip: !!document.pictureInPictureElement,
+          title: document.title || 'Media in this tab'
+        };
+      })()`, false);
+    } catch (_error) {
+      return null;
+    }
+  }
+
+  async function runActiveMediaAction(action) {
+    const webview = getActiveWebview();
+    if (!webview?.executeJavaScript) return { ok: false, message: "No active media" };
+    try {
+      return await webview.executeJavaScript(`(async () => {
+        const items = Array.from(document.querySelectorAll('video, audio'));
+        const media = items.find(item => !item.paused && !item.ended) || items[0];
+        if (!media) return { ok: false, message: 'No playable media was found on this page.' };
+        if (${JSON.stringify(action)} === 'play-pause') {
+          if (media.paused) await media.play(); else media.pause();
+          return { ok: true, paused: media.paused };
+        }
+        if (${JSON.stringify(action)} === 'pip') {
+          if (media.tagName !== 'VIDEO' || !document.pictureInPictureEnabled) return { ok: false, message: 'Picture-in-Picture is unavailable for this media.' };
+          if (document.pictureInPictureElement) await document.exitPictureInPicture();
+          else await media.requestPictureInPicture();
+          return { ok: true, pip: !!document.pictureInPictureElement };
+        }
+        return { ok: false, message: 'Unknown media action.' };
+      })()`, true);
+    } catch (_error) {
+      return { ok: false, message: "The website blocked that media action." };
+    }
+  }
+
+  async function refreshMediaPanel() {
+    const state = await queryActiveMediaState();
+    const tab = tabs.find((item) => item.id === currentTabId);
+    mediaPanelTitle.textContent = state?.title || tab?.title || "Media in this tab";
+    mediaPanelState.textContent = state?.paused ? "Paused" : "Playing";
+    mediaPlayPauseBtn.textContent = state?.paused ? "Play" : "Pause";
+    mediaPipBtn.disabled = !state?.isVideo;
+    mediaPipBtn.textContent = state?.pip ? "Exit picture in picture" : "Picture in picture";
+    mediaMuteBtn.textContent = tab?.muted ? "Unmute tab" : "Mute tab";
+  }
+
+  function getConnectionState(rawUrl) {
+    try {
+      const parsed = new URL(rawUrl);
+      if (parsed.protocol === "https:") {
+        return {
+          type: "secure", icon: "connection-lock-icon", title: "Connection is secure",
+          tooltip: "View site information (secure)", origin: parsed.hostname,
+          message: "Your information, such as passwords or payment details, is private when sent to this site.",
+          detail: "The connection to this site is encrypted with HTTPS.",
+        };
+      }
+      if (parsed.protocol === "http:") {
+        return {
+          type: "insecure", icon: "connection-warning-icon", title: "Connection is not secure",
+          tooltip: "Not secure", origin: parsed.hostname,
+          message: "Do not enter sensitive information on this site. It could be viewed or changed by others.",
+          detail: "This site is using an unencrypted HTTP connection.",
+        };
+      }
+      return { type: "internal", icon: "connection-info-icon-vector", title: "Vortex page", tooltip: "Vortex page", origin: "", message: "This is a local browser page.", detail: "No website connection is being used." };
+    } catch (_error) {
+      return { type: "internal", icon: "connection-info-icon-vector", title: "No site information", tooltip: "No site information", origin: "", message: "Open a website to view its connection information.", detail: "" };
+    }
+  }
+
+  function updateConnectionInfo(rawUrl) {
+    const state = getConnectionState(rawUrl);
+    connectionInfoBtn.dataset.state = state.type;
+    connectionInfoBtn.dataset.tooltip = state.tooltip;
+    connectionInfoBtn.setAttribute("aria-label", state.tooltip);
+    connectionInfoIcon.querySelector("use").setAttribute("href", `#${state.icon}`);
+    connectionInfoLargeIcon.querySelector("use").setAttribute("href", `#${state.icon}`);
+    connectionInfoTitle.textContent = state.title;
+    connectionInfoOrigin.textContent = state.origin;
+    connectionInfoMessage.textContent = state.message;
+    connectionInfoDetail.textContent = state.detail;
+  }
   // Ensure url input is focusable for keyboard navigation
   try {
     if (urlInput && typeof urlInput.setAttribute === "function") {
@@ -1157,6 +1283,68 @@ window.addEventListener("DOMContentLoaded", () => {
   const settingsBtn = document.getElementById("settings");
   const historyBtn = document.getElementById("history-btn");
   const controlsDiv = document.getElementById("controls"); // Add controls div reference
+  mediaControlsBtn?.addEventListener("click", async (event) => {
+    event.stopPropagation();
+    const opening = mediaControlsPanel.hidden;
+    mediaControlsPanel.hidden = !opening;
+    mediaControlsBtn.setAttribute("aria-expanded", String(opening));
+    if (opening) {
+      mediaPanelMessage.textContent = "";
+      await refreshMediaPanel();
+    }
+  });
+  mediaPlayPauseBtn?.addEventListener("click", async () => {
+    const result = await runActiveMediaAction("play-pause");
+    mediaPanelMessage.textContent = result.message || "";
+    await refreshMediaPanel();
+  });
+  mediaMuteBtn?.addEventListener("click", () => {
+    toggleTabMuted(currentTabId);
+    refreshMediaPanel();
+  });
+  mediaPipBtn?.addEventListener("click", async () => {
+    const result = await runActiveMediaAction("pip");
+    mediaPanelMessage.textContent = result.message || (result.pip ? "Picture-in-Picture started." : "Picture-in-Picture closed.");
+    await refreshMediaPanel();
+  });
+  document.addEventListener("click", (event) => {
+    if (mediaControlsPanel?.hidden || mediaControlsPanel.contains(event.target) || mediaControlsBtn?.contains(event.target)) return;
+    mediaControlsPanel.hidden = true;
+    mediaControlsBtn.setAttribute("aria-expanded", "false");
+  });
+  connectionInfoBtn?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    connectionHoverTooltip.hidden = true;
+    const opening = connectionInfoPanel.hidden;
+    connectionInfoPanel.hidden = !opening;
+    connectionInfoBtn.setAttribute("aria-expanded", String(opening));
+    if (opening) updateConnectionInfo(urlInput.value);
+  });
+  connectionInfoBtn?.addEventListener("mouseenter", () => {
+    const rect = connectionInfoBtn.getBoundingClientRect();
+    connectionHoverTooltip.textContent = connectionInfoBtn.dataset.tooltip;
+    connectionHoverTooltip.style.left = `${Math.max(8, rect.left)}px`;
+    connectionHoverTooltip.style.top = `${rect.bottom + 8}px`;
+    connectionHoverTooltip.hidden = false;
+  });
+  connectionInfoBtn?.addEventListener("mouseleave", () => {
+    connectionHoverTooltip.hidden = true;
+  });
+  connectionInfoBtn?.addEventListener("focus", () => {
+    const rect = connectionInfoBtn.getBoundingClientRect();
+    connectionHoverTooltip.textContent = connectionInfoBtn.dataset.tooltip;
+    connectionHoverTooltip.style.left = `${Math.max(8, rect.left)}px`;
+    connectionHoverTooltip.style.top = `${rect.bottom + 8}px`;
+    connectionHoverTooltip.hidden = false;
+  });
+  connectionInfoBtn?.addEventListener("blur", () => {
+    connectionHoverTooltip.hidden = true;
+  });
+  document.addEventListener("click", (event) => {
+    if (connectionInfoPanel?.hidden || event.target.closest?.("#url-bar-shell")) return;
+    connectionInfoPanel.hidden = true;
+    connectionInfoBtn?.setAttribute("aria-expanded", "false");
+  });
   // Recover URL focus only when clicking non-interactive empty space in controls.
   try {
     if (controlsDiv && urlInput) {
@@ -1283,9 +1471,11 @@ window.addEventListener("DOMContentLoaded", () => {
     tabWebviews.delete(tabId);
     if (webview === contentWebview) {
       try {
-        webview.setAttribute("src", "about:blank");
+        webview.stop();
       } catch (e) {}
       webview.style.display = "none";
+      webview.style.visibility = "hidden";
+      webview.style.pointerEvents = "none";
       return;
     }
     try {
@@ -1349,6 +1539,26 @@ window.addEventListener("DOMContentLoaded", () => {
     webview.addEventListener("dom-ready", () => {
       registerWebviewDevToolsShortcut(webview);
       applyAdBlockCosmetics(webview);
+      const tab = tabs.find((item) => item.id === tabId);
+      if (tab?.muted) webview.setAudioMuted?.(true);
+    });
+
+    webview.addEventListener("media-started-playing", () => {
+      const tab = tabs.find((item) => item.id === tabId);
+      if (!tab) return;
+      tab.audible = true;
+      tab.hasMedia = true;
+      tab.muted = webview.isAudioMuted?.() === true;
+      renderTabs();
+      if (tab.id === currentTabId) syncMediaControlsVisibility();
+    });
+
+    webview.addEventListener("media-paused", () => {
+      const tab = tabs.find((item) => item.id === tabId);
+      if (!tab) return;
+      tab.audible = false;
+      renderTabs();
+      if (tab.id === currentTabId) syncMediaControlsVisibility();
     });
 
     window.electronAPI.on("guest-open-url", (_event, url) => {
@@ -1370,7 +1580,26 @@ window.addEventListener("DOMContentLoaded", () => {
 
       if (tab.url !== url) tab.title = "";
       tab.url = url;
-      if (tab.history[tab.historyIndex] !== url) {
+      if (tab._pendingHistoryDirection) {
+        const direction = tab._pendingHistoryDirection;
+        const limit = direction < 0 ? -1 : tab.history.length;
+        let matchingIndex = tab.historyIndex + direction;
+        while (matchingIndex !== limit && tab.history[matchingIndex] !== url) {
+          matchingIndex += direction;
+        }
+        if (matchingIndex !== limit) {
+          tab.historyIndex = matchingIndex;
+        } else {
+          tab.historyIndex = Math.max(0, Math.min(tab.history.length - 1, tab.historyIndex + direction));
+          tab.history[tab.historyIndex] = url;
+        }
+        delete tab._pendingHistoryDirection;
+      } else if (Number.isInteger(tab._pendingNavigationIndex)) {
+        const navigationIndex = Math.max(0, Math.min(tab.history.length - 1, tab._pendingNavigationIndex));
+        tab.history[navigationIndex] = url;
+        tab.historyIndex = navigationIndex;
+        delete tab._pendingNavigationIndex;
+      } else if (tab.history[tab.historyIndex] !== url) {
         tab.history = tab.history.slice(0, tab.historyIndex + 1);
         tab.history.push(url);
         tab.historyIndex = tab.history.length - 1;
@@ -1378,6 +1607,7 @@ window.addEventListener("DOMContentLoaded", () => {
 
       if (tab.id === currentTabId) {
         urlInput.value = url;
+        updateConnectionInfo(url);
       }
 
       persistTabs();
@@ -1442,6 +1672,24 @@ window.addEventListener("DOMContentLoaded", () => {
         closeSettingsPanelIfOpen({ restoreUrlFocus: false });
         closeQuickHistoryPanelIfOpen({ restoreUrlFocus: false });
         closeGroupManagementMenu();
+        const shieldPanel = document.getElementById("privacy-shield-panel");
+        const shieldButton = document.getElementById("privacy-shield-btn");
+        if (shieldPanel && !shieldPanel.hidden) {
+          shieldPanel.hidden = true;
+          shieldButton?.setAttribute("aria-expanded", "false");
+        }
+        const connectionPanel = document.getElementById("connection-info-panel");
+        const connectionButton = document.getElementById("connection-info-btn");
+        if (connectionPanel && !connectionPanel.hidden) {
+          connectionPanel.hidden = true;
+          connectionButton?.setAttribute("aria-expanded", "false");
+        }
+        const mediaPanel = document.getElementById("media-controls-panel");
+        const mediaButton = document.getElementById("media-controls-btn");
+        if (mediaPanel && !mediaPanel.hidden) {
+          mediaPanel.hidden = true;
+          mediaButton?.setAttribute("aria-expanded", "false");
+        }
       },
       { passive: true },
     );
@@ -1450,6 +1698,24 @@ window.addEventListener("DOMContentLoaded", () => {
       closeSettingsPanelIfOpen({ restoreUrlFocus: false });
       closeQuickHistoryPanelIfOpen({ restoreUrlFocus: false });
       closeGroupManagementMenu();
+      const shieldPanel = document.getElementById("privacy-shield-panel");
+      const shieldButton = document.getElementById("privacy-shield-btn");
+      if (shieldPanel && !shieldPanel.hidden) {
+        shieldPanel.hidden = true;
+        shieldButton?.setAttribute("aria-expanded", "false");
+      }
+      const connectionPanel = document.getElementById("connection-info-panel");
+      const connectionButton = document.getElementById("connection-info-btn");
+      if (connectionPanel && !connectionPanel.hidden) {
+        connectionPanel.hidden = true;
+        connectionButton?.setAttribute("aria-expanded", "false");
+      }
+      const mediaPanel = document.getElementById("media-controls-panel");
+      const mediaButton = document.getElementById("media-controls-btn");
+      if (mediaPanel && !mediaPanel.hidden) {
+        mediaPanel.hidden = true;
+        mediaButton?.setAttribute("aria-expanded", "false");
+      }
       registerWebviewDevToolsShortcut(webview);
     });
 
@@ -1461,8 +1727,14 @@ window.addEventListener("DOMContentLoaded", () => {
 
     let webview = tabWebviews.get(tab.id);
     if (!webview) {
-      if (tabWebviews.size === 0 && contentWebview && !tab.isIncognito) {
+      if (
+        tabWebviews.size === 0 &&
+        contentWebview &&
+        !contentWebview._everAssignedToTab &&
+        !tab.isIncognito
+      ) {
         webview = contentWebview;
+        contentWebview._everAssignedToTab = true;
       } else {
         webview = document.createElement("webview");
         webview.style.position = "absolute";
@@ -1497,6 +1769,7 @@ window.addEventListener("DOMContentLoaded", () => {
 
     const hasSrc = !!webview.getAttribute("src");
     if ((forceLoadUrl || !hasSrc) && webview.getAttribute("src") !== tab.url) {
+      tab._pendingNavigationIndex = tab.historyIndex;
       webview.setAttribute("src", tab.url);
     }
 
@@ -2114,6 +2387,7 @@ window.addEventListener("DOMContentLoaded", () => {
       showOnlyTabWebview(null);
       newTabPage.classList.add("active");
       urlInput.value = "";
+      updateConnectionInfo("");
       // Update button states based on history, even for newtab
       backBtn.disabled = tab.historyIndex <= 0;
       forwardBtn.disabled = tab.historyIndex >= tab.history.length - 1;
@@ -2123,6 +2397,7 @@ window.addEventListener("DOMContentLoaded", () => {
       if (activeWebview) activeWebview.style.display = "flex";
       newTabPage.classList.remove("active");
       urlInput.value = tab.url;
+      updateConnectionInfo(tab.url);
       backBtn.disabled = tab.historyIndex <= 0;
       forwardBtn.disabled = tab.historyIndex >= tab.history.length - 1;
     }
@@ -2130,6 +2405,7 @@ window.addEventListener("DOMContentLoaded", () => {
       renderBookmarkBar();
       renderQuickLinks();
     }
+    syncMediaControlsVisibility();
     if (renderTabStrip) renderTabs(); // Update tab title to reflect current URL
   }
 
@@ -2317,6 +2593,22 @@ window.addEventListener("DOMContentLoaded", () => {
         tabEl.appendChild(titleSpan);
       }
       // Close button
+      if (tab.audible || tab.muted) {
+        const audioBtn = document.createElement("button");
+        audioBtn.className = `tab-audio-button${tab.muted ? " muted" : ""}`;
+        audioBtn.type = "button";
+        audioBtn.title = tab.muted ? "Unmute tab" : "Mute tab";
+        audioBtn.setAttribute("aria-label", audioBtn.title);
+        audioBtn.innerHTML = tab.muted
+          ? '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4V5Z"></path><path d="m17 9 4 4m0-4-4 4"></path></svg>'
+          : '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4V5Z"></path><path d="M15 9.5a4 4 0 0 1 0 5"></path><path d="M18 7a7 7 0 0 1 0 10"></path></svg>';
+        audioBtn.addEventListener("click", (event) => {
+          event.stopPropagation();
+          toggleTabMuted(tab.id);
+        });
+        tabEl.appendChild(audioBtn);
+      }
+
       const closeBtn = document.createElement("div");
       closeBtn.className = "close";
       closeBtn.textContent = "\u00d7";
@@ -2842,9 +3134,68 @@ window.addEventListener("DOMContentLoaded", () => {
   };
   console.log("updateNewsWidget function assigned to window");
 
+  const MAX_RECENTLY_CLOSED_TABS = 20;
+
+  function readRecentlyClosedTabs() {
+    if (isIncognitoWindow) return [];
+    try {
+      const entries = JSON.parse(localStorage.getItem("closedTabs") || "[]");
+      return Array.isArray(entries) ? entries.slice(-MAX_RECENTLY_CLOSED_TABS) : [];
+    } catch (_error) {
+      return [];
+    }
+  }
+
+  function saveRecentlyClosedTab(tab) {
+    if (!tab || tab.isIncognito || isIncognitoWindow) return;
+    const entries = readRecentlyClosedTabs();
+    const { _pendingHistoryDirection, _pendingNavigationIndex, audible, ...recoverableTab } = tab;
+    void _pendingHistoryDirection;
+    void _pendingNavigationIndex;
+    void audible;
+    entries.push({ ...recoverableTab, closedAt: Date.now() });
+    localStorage.setItem("closedTabs", JSON.stringify(entries.slice(-MAX_RECENTLY_CLOSED_TABS)));
+  }
+
+  function reopenRecentlyClosedTab() {
+    const entries = readRecentlyClosedTabs();
+    const recovered = entries.pop();
+    if (!recovered) return false;
+    localStorage.setItem("closedTabs", JSON.stringify(entries));
+    let id = Date.now();
+    while (tabs.some((tab) => tab.id === id)) id++;
+    const tab = {
+      ...recovered,
+      id,
+      history: Array.isArray(recovered.history) && recovered.history.length ? recovered.history : [recovered.url || "newtab"],
+      historyIndex: Number.isInteger(recovered.historyIndex) ? recovered.historyIndex : 0,
+      viewCreated: false,
+    };
+    delete tab.closedAt;
+    tabs.push(tab);
+    currentTabId = tab.id;
+    persistTabs();
+    updateView();
+    renderTabs();
+    return true;
+  }
+
+  function toggleTabMuted(tabId) {
+    const tab = tabs.find((item) => item.id === tabId);
+    if (!tab) return;
+    tab.muted = !tab.muted;
+    tabWebviews.get(tabId)?.setAudioMuted?.(tab.muted);
+    persistTabs();
+    renderTabs();
+    if (tab.id === currentTabId) syncMediaControlsVisibility();
+  }
+
   function closeTab(id) {
     const tabIndex = tabs.findIndex((t) => t.id === id);
     if (tabIndex === -1) return;
+
+    const tabToClose = tabs[tabIndex];
+    saveRecentlyClosedTab(tabToClose);
 
     // If this is the last tab, close the entire application
     if (tabs.length === 1) {
@@ -3016,6 +3367,25 @@ window.addEventListener("DOMContentLoaded", () => {
           title: tab.title,
         });
     });
+
+    addItem(tab.muted ? "Unmute tab" : "Mute tab", tab.muted ? "🔇" : "🔊", () => {
+      toggleTabMuted(tab.id);
+    });
+    if (tab.hasMedia || tab.audible) {
+      addItem("Play / pause media", "▶", () => {
+        if (tab.id !== currentTabId) switchTab(tab.id);
+        return runActiveMediaAction("play-pause");
+      });
+      addItem("Picture in picture", "▣", async () => {
+        if (tab.id !== currentTabId) switchTab(tab.id);
+        const result = await runActiveMediaAction("pip");
+        if (!result.ok) showUpdateNotification(result.message, "info", 3000);
+      });
+    }
+
+    if (readRecentlyClosedTabs().length) {
+      addItem("Reopen closed tab", "↶", reopenRecentlyClosedTab);
+    }
 
     addSeparator();
 
@@ -3732,7 +4102,14 @@ window.addEventListener("DOMContentLoaded", () => {
     if (isIncognitoWindow) return;
     if (_persistTabsTimeout) clearTimeout(_persistTabsTimeout);
     _persistTabsTimeout = setTimeout(() => {
-      const persistentTabs = tabs.filter((tab) => !tab.isIncognito);
+      const persistentTabs = tabs.filter((tab) => !tab.isIncognito).map((tab) => {
+        const { _pendingHistoryDirection, _pendingNavigationIndex, audible, hasMedia, ...persistentTab } = tab;
+        void _pendingHistoryDirection;
+        void _pendingNavigationIndex;
+        void audible;
+        void hasMedia;
+        return persistentTab;
+      });
       const persistentCurrentTabId = persistentTabs.some(
         (tab) => tab.id === currentTabId,
       )
@@ -3898,6 +4275,12 @@ window.addEventListener("DOMContentLoaded", () => {
   // --- Back/Forward Button Logic ---
   backBtn.onclick = () => {
     const tab = tabs.find((t) => t.id === currentTabId);
+    const activeWebview = getActiveWebview();
+    if (activeWebview?.canGoBack?.()) {
+      tab._pendingHistoryDirection = -1;
+      activeWebview.goBack();
+      return;
+    }
     if (tab.historyIndex > 0) {
       tab.historyIndex--;
       tab.url = tab.history[tab.historyIndex];
@@ -3911,6 +4294,12 @@ window.addEventListener("DOMContentLoaded", () => {
 
   forwardBtn.onclick = () => {
     const tab = tabs.find((t) => t.id === currentTabId);
+    const activeWebview = getActiveWebview();
+    if (activeWebview?.canGoForward?.()) {
+      tab._pendingHistoryDirection = 1;
+      activeWebview.goForward();
+      return;
+    }
     if (tab.historyIndex < tab.history.length - 1) {
       tab.historyIndex++;
       tab.url = tab.history[tab.historyIndex];
@@ -3933,6 +4322,7 @@ window.addEventListener("DOMContentLoaded", () => {
   const quickHistoryPanel = document.getElementById("quick-history-panel");
   const closeQuickHistoryBtn = document.getElementById("close-quick-history");
   const quickHistoryList = document.getElementById("quick-history-list");
+  const reopenTabBtn = document.getElementById("reopen-tab-btn");
   const viewAllHistoryBtn = document.getElementById("view-all-history-btn");
   const checkUpdatesBtn = document.getElementById("check-updates");
   const adblockToggle = document.getElementById("adblock-toggle");
@@ -4069,6 +4459,13 @@ window.addEventListener("DOMContentLoaded", () => {
 
   function openQuickHistoryPanel() {
     closeSettingsPanelIfOpen({ restoreUrlFocus: false });
+    const closedTabs = readRecentlyClosedTabs();
+    if (reopenTabBtn) {
+      reopenTabBtn.disabled = closedTabs.length === 0;
+      reopenTabBtn.title = closedTabs.length
+        ? `Reopen: ${closedTabs[closedTabs.length - 1].title || closedTabs[closedTabs.length - 1].url}`
+        : "No recently closed tabs";
+    }
     renderQuickHistoryPanel().catch((error) => {
       console.error("Failed to render quick history panel", error);
     });
@@ -4085,6 +4482,12 @@ window.addEventListener("DOMContentLoaded", () => {
       urlInput && urlInput.blur();
     } catch (e) {}
   }
+
+  reopenTabBtn?.addEventListener("click", () => {
+    if (reopenRecentlyClosedTab()) {
+      closeQuickHistoryPanel({ restoreUrlFocus: false });
+    }
+  });
 
   function closeQuickHistoryPanel({ restoreUrlFocus = true } = {}) {
     if (!quickHistoryPanel || !overlay) return;
@@ -5232,6 +5635,76 @@ window.addEventListener("DOMContentLoaded", () => {
     };
   }
 
+  const privacyShieldBtn = document.getElementById("privacy-shield-btn");
+  const privacyShieldPanel = document.getElementById("privacy-shield-panel");
+  const privacyShieldSite = document.getElementById("privacy-shield-site");
+  const privacyShieldSummary = document.getElementById("privacy-shield-summary");
+  const privacyShieldStatus = document.getElementById("privacy-shield-status");
+  const privacySiteException = document.getElementById("privacy-site-exception");
+
+  function activePrivacyUrl() {
+    return tabs.find((tab) => tab.id === currentTabId)?.url || "";
+  }
+
+  async function refreshPrivacyShield() {
+    const info = await window.electronAPI?.getSitePrivacy?.(activePrivacyUrl());
+    if (!info) return;
+    privacyShieldSite.textContent = info.hostname || "Privacy protection";
+    privacySiteException.checked = !!info.exception;
+    privacySiteException.disabled = !info.hostname;
+    privacyShieldStatus.textContent = info.hostname ? (info.exception ? "Disabled" : "Active") : "Inactive";
+    privacyShieldStatus.classList.toggle("is-disabled", !info.hostname || !!info.exception);
+    const total = Object.values(info.stats || {}).reduce((sum, value) => sum + Number(value || 0), 0);
+    privacyShieldSummary.textContent = info.exception
+      ? "Protections are disabled for this site."
+      : `${total.toLocaleString()} privacy interventions across this browser profile.`;
+  }
+
+  privacyShieldBtn?.addEventListener("click", async () => {
+    const opening = privacyShieldPanel.hidden;
+    privacyShieldPanel.hidden = !opening;
+    privacyShieldBtn.setAttribute("aria-expanded", String(opening));
+    if (opening) await refreshPrivacyShield();
+  });
+  document.addEventListener("click", (event) => {
+    if (
+      privacyShieldPanel?.hidden ||
+      privacyShieldPanel?.contains(event.target) ||
+      privacyShieldBtn?.contains(event.target)
+    ) {
+      return;
+    }
+    privacyShieldPanel.hidden = true;
+    privacyShieldBtn.setAttribute("aria-expanded", "false");
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || connectionInfoPanel?.hidden) return;
+    connectionInfoPanel.hidden = true;
+    connectionInfoBtn?.setAttribute("aria-expanded", "false");
+    connectionInfoBtn?.focus();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || privacyShieldPanel?.hidden) return;
+    privacyShieldPanel.hidden = true;
+    privacyShieldBtn.setAttribute("aria-expanded", "false");
+    privacyShieldBtn.focus();
+  });
+  privacySiteException?.addEventListener("change", async (event) => {
+    await window.electronAPI.setSitePrivacyException(activePrivacyUrl(), event.target.checked);
+    await refreshPrivacyShield();
+    getActiveWebview()?.reload();
+  });
+  document.getElementById("privacy-clear-site-data")?.addEventListener("click", async () => {
+    if (await window.electronAPI.clearSiteData(activePrivacyUrl())) {
+      showUpdateNotification("Site data cleared", "success", 2500);
+      getActiveWebview()?.reload();
+    }
+  });
+  document.getElementById("privacy-open-settings")?.addEventListener("click", () => {
+    privacyShieldPanel.hidden = true;
+    newTab("settings.html");
+  });
+
   // Tab management
   const pinTabBtn = document.getElementById("pin-tab-btn");
   if (pinTabBtn) {
@@ -5253,33 +5726,6 @@ window.addEventListener("DOMContentLoaded", () => {
       }
     };
   }
-  const reopenTabBtn = document.getElementById("reopen-tab-btn");
-  if (reopenTabBtn) {
-    reopenTabBtn.onclick = () => {
-      // Simple implementation: restore last closed tab from localStorage
-      const closedTabs = JSON.parse(localStorage.getItem("closedTabs") || "[]");
-      if (closedTabs.length) {
-        const tabToReopen = closedTabs.pop();
-        tabs.push(tabToReopen);
-        currentTabId = tabToReopen.id;
-        localStorage.setItem("closedTabs", JSON.stringify(closedTabs));
-        persistTabs();
-        renderTabs();
-        updateView();
-      }
-    };
-  }
-  // Save closed tabs on closeTab
-  const originalCloseTab = closeTab;
-  closeTab = function (id) {
-    const closedTabs = JSON.parse(localStorage.getItem("closedTabs") || "[]");
-    const tabToClose = tabs.find((t) => t.id === id);
-    if (tabToClose && !tabToClose.isIncognito) {
-      closedTabs.push(tabToClose);
-    }
-    localStorage.setItem("closedTabs", JSON.stringify(closedTabs));
-    originalCloseTab.call(this, id);
-  };
 
   // Bookmark folders (basic modal)
   const manageBookmarkFoldersBtn = document.getElementById(
@@ -5575,18 +6021,7 @@ window.addEventListener("DOMContentLoaded", () => {
         }
       } else if (e.ctrlKey && e.shiftKey && e.key === "T") {
         e.preventDefault();
-        const closedTabs = JSON.parse(
-          localStorage.getItem("closedTabs") || "[]",
-        );
-        if (closedTabs.length) {
-          const tabToReopen = closedTabs.pop();
-          tabs.push(tabToReopen);
-          currentTabId = tabToReopen.id;
-          localStorage.setItem("closedTabs", JSON.stringify(closedTabs));
-          persistTabs();
-          renderTabs();
-          updateView();
-        }
+        reopenRecentlyClosedTab();
       } else if (e.ctrlKey && e.key === "Tab") {
         e.preventDefault();
         const currentIndex = tabs.findIndex((t) => t.id === currentTabId);

@@ -798,6 +798,68 @@ if (window.electronAPI?.getBuildDate && buildDateSpan) {
   const referrerPolicyToggle = document.getElementById(
     "referrer-policy-toggle",
   );
+  const privacyToggleMap = {
+    thirdPartyCookiesBlocked: document.getElementById("third-party-cookies-toggle"),
+    stripTrackingParamsEnabled: document.getElementById("tracking-params-toggle"),
+    fingerprintProtectionEnabled: document.getElementById("fingerprint-protection-toggle"),
+    httpsOnlyMode: document.getElementById("https-only-toggle"),
+    webrtcProtectionEnabled: document.getElementById("webrtc-protection-toggle"),
+    clearOnExitEnabled: document.getElementById("clear-on-exit-toggle"),
+  };
+  const dashboardEl = document.getElementById("privacy-dashboard");
+  const permissionSummary = document.getElementById("permission-summary");
+  const autoCleanupDaysSelect = document.getElementById("auto-cleanup-days");
+
+  function syncExtendedPrivacy(settings) {
+    Object.entries(privacyToggleMap).forEach(([key, toggle]) => {
+      if (toggle) toggle.checked = !!settings[key];
+    });
+    if (autoCleanupDaysSelect) autoCleanupDaysSelect.value = String(settings.autoCleanupDays || 0);
+  }
+
+  function renderPrivacyDashboard(stats = {}) {
+    if (!dashboardEl) return;
+    const labels = {
+      trackersBlocked: "Trackers blocked", adsBlocked: "Ads blocked",
+      cookiesBlocked: "Cross-site cookies blocked", parametersStripped: "Tracking parameters removed",
+      httpsUpgrades: "HTTPS upgrades", permissionsBlocked: "Permissions blocked",
+    };
+    dashboardEl.innerHTML = "";
+    Object.entries(labels).forEach(([key, label]) => {
+      const item = document.createElement("div");
+      item.className = "privacy-dashboard-item";
+      const value = document.createElement("strong");
+      value.textContent = Number(stats[key] || 0).toLocaleString();
+      const caption = document.createElement("span");
+      caption.textContent = label;
+      item.append(value, caption);
+      dashboardEl.appendChild(item);
+    });
+  }
+
+  Object.entries(privacyToggleMap).forEach(([key, toggle]) => {
+    toggle?.addEventListener("change", async (event) => {
+      const result = await window.electronAPI.setPrivacySetting(key, event.target.checked);
+      if (result?.restartRequired) showToast("Restart Vortex to apply WebRTC protection", "info");
+    });
+  });
+  autoCleanupDaysSelect?.addEventListener("change", (event) => {
+    window.electronAPI.setAutoCleanupDays(Number(event.target.value));
+  });
+
+  window.electronAPI?.getPrivacyDashboard?.().then(renderPrivacyDashboard);
+  window.electronAPI?.getPermissionDecisions?.().then((decisions) => {
+    if (permissionSummary) permissionSummary.textContent = `${Object.keys(decisions).length} saved permission decision(s)`;
+  });
+  document.getElementById("reset-privacy-dashboard-btn")?.addEventListener("click", async () => {
+    renderPrivacyDashboard(await window.electronAPI.resetPrivacyDashboard());
+    showToast("Privacy totals reset", "success");
+  });
+  document.getElementById("clear-permissions-btn")?.addEventListener("click", async () => {
+    await window.electronAPI.clearPermissionDecisions();
+    if (permissionSummary) permissionSummary.textContent = "No saved permission decisions";
+    showToast("Site permissions reset", "success");
+  });
 
   if (
     trackerBlockingToggle ||
@@ -815,6 +877,7 @@ if (window.electronAPI?.getBuildDate && buildDateSpan) {
           httpsUpgradeToggle.checked = !!settings.httpsUpgradeEnabled;
         if (referrerPolicyToggle)
           referrerPolicyToggle.checked = !!settings.referrerPolicyStrict;
+        syncExtendedPrivacy(settings);
       })
       .catch(() => {});
   }
@@ -955,14 +1018,20 @@ if (window.electronAPI?.getBuildDate && buildDateSpan) {
   );
 
   if (showResourceControlToggle) {
+    const syncResourceControlToggle = (visible) => {
+      showResourceControlToggle.checked = visible !== false && visible !== "false";
+    };
     storage.getItem("showResourceControl").then((visible) => {
-      showResourceControlToggle.checked = visible !== "false";
+      syncResourceControlToggle(visible);
     });
     showResourceControlToggle.addEventListener("change", async (event) => {
       const visible = event.target.checked;
       await storage.setItem("showResourceControl", visible ? "true" : "false");
       window.electronAPI?.setResourceControlVisibility?.(visible);
     });
+    window.electronAPI?.onResourceControlVisibilityChanged?.(
+      syncResourceControlToggle,
+    );
   }
 
   window.electronAPI?.onPrivacySettingsChanged?.((privacy) => {
@@ -973,6 +1042,7 @@ if (window.electronAPI?.getBuildDate && buildDateSpan) {
       httpsUpgradeToggle.checked = !!privacy.httpsUpgradeEnabled;
     if (referrerPolicyToggle)
       referrerPolicyToggle.checked = !!privacy.referrerPolicyStrict;
+    syncExtendedPrivacy(privacy);
   });
 
   let liveMonitorInterval = null;

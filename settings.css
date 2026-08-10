@@ -1845,3 +1845,85 @@ body[class*="theme-dark"] .settings-tab-button:not(.active):hover { background: 
     .credential-form-actions { grid-column: 1; }
     .credential-row { align-items: flex-start; flex-direction: column; }
 }
+.privacy-extended-grid { margin-top: 16px; }
+.privacy-extended-grid .privacy-dashboard-card { grid-column: 1 / -1; }
+
+#privacy-settings .privacy-cleanup-row { align-items: flex-end; }
+.privacy-cleanup-controls {
+    display: flex !important;
+    align-items: flex-end;
+    justify-content: flex-end;
+    gap: 14px !important;
+}
+.privacy-inline-toggle,
+.privacy-cleanup-select {
+    display: grid;
+    gap: 6px;
+    color: var(--settings-muted);
+    font-size: 11px;
+    font-weight: 600;
+}
+.privacy-inline-toggle { grid-template-columns: auto auto; align-items: center; gap: 9px; padding-bottom: 7px; }
+.privacy-cleanup-select .setting-select {
+    box-sizing: border-box;
+    width: 138px;
+    height: 36px;
+    min-height: 36px;
+    padding: 0 34px 0 11px;
+    border: 1px solid var(--settings-line);
+    border-radius: 9px;
+    background: var(--settings-surface);
+    color: var(--text-color);
+    font: inherit;
+    font-size: 12px;
+}
+
+#privacy-settings .settings-card:has(#tracker-blocking-toggle) .setting-group,
+#privacy-settings .settings-card:has(#https-upgrade-toggle) .setting-group { margin-bottom: 9px; }
+#privacy-settings .settings-card:has(#tracker-blocking-toggle) .toggle-setting,
+#privacy-settings .settings-card:has(#https-upgrade-toggle) .toggle-setting { padding: 9px 0; }
+
+.privacy-dashboard {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.privacy-dashboard-item {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: rgba(127, 127, 127, 0.1);
+}
+
+.privacy-dashboard-item strong { font-size: 1.35rem; }
+.privacy-dashboard-item span { font-size: 0.78rem; opacity: 0.78; }
+.privacy-dashboard-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding-top: 12px;
+    border-top: 1px solid var(--settings-line);
+}
+.privacy-dashboard-actions > div:first-child { display: grid; gap: 2px; }
+.privacy-dashboard-actions strong { color: var(--text-color); font-size: 13px; }
+.privacy-dashboard-actions .credential-manager-status { display: block; margin: 0 !important; color: var(--settings-muted); }
+.privacy-dashboard-actions .button-group { margin: 0 !important; }
+
+body[class*="theme-dark"] .privacy-cleanup-select .setting-select {
+    border-color: #4a4a50;
+    background: #242428;
+    color: #f1f1f3;
+}
+
+@media (max-width: 700px) {
+    #privacy-settings .privacy-cleanup-row { align-items: stretch; }
+    .privacy-cleanup-controls { width: 100%; justify-content: space-between; }
+    .privacy-dashboard { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .privacy-dashboard-actions { align-items: stretch; flex-direction: column; }
+    .privacy-dashboard-actions .button-group { flex-wrap: wrap; }
+}

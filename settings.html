@@ -1087,17 +1087,14 @@
                     <div id="privacy-settings" class="settings-tab-content">
                         <div class="settings-tab-header">
                             <h3>Privacy & Data</h3>
-                            <p>Manage your browsing history and stored data.</p>
+                            <p>Control tracking protection, secure connections, permissions, and stored browsing data.</p>
                         </div>
 
                         <div class="settings-grid">
                             <div class="settings-card privacy-data-card">
                                 <div class="card-header">
-                                    <h4>Browsing Data</h4>
-                                    <p>
-                                        Review or clear history, cookies, and
-                                        other stored site data
-                                    </p>
+                                    <h4>Browsing data &amp; cleanup</h4>
+                                    <p>Review stored data and choose when Vortex removes it.</p>
                                 </div>
                                 <div class="privacy-data-actions">
                                     <div class="privacy-data-row">
@@ -1138,6 +1135,16 @@
                                             Clear All Data
                                         </button>
                                     </div>
+                                    <div class="privacy-data-row privacy-cleanup-row">
+                                        <div>
+                                            <strong>Automatic cleanup</strong>
+                                            <span>Clear site data on exit or on a recurring schedule.</span>
+                                        </div>
+                                        <div class="privacy-cleanup-controls">
+                                            <label class="privacy-inline-toggle"><span>On exit</span><span class="toggle-switch"><input type="checkbox" id="clear-on-exit-toggle" /><span class="slider"></span></span></label>
+                                            <label class="privacy-cleanup-select"><span>Schedule</span><select id="auto-cleanup-days" class="setting-select"><option value="0">Never</option><option value="1">Every day</option><option value="7">Every 7 days</option><option value="30">Every 30 days</option></select></label>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
 
@@ -1173,7 +1180,7 @@
 
                             <div class="settings-card">
                                 <div class="card-header">
-                                    <h4>🕵️ Tracker Blocking</h4>
+                                    <h4>Tracking protection</h4>
                                     <p>
                                         Block known tracking scripts, pixels,
                                         and analytics beacons
@@ -1222,12 +1229,15 @@
                                             </div>
                                         </div>
                                     </div>
+                                    <div class="setting-group"><div class="toggle-setting"><label class="toggle-switch"><input type="checkbox" id="third-party-cookies-toggle" /><span class="slider"></span></label><div class="toggle-info"><span class="toggle-label">Block third-party cookies</span><span class="toggle-description">Keep first-party sign-ins while blocking cross-site cookie access.</span></div></div></div>
+                                    <div class="setting-group"><div class="toggle-setting"><label class="toggle-switch"><input type="checkbox" id="tracking-params-toggle" /><span class="slider"></span></label><div class="toggle-info"><span class="toggle-label">Remove tracking parameters</span><span class="toggle-description">Strip UTM and known click identifiers from navigations.</span></div></div></div>
+                                    <div class="setting-group"><div class="toggle-setting"><label class="toggle-switch"><input type="checkbox" id="fingerprint-protection-toggle" /><span class="slider"></span></label><div class="toggle-info"><span class="toggle-label">Fingerprinting protection</span><span class="toggle-description">Block known fingerprinting services.</span></div></div></div>
                                 </div>
                             </div>
 
                             <div class="settings-card">
                                 <div class="card-header">
-                                    <h4>🔒 Advanced Privacy</h4>
+                                    <h4>Connection privacy</h4>
                                     <p>
                                         Fine-grained controls over how your
                                         browser sends data to websites
@@ -1278,8 +1288,14 @@
                                             </div>
                                         </div>
                                     </div>
+                                    <div class="setting-group"><div class="toggle-setting"><label class="toggle-switch"><input type="checkbox" id="https-only-toggle" /><span class="slider"></span></label><div class="toggle-info"><span class="toggle-label">HTTPS-only mode</span><span class="toggle-description">Require secure connections for non-local websites.</span></div></div></div>
+                                    <div class="setting-group"><div class="toggle-setting"><label class="toggle-switch"><input type="checkbox" id="webrtc-protection-toggle" /><span class="slider"></span></label><div class="toggle-info"><span class="toggle-label">WebRTC IP protection</span><span class="toggle-description">Avoid direct UDP routes. Restart required.</span></div></div></div>
                                 </div>
                             </div>
+                        </div>
+
+                        <div class="settings-grid privacy-extended-grid">
+                            <div class="settings-card privacy-dashboard-card"><div class="card-header"><h4>Privacy dashboard &amp; permissions</h4><p>Review local protection totals and saved site decisions.</p></div><div class="card-content"><div id="privacy-dashboard" class="privacy-dashboard"></div><div class="privacy-dashboard-actions"><div><strong>Site permissions</strong><span id="permission-summary" class="credential-manager-status" role="status"></span></div><div class="button-group"><button id="clear-permissions-btn" class="btn-secondary" type="button">Reset permissions</button><button id="reset-privacy-dashboard-btn" class="btn-secondary" type="button">Reset totals</button></div></div></div></div>
                         </div>
 
                         <!-- Cookie Viewer Modal -->
