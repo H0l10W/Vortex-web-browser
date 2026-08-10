@@ -1,5 +1,17 @@
 # Vortex Browser - Changelog
 
+## [0.4.5] - 2026-08-10
+
+### Changed
+- Refined the Weather and News widgets with matching compact dimensions, softer rounded cards, clearer content hierarchy, and improved light/dark styling.
+- Reworked Weather details into compact readings and removed excess empty space while keeping both widgets aligned.
+- Removed News story divider lines, improved story spacing and hover treatment, and ensured the third story remains fully visible.
+- Moved the resource-control launcher visibility setting from Performance to Appearance and added a Hide Launcher action directly inside the limiter panel.
+
+### Fixed
+- Fixed the entire tab strip replaying its entrance animation whenever a link navigated, a page refreshed, or its title changed.
+- Fixed address-bar, Back, and Forward navigation unnecessarily rebuilding tabs, bookmarks, and quick links; navigation now updates only the active tab metadata and required controls.
+
 ## [0.4.4] - 2026-08-10
 
 ### Added

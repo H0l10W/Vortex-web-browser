@@ -70,6 +70,9 @@ window.addEventListener("DOMContentLoaded", () => {
   const resourcePanel = document.getElementById("resource-control-panel");
   const resourceToggle = document.getElementById("resource-control-toggle");
   const resourceClose = document.getElementById("resource-control-close");
+  const resourceHideLauncher = document.getElementById(
+    "resource-control-hide-launcher",
+  );
   const resourceEnabled = document.getElementById("resource-limits-enabled");
   const cpuLimit = document.getElementById("resource-cpu-limit");
   const ramLimit = document.getElementById("resource-ram-limit");
@@ -123,6 +126,12 @@ window.addEventListener("DOMContentLoaded", () => {
 
     resourceToggle.addEventListener("click", () => setPanelOpen(true));
     resourceClose?.addEventListener("click", () => setPanelOpen(false));
+    resourceHideLauncher?.addEventListener("click", async () => {
+      await storage.setItem("showResourceControl", "false");
+      window.electronAPI.setResourceControlVisibility?.(false);
+      resourceControl.hidden = true;
+      setPanelOpen(false);
+    });
     [resourceEnabled, cpuLimit, ramLimit, networkLimit].forEach((control) => {
       control.addEventListener("input", saveResourceLimits);
       control.addEventListener("change", saveResourceLimits);
@@ -1372,7 +1381,7 @@ window.addEventListener("DOMContentLoaded", () => {
       }
 
       persistTabs();
-      renderTabs();
+      updateTabPresentation(tab);
 
       if (
         !tab.isIncognito &&
@@ -1424,7 +1433,7 @@ window.addEventListener("DOMContentLoaded", () => {
       tab.title = event.title;
       historyManager.updateTitle(tab.url, event.title).catch(() => {});
       persistTabs();
-      renderTabs();
+      updateTabPresentation(tab);
     });
 
     webview.addEventListener(
@@ -2081,7 +2090,7 @@ window.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  function updateView({ renderTabStrip = true } = {}) {
+  function updateView({ renderTabStrip = true, renderStaticChrome = true } = {}) {
     const tab = tabs.find((t) => t.id === currentTabId);
     if (!tab) return;
 
@@ -2117,12 +2126,34 @@ window.addEventListener("DOMContentLoaded", () => {
       backBtn.disabled = tab.historyIndex <= 0;
       forwardBtn.disabled = tab.historyIndex >= tab.history.length - 1;
     }
-    renderBookmarkBar();
-    renderQuickLinks();
+    if (renderStaticChrome) {
+      renderBookmarkBar();
+      renderQuickLinks();
+    }
     if (renderTabStrip) renderTabs(); // Update tab title to reflect current URL
   }
 
   // --- Tabs ---
+  function updateTabPresentation(tab) {
+    if (!tab) return;
+    const tabEl = tabsDiv.querySelector(
+      `.tab[data-tab-id="${Number(tab.id)}"]`,
+    );
+    if (!tabEl) return;
+
+    const titleSpan = tabEl.querySelector(".tab-title");
+    if (titleSpan) {
+      let displayTitle = getTabDisplayTitle(tab);
+      if (displayTitle.length > 32) {
+        displayTitle = displayTitle.substring(0, 32) + "...";
+      }
+      titleSpan.textContent = displayTitle;
+    }
+
+    const favicon = tabEl.querySelector(".tab-favicon");
+    if (favicon && !tab.isIncognito) favicon.src = getFavicon(tab.url);
+  }
+
   function renderTabs() {
     perfStart("renderTabs");
     normalizeTabGroups();
@@ -2259,8 +2290,10 @@ window.addEventListener("DOMContentLoaded", () => {
         };
         favicon.style.width = "16px";
         favicon.style.height = "16px";
+        favicon.classList.add("tab-favicon");
         tabEl.appendChild(favicon);
         const titleSpan = document.createElement("span");
+        titleSpan.className = "tab-title";
         let displayTitle = getTabDisplayTitle(tab);
         if (displayTitle.length > 32)
           displayTitle = displayTitle.substring(0, 32) + "...";
@@ -2276,6 +2309,7 @@ window.addEventListener("DOMContentLoaded", () => {
         }
       } else {
         const titleSpan = document.createElement("span");
+        titleSpan.className = "tab-title";
         let displayTitle = getTabDisplayTitle(tab);
         if (displayTitle.length > 32)
           displayTitle = displayTitle.substring(0, 32) + "...";
@@ -3780,7 +3814,8 @@ window.addEventListener("DOMContentLoaded", () => {
         ensureTabWebview(tab, { forceLoadUrl: true });
       }
       persistTabs();
-      updateView();
+      updateView({ renderTabStrip: false, renderStaticChrome: false });
+      updateTabPresentation(tab);
     }
   }
 
@@ -3869,7 +3904,8 @@ window.addEventListener("DOMContentLoaded", () => {
       if (tab.url && tab.url !== "newtab")
         ensureTabWebview(tab, { forceLoadUrl: true });
       persistTabs();
-      updateView();
+      updateView({ renderTabStrip: false, renderStaticChrome: false });
+      updateTabPresentation(tab);
     }
   };
 
@@ -3881,7 +3917,8 @@ window.addEventListener("DOMContentLoaded", () => {
       if (tab.url && tab.url !== "newtab")
         ensureTabWebview(tab, { forceLoadUrl: true });
       persistTabs();
-      updateView();
+      updateView({ renderTabStrip: false, renderStaticChrome: false });
+      updateTabPresentation(tab);
     }
   };
 
