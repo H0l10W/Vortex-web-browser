@@ -1,5 +1,16 @@
 # Vortex Browser - Changelog
 
+## [0.4.7] Hotfix 1 - 2026-08-10
+
+### Changed
+- Moved the automatic update check earlier in startup and retained updater state so the interface immediately reflects checks already in progress.
+- Added a persistent in-app update card with download progress and a clear restart-and-update action when an update is ready.
+
+### Fixed
+- Fixed automatic updater status events being missed while the renderer was still loading.
+- Fixed manual update checks reporting errors when a check or download was already active, an update was ready, or the check cooldown had not elapsed.
+- Fixed updater progress and ready-to-install state becoming inconsistent across browser windows.
+
 ## [0.4.6] - 2026-08-10
 
 ### Added

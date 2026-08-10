@@ -2538,7 +2538,7 @@ body.theme-dark-sunny .quick-history-empty {
 .update-notification {
     position: fixed;
     bottom: 20px;
-    left: 20px;
+    left: 76px;
     min-width: 300px;
     max-width: 400px;
     z-index: 10000;
@@ -2705,6 +2705,54 @@ body.theme-dark-sunny #close-btn:hover img {
 .update-notification:hover {
     transform: scale(1.02);
     transition: transform 0.2s ease;
+}
+
+@media (max-width: 520px) {
+    .update-notification {
+        right: 16px;
+        left: 16px;
+        min-width: 0;
+        max-width: none;
+    }
+}
+
+.update-progress-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 0 16px 14px;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+}
+
+.update-progress-track {
+    flex: 1;
+    height: 7px;
+    overflow: hidden;
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.28);
+}
+
+.update-progress-bar {
+    height: 100%;
+    min-width: 3px;
+    border-radius: inherit;
+    background: #34d058;
+    box-shadow: 0 0 8px rgba(52, 208, 88, 0.6);
+    transition: width 0.25s ease;
+}
+
+.update-action {
+    margin: 0 16px 14px;
+    padding: 9px 12px;
+    border-radius: 6px;
+    background: rgba(0, 0, 0, 0.22);
+    font-weight: 700;
+    text-align: center;
+}
+
+.update-success[style*="cursor"]:hover .update-action {
+    background: rgba(0, 0, 0, 0.34);
 }
 
 /* Global toast styling - kept here so app theme can control appearance */

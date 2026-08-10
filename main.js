@@ -19,6 +19,15 @@ let updateInstallStarted = false;
 let updateDownloadActive = false;
 let portableUpdateFile = null;
 const UPDATE_CHECK_COOLDOWN = 30000; // 30 seconds cooldown between checks
+let updaterStatus = { state: 'idle', percent: 0, version: null, message: null };
+
+function setUpdaterStatus(state, details = {}) {
+  updaterStatus = { ...updaterStatus, ...details, state };
+  BrowserWindow.getAllWindows().forEach(win => {
+    if (!win.isDestroyed()) win.webContents.send('update-status', updaterStatus);
+  });
+  return updaterStatus;
+}
 
 const portableExecutablePath = process.env.PORTABLE_EXECUTABLE_FILE
   ? path.resolve(process.env.PORTABLE_EXECUTABLE_FILE)
@@ -1098,6 +1107,7 @@ function downloadPortableUpdate(info) {
           const percent = total ? Math.round((received / total) * 100) : 0;
           if (percent === 100 || percent >= lastPercent + 10) {
             lastPercent = percent;
+            setUpdaterStatus('downloading', { percent });
             sendUpdateEvent('update-download-progress', { percent });
           }
         });
@@ -1124,6 +1134,7 @@ function downloadPortableUpdate(info) {
 }
 
 autoUpdater.on('checking-for-update', () => {
+  setUpdaterStatus('checking', { percent: 0, message: null });
   const target = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
   if (target && !target.isDestroyed()) target.webContents.send('update-checking');
 });
@@ -1135,6 +1146,7 @@ autoUpdater.on('update-available', (info) => {
   updateDownloadActive = true;
   _lastUpdaterPercent = 0;
   _downloadRetries = 0;
+  setUpdaterStatus('downloading', { percent: 0, version: info.version, message: null });
   const target = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
   if (target && !target.isDestroyed()) target.webContents.send('update-available', info);
 
@@ -1144,10 +1156,12 @@ autoUpdater.on('update-available', (info) => {
       downloadedUpdateInfo = info;
       updateInProgress = false;
       updateDownloadActive = false;
+      setUpdaterStatus('ready', { percent: 100, version: info.version, message: null });
       sendUpdateEvent('update-downloaded', info);
     }).catch(error => {
       updateInProgress = false;
       updateDownloadActive = false;
+      setUpdaterStatus('error', { message: error.message });
       sendUpdateEvent('update-error', error.message);
     });
   }
@@ -1156,6 +1170,7 @@ autoUpdater.on('update-available', (info) => {
 autoUpdater.on('update-not-available', (info) => {
   updateInProgress = false;
   updateDownloadActive = false;
+  setUpdaterStatus('current', { percent: 0, version: info?.version || app.getVersion(), message: null });
   const target = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
   try {
     if (target && !target.isDestroyed()) target.webContents.send('update-not-available', info);
@@ -1189,6 +1204,7 @@ autoUpdater.on('error', (err) => {
     updateDownloadActive = false;
     // Report only the final actionable failure, and only once.
     if (!err.message.includes('404')) {
+      setUpdaterStatus('error', { message: err.message });
       const target = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
       if (target && !target.isDestroyed()) target.webContents.send('update-error', err.message);
     }
@@ -1202,6 +1218,7 @@ autoUpdater.on('download-progress', (progressObj) => {
   // Only forward progress updates in 10% increments or when complete, to reduce IPC noise
   if (percent >= _lastUpdaterPercent + 10 || percent === 100) {
     _lastUpdaterPercent = percent;
+    setUpdaterStatus('downloading', { percent });
     console.log('Download progress:', percent + '%');
     const target = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
     try {
@@ -1217,6 +1234,7 @@ autoUpdater.on('update-downloaded', (info) => {
   updateDownloadActive = false;
   _downloadRetries = 0;
   downloadedUpdateInfo = info;
+  setUpdaterStatus('ready', { percent: 100, version: info.version, message: null });
   
   try {
     // Show one actionable install prompt, in one window only.
@@ -3601,6 +3619,10 @@ app.whenReady().then(() => {
     });
   }, 2000);
 
+  // Make the launch-time check visible immediately. The retained status also
+  // lets a renderer that is still loading pick it up through get-update-status.
+  if (!isDev) setUpdaterStatus('checking', { percent: 0, message: null });
+
   // Check for updates after app is ready (restored working pattern from v0.1.12)
   setTimeout(() => {
     if (!isDev) { // Using forced production mode
@@ -3610,11 +3632,15 @@ app.whenReady().then(() => {
         console.log('Checking for updates...');
         updateInProgress = true;
         lastUpdateCheck = now;
+        // Publish this ourselves so a newly launched renderer always sees the
+        // checking card, even if electron-updater emits before its listener is ready.
+        setUpdaterStatus('checking', { percent: 0, message: null });
         // Use the regular check so update status stays inside the app. The
         // `checkForUpdatesAndNotify` variant may create a Windows notification.
         autoUpdater.checkForUpdates().catch(err => {
           console.log('Update check failed (this is normal if no releases exist yet):', err.message);
           updateInProgress = false;
+          setUpdaterStatus('error', { message: err.message });
         });
       } else {
         console.log('Skipping update check - conditions not met');
@@ -3625,7 +3651,7 @@ app.whenReady().then(() => {
     } else {
       console.log('Auto-update check skipped - development mode');
     }
-  }, 15000);
+  }, 2500);
 
   // Handle IPC messages for updates
   ipcMain.handle('check-for-updates', async () => {
@@ -3636,16 +3662,21 @@ app.whenReady().then(() => {
       }
       
       const now = Date.now();
-      if (updateInProgress) {
-        throw new Error('Update check already in progress. Please wait.');
+      if (updateInProgress || updateDownloadActive || updaterStatus.state === 'checking' || updaterStatus.state === 'downloading') {
+        return { success: true, status: updaterStatus, alreadyInProgress: true };
+      }
+
+      if (downloadedUpdateInfo || updaterStatus.state === 'ready') {
+        return { success: true, status: updaterStatus, ready: true };
       }
       
       if ((now - lastUpdateCheck) < 5000) { // 5 second cooldown for manual checks
-        throw new Error('Please wait before checking for updates again.');
+        return { success: true, status: updaterStatus, cooldown: true };
       }
       
       updateInProgress = true;
       lastUpdateCheck = now;
+      setUpdaterStatus('checking', { percent: 0, message: null });
       
       console.log('Manual update check initiated...');
       console.log('Current app version:', app.getVersion());
@@ -3726,6 +3757,8 @@ app.whenReady().then(() => {
       throw error;
     }
   });
+
+  ipcMain.handle('get-update-status', () => updaterStatus);
 
   ipcMain.handle('install-update', async () => {
     console.log('=== INSTALL UPDATE CALLED ===');

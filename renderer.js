@@ -867,122 +867,35 @@ window.addEventListener("DOMContentLoaded", () => {
       // Debug info received - could be logged to dev console if needed
     });
 
-    // Listen for update events
-    window.electronAPI.onUpdateChecking(() => {
-      if (!updateState.checking) {
-        showUpdateNotification("Checking for updates...", "info", 3000);
-        updateState.checking = true;
-        updateState.downloading = false;
-        updateState.available = false;
-        updateState.downloaded = false;
-      }
-    });
-
-    window.electronAPI.onUpdateAvailable((info) => {
-      const now = Date.now();
-      if ((window.__updateSilence || 0) > Date.now()) {
-        console.debug(
-          "Update notification silenced until",
-          window.__updateSilence,
-        );
-        return;
-      }
-      if (!updateState.available && now - updateState.lastNotification > 5000) {
-        showUpdateNotification(
-          `Update v${info.version} found. Downloading...`,
-          "info",
-          4000,
-        );
-        updateState.available = true;
-        updateState.checking = false;
-        updateState.downloading = true;
-        updateState.lastPercent = 0;
-        updateState.lastNotification = now;
-      }
-    });
-
-    window.electronAPI.onUpdateNotAvailable(() => {
-      if ((window.__updateSilence || 0) > Date.now()) return;
-      if (updateState.checking) {
-        showUpdateNotification("You have the latest version!", "info", 3000);
-        updateState = {
-          checking: false,
-          downloading: false,
-          available: false,
-          downloaded: false,
-          lastNotification: Date.now(),
-        };
-      }
-    });
-
-    window.electronAPI.onUpdateError((message) => {
-      if ((window.__updateSilence || 0) > Date.now()) return;
-      console.error("Update error:", message);
-      showUpdateNotification(`Update error: ${message}`, "error");
-      updateState = {
-        checking: false,
-        downloading: false,
-        available: false,
-        downloaded: false,
-        lastNotification: Date.now(),
+    window.renderUpdaterStatus = (status) => {
+      if (!status || status.state === "idle") return;
+      updateState = { ...updateState, ...status };
+      const messages = {
+        checking: "Checking for updates...",
+        downloading: `Downloading update${status.version ? ` v${status.version}` : ""}...`,
+        current: "Vortex is up to date.",
+        ready: `Update${status.version ? ` v${status.version}` : ""} is ready.`,
+        installing: "Restarting to install the update...",
+        error: `Update failed: ${status.message || "Please try again later."}`,
       };
-    });
-
-    // Track progress in 10% increments to avoid too many UI updates
-    window.electronAPI.onUpdateDownloadProgress((progress) => {
-      if ((window.__updateSilence || 0) > Date.now()) return;
-      if (updateState.downloading) {
-        const percent = Math.round(progress.percent);
-        if (!updateState.lastPercent) updateState.lastPercent = 0;
-        // Only update progress when it increases by at least 10% or reaches 100%
-        if (percent === 100 || percent >= updateState.lastPercent + 10) {
-          updateState.lastPercent = percent;
-          updateState.lastNotification = Date.now();
+      showUpdateNotification(messages[status.state] || "Updating Vortex...", status.state === "error" ? "error" : status.state === "ready" ? "success" : "info", status.state === "current" ? 8000 : 0, status.state === "ready" ? async () => {
+        if (updateState.installing) return;
+        updateState.installing = true;
+        try {
+          const result = await window.electronAPI.installUpdate();
+          if (!result || result.success === false) {
+            updateState.installing = false;
+            showUpdateNotification(result?.error || "Unable to install update.", "error", 0);
+          }
+        } catch (error) {
+          updateState.installing = false;
+          showUpdateNotification(error.message || "Unable to install update.", "error", 0);
         }
-      }
-    });
+      } : null, status);
+    };
 
-    window.electronAPI.onUpdateDownloaded((info) => {
-      const now = Date.now();
-      if (
-        !updateState.downloaded &&
-        now - updateState.lastNotification > 2000
-      ) {
-        console.log("Update downloaded:", info);
-
-        // Small delay to ensure progress notification is visible
-        setTimeout(() => {
-          showUpdateNotification(
-            `Update v${info.version} ready to install. Click to restart and install.`,
-            "success",
-            0,
-            () => {
-              if (updateState.installing) return;
-              updateState.installing = true;
-              console.log("Install button clicked");
-              window.electronAPI
-                .installUpdate()
-                .then((result) => {
-                  if (result && result.success === false) {
-                    updateState.installing = false;
-                    showUpdateNotification(result.error || "Unable to install update.", "error");
-                    return;
-                  }
-                  console.log("Install update called successfully");
-                })
-                .catch((err) => {
-                  updateState.installing = false;
-                  console.error("Install update failed:", err);
-                });
-            },
-          );
-          updateState.downloaded = true;
-          updateState.downloading = false;
-          updateState.lastPercent = 100;
-          updateState.lastNotification = now;
-        }, 1000);
-      }
-    });
+    window.electronAPI.onUpdateStatus(window.renderUpdaterStatus);
+    window.electronAPI.getUpdateStatus().then(window.renderUpdaterStatus).catch(() => {});
 
     window.electronAPI.on("adblock-state-changed", (_event, enabled) => {
       const normalized =
@@ -2288,6 +2201,7 @@ window.addEventListener("DOMContentLoaded", () => {
     type = "info",
     duration = 5000,
     clickHandler = null,
+    updaterStatus = null,
   ) {
     // Respect silence setting set when user dismisses notifications
     if ((window.__updateSilence || 0) > Date.now()) {
@@ -2326,6 +2240,29 @@ window.addEventListener("DOMContentLoaded", () => {
     content.appendChild(closeBtn);
     notification.appendChild(content);
 
+    if (updaterStatus?.state === "downloading") {
+      const progressRow = document.createElement("div");
+      progressRow.className = "update-progress-row";
+      const progressTrack = document.createElement("div");
+      progressTrack.className = "update-progress-track";
+      const progressBar = document.createElement("div");
+      progressBar.className = "update-progress-bar";
+      const percent = Math.max(0, Math.min(100, Number(updaterStatus.percent) || 0));
+      progressBar.style.width = `${percent}%`;
+      const progressLabel = document.createElement("span");
+      progressLabel.textContent = `${Math.round(percent)}%`;
+      progressTrack.appendChild(progressBar);
+      progressRow.append(progressTrack, progressLabel);
+      notification.appendChild(progressRow);
+    }
+
+    if (updaterStatus?.state === "ready") {
+      const action = document.createElement("div");
+      action.className = "update-action";
+      action.textContent = "Restart and update";
+      notification.appendChild(action);
+    }
+
     // Add click handler if provided
     if (clickHandler) {
       notification.style.cursor = "pointer";
@@ -2339,6 +2276,7 @@ window.addEventListener("DOMContentLoaded", () => {
 
     // If there is no click handler, prefer to use the global notifications API for a consistent toast
     if (
+      !updaterStatus &&
       !clickHandler &&
       window.notifications &&
       typeof window.notifications.notify === "function"
@@ -4561,7 +4499,11 @@ window.addEventListener("DOMContentLoaded", () => {
     checkUpdatesBtn.addEventListener("click", async function (e) {
       e.stopPropagation();
       try {
-        await window.electronAPI.checkForUpdates();
+        const result = await window.electronAPI.checkForUpdates();
+        if (result?.status && typeof window.renderUpdaterStatus === "function") {
+          window.__updateSilence = 0;
+          window.renderUpdaterStatus(result.status);
+        }
       } catch (error) {
         console.error("Manual update check failed:", error);
         showUpdateNotification(

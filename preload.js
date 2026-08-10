@@ -124,6 +124,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
 
   // --- Auto-Updater APIs ---
   checkForUpdates: () => ipcRenderer.invoke("check-for-updates"),
+  getUpdateStatus: () => ipcRenderer.invoke("get-update-status"),
   installUpdate: () => ipcRenderer.invoke("install-update"),
 
   // Auto-updater event listeners
@@ -144,6 +145,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ),
   onUpdateDownloaded: (callback) =>
     ipcRenderer.on("update-downloaded", (_event, info) => callback(info)),
+  onUpdateStatus: (callback) =>
+    ipcRenderer.on("update-status", (_event, status) => callback(status)),
 
   // --- Window Control APIs ---
   minimizeWindow: () => ipcRenderer.invoke("minimize-window"),
