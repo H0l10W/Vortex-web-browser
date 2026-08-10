@@ -46,6 +46,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
   // Browser settings
   applyBrowserSettings: (viewId, settings) =>
     ipcRenderer.invoke("apply-browser-settings", viewId, settings),
+  applyWebPreferences: (settings) =>
+    ipcRenderer.invoke("apply-web-preferences", settings),
   setSearchEngine: (engine) => ipcRenderer.invoke("set-search-engine", engine),
   setHomepage: (url) => ipcRenderer.invoke("set-homepage", url),
   setDownloadLocation: (path) =>
@@ -96,6 +98,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
   setStorageItem: (key, value) => ipcRenderer.invoke("storage-set", key, value),
   removeStorageItem: (key) => ipcRenderer.invoke("storage-remove", key),
   getAllStorageKeys: () => ipcRenderer.invoke("storage-get-all-keys"),
+  onStorageItemChanged: (callback) =>
+    ipcRenderer.on("storage-item-changed", (_event, change) => callback(change)),
   listCredentials: () => ipcRenderer.invoke("credentials-list"),
   getCredentialSecret: (id) => ipcRenderer.invoke("credentials-get-secret", id),
   saveCredential: (credential) => ipcRenderer.invoke("credentials-save", credential),
@@ -155,6 +159,14 @@ contextBridge.exposeInMainWorld("electronAPI", {
   getPerformanceConfig: () => ipcRenderer.invoke("get-performance-config"),
   setPerformanceConfig: (config) =>
     ipcRenderer.invoke("set-performance-config", config),
+  getResourceLimits: () => ipcRenderer.invoke("get-resource-limits"),
+  setResourceLimits: (limits) => ipcRenderer.invoke("set-resource-limits", limits),
+  setResourceControlVisibility: (visible) =>
+    ipcRenderer.send("set-resource-control-visibility", visible),
+  onResourceControlVisibilityChanged: (callback) =>
+    ipcRenderer.on("resource-control-visibility-changed", (_event, visible) =>
+      callback(visible),
+    ),
 
   // Default browser
   isDefaultBrowser: () => ipcRenderer.invoke("get-is-default-browser"),
@@ -162,6 +174,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
 
   // Privacy controls
   getPrivacySettings: () => ipcRenderer.invoke("get-privacy-settings"),
+  onPrivacySettingsChanged: (callback) =>
+    ipcRenderer.on("privacy-settings-changed", (_event, settings) =>
+      callback(settings),
+    ),
   toggleTrackerBlocking: (enabled) =>
     ipcRenderer.send("toggle-tracker-blocking", enabled),
   toggleDnt: (enabled) => ipcRenderer.send("toggle-dnt", enabled),

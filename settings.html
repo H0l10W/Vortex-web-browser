@@ -225,6 +225,20 @@
                                             </option>
                                         </select>
                                     </div>
+
+                                    <div class="setting-group default-browser-setting">
+                                        <label class="setting-label">Default browser</label>
+                                        <p id="default-browser-status" class="setting-description">
+                                            Checking status…
+                                        </p>
+                                        <button
+                                            id="set-default-browser-btn"
+                                            class="btn-primary"
+                                            disabled
+                                        >
+                                            Set as Default Browser
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
 
@@ -394,35 +408,6 @@
                                             </div>
                                         </div>
                                     </div>
-                                </div>
-                            </div>
-
-                            <div class="settings-card">
-                                <div class="card-header">
-                                    <h4>🌐 Default Browser</h4>
-                                    <p>
-                                        Set Vortex as your default browser for
-                                        web links and local HTML files
-                                    </p>
-                                </div>
-                                <div class="card-content">
-                                    <div class="setting-group">
-                                        <p
-                                            id="default-browser-status"
-                                            class="setting-description"
-                                        >
-                                            Checking status…
-                                        </p>
-                                    </div>
-                                </div>
-                                <div class="card-actions">
-                                    <button
-                                        id="set-default-browser-btn"
-                                        class="btn-primary"
-                                        disabled
-                                    >
-                                        Set as Default Browser
-                                    </button>
                                 </div>
                             </div>
 
@@ -1094,34 +1079,30 @@
                         </div>
 
                         <div class="settings-grid">
-                            <div class="settings-card">
+                            <div class="settings-card privacy-data-card">
                                 <div class="card-header">
-                                    <h4>Browsing History</h4>
+                                    <h4>Browsing Data</h4>
                                     <p>
-                                        Manage your browsing history and saved
-                                        data
+                                        Review or clear history, cookies, and
+                                        other stored site data
                                     </p>
                                 </div>
-                                <div class="card-actions">
-                                    <button
-                                        id="clear-history-btn"
-                                        class="btn-secondary danger"
-                                    >
-                                        Clear Browsing History
-                                    </button>
-                                </div>
-                            </div>
-
-                            <div class="settings-card">
-                                <div class="card-header">
-                                    <h4>Cookies & Site Data</h4>
-                                    <p>
-                                        View and manage cookies stored by
-                                        websites
-                                    </p>
-                                </div>
-                                <div class="card-actions">
-                                    <div class="button-group">
+                                <div class="privacy-data-actions">
+                                    <div class="privacy-data-row">
+                                        <div>
+                                            <strong>Browsing history</strong>
+                                            <span>Remove visited pages and saved history.</span>
+                                        </div>
+                                        <button id="clear-history-btn" class="btn-secondary danger">
+                                            Clear History
+                                        </button>
+                                    </div>
+                                    <div class="privacy-data-row">
+                                        <div>
+                                            <strong>Cookies</strong>
+                                            <span>Inspect or remove cookies stored by websites.</span>
+                                        </div>
+                                        <div class="button-group">
                                         <button
                                             id="view-cookies-btn"
                                             class="btn-primary"
@@ -1133,6 +1114,16 @@
                                             class="btn-secondary danger"
                                         >
                                             Clear All Cookies
+                                        </button>
+                                        </div>
+                                    </div>
+                                    <div class="privacy-data-row">
+                                        <div>
+                                            <strong>All browsing data</strong>
+                                            <span>Remove history, cookies, and stored site data together.</span>
+                                        </div>
+                                        <button id="clear-all-data-btn" class="btn-secondary danger">
+                                            Clear All Data
                                         </button>
                                     </div>
                                 </div>
@@ -1166,24 +1157,6 @@
                                 </form>
                                 <div id="credential-manager-status" class="credential-manager-status" role="status"></div>
                                 <div id="credential-list" class="credential-list"></div>
-                            </div>
-
-                            <div class="settings-card">
-                                <div class="card-header">
-                                    <h4>Clear All Data</h4>
-                                    <p>
-                                        Remove all browsing data including
-                                        history, cookies, and stored site data
-                                    </p>
-                                </div>
-                                <div class="card-actions">
-                                    <button
-                                        id="clear-all-data-btn"
-                                        class="btn-secondary danger"
-                                    >
-                                        Clear All Browsing Data
-                                    </button>
-                                </div>
                             </div>
 
                             <div class="settings-card">
@@ -1489,32 +1462,6 @@
                             <div class="card-content">
                                 <div class="setting-group">
                                     <label
-                                        for="memory-threshold-slider"
-                                        class="setting-label"
-                                        >Memory Pressure Threshold</label
-                                    >
-                                    <div class="slider-container">
-                                        <input
-                                            type="range"
-                                            id="memory-threshold-slider"
-                                            min="512"
-                                            max="4096"
-                                            value="1024"
-                                            step="128"
-                                            class="range-slider"
-                                        />
-                                        <div class="slider-labels">
-                                            <span>512 MB</span>
-                                            <span id="memory-threshold-value"
-                                                >1024 MB</span
-                                            >
-                                            <span>4096 MB</span>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div class="setting-group">
-                                    <label
                                         for="max-inactive-tabs-slider"
                                         class="setting-label"
                                         >Max Hibernated Tabs</label
@@ -1561,6 +1508,19 @@
                                                 >10 min</span
                                             >
                                             <span>60 min</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="setting-group">
+                                    <div class="toggle-setting">
+                                        <label class="toggle-switch">
+                                            <input type="checkbox" id="show-resource-control-toggle" checked />
+                                            <span class="slider"></span>
+                                        </label>
+                                        <div class="toggle-info">
+                                            <span class="toggle-label">Show resource-control button</span>
+                                            <span class="toggle-description">Display the collapsible limiter launcher in the bottom-left of the browser.</span>
                                         </div>
                                     </div>
                                 </div>

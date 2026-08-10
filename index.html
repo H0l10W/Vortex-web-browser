@@ -11,6 +11,33 @@
   <link rel="modulepreload" href="src/renderer/widgets/widget-settings.js">
 </head>
 <body class="theme-dark">
+  <aside id="resource-control" aria-label="Resource controls">
+    <button id="resource-control-toggle" aria-expanded="false" aria-controls="resource-control-panel" title="Resource controls">⚡</button>
+    <div id="resource-control-panel" hidden>
+      <div class="resource-control-heading">
+        <div><span>Vortex Control</span><strong>Resource limiter</strong></div>
+        <button id="resource-control-close" aria-label="Hide resource controls">&times;</button>
+      </div>
+      <label class="resource-master-toggle">
+        <span>Enable limiters</span>
+        <input id="resource-limits-enabled" type="checkbox">
+      </label>
+      <label class="resource-limit-row" for="resource-cpu-limit">
+        <span><strong>CPU</strong><output id="resource-cpu-value">100%</output></span>
+        <input id="resource-cpu-limit" type="range" min="25" max="100" step="25" value="100">
+      </label>
+      <label class="resource-limit-row" for="resource-ram-limit">
+        <span><strong>RAM pressure</strong><output id="resource-ram-value">1024 MB</output></span>
+        <input id="resource-ram-limit" type="range" min="512" max="4096" step="256" value="1024">
+        <small>Hibernates inactive tabs above this level.</small>
+      </label>
+      <label class="resource-limit-row" for="resource-network-limit">
+        <span><strong>Network</strong><output id="resource-network-value">Unlimited</output></span>
+        <input id="resource-network-limit" type="range" min="0" max="25" step="1" value="0">
+      </label>
+      <div id="resource-limit-status" role="status">Limiters are off</div>
+    </div>
+  </aside>
   <div id="title-bar">
     <div id="tabs"></div>
     <div id="window-controls">
@@ -138,6 +165,13 @@
             <span class="slider"></span>
           </label>
           <span class="toggle-label">Strict Ad Blocking</span>
+        </div>
+        <div class="settings-row">
+          <label class="toggle-switch">
+            <input type="checkbox" id="quick-tracker-blocking-toggle">
+            <span class="slider"></span>
+          </label>
+          <span class="toggle-label">Block Trackers</span>
         </div>
         <div class="settings-row">
           <label class="toggle-switch">

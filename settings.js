@@ -8,6 +8,37 @@ window.addEventListener("DOMContentLoaded", () => {
   const settingsTabContents = document.querySelectorAll(
     ".settings-tab-content",
   );
+
+  // General cards have different natural heights. Split them into independent
+  // columns so a tall card in one column cannot create a hole in the other.
+  const generalGrid = document.querySelector("#general-settings > .settings-grid");
+  if (generalGrid && generalGrid.children.length === 4) {
+    const cards = Array.from(generalGrid.children);
+    const startupContent = cards[0].querySelector(".card-content");
+    const searchContent = cards[1].querySelector(".card-content");
+    if (startupContent && searchContent) {
+      const searchSection = document.createElement("section");
+      searchSection.className = "general-embedded-section";
+      const heading = document.createElement("div");
+      heading.className = "general-embedded-heading";
+      heading.innerHTML =
+        "<h5>Search &amp; address bar</h5><p>Configure search engine and address bar behavior</p>";
+      searchSection.appendChild(heading);
+      while (searchContent.firstChild) {
+        searchSection.appendChild(searchContent.firstChild);
+      }
+      startupContent.appendChild(searchSection);
+      cards[1].remove();
+    }
+
+    const leftColumn = document.createElement("div");
+    const rightColumn = document.createElement("div");
+    leftColumn.className = "general-settings-column";
+    rightColumn.className = "general-settings-column";
+    leftColumn.append(cards[0]);
+    rightColumn.append(cards[2], cards[3]);
+    generalGrid.append(leftColumn, rightColumn);
+  }
   const themeOptions = document.querySelectorAll(".theme-option");
   const appVersionSpan = document.getElementById("app-version");
   const buildDateSpan = document.getElementById("build-date");
@@ -904,12 +935,6 @@ if (window.electronAPI?.getBuildDate && buildDateSpan) {
   const perfNetworkLatency = document.getElementById("perf-network-latency");
   const perfNetworkRequests = document.getElementById("perf-network-requests");
 
-  const memoryThresholdSlider = document.getElementById(
-    "memory-threshold-slider",
-  );
-  const memoryThresholdValue = document.getElementById(
-    "memory-threshold-value",
-  );
   const maxInactiveTabsSlider = document.getElementById(
     "max-inactive-tabs-slider",
   );
@@ -925,14 +950,35 @@ if (window.electronAPI?.getBuildDate && buildDateSpan) {
   const applyPerformanceConfigBtn = document.getElementById(
     "apply-performance-config-btn",
   );
+  const showResourceControlToggle = document.getElementById(
+    "show-resource-control-toggle",
+  );
+
+  if (showResourceControlToggle) {
+    storage.getItem("showResourceControl").then((visible) => {
+      showResourceControlToggle.checked = visible !== "false";
+    });
+    showResourceControlToggle.addEventListener("change", async (event) => {
+      const visible = event.target.checked;
+      await storage.setItem("showResourceControl", visible ? "true" : "false");
+      window.electronAPI?.setResourceControlVisibility?.(visible);
+    });
+  }
+
+  window.electronAPI?.onPrivacySettingsChanged?.((privacy) => {
+    if (trackerBlockingToggle)
+      trackerBlockingToggle.checked = !!privacy.trackerBlockEnabled;
+    if (dntToggle) dntToggle.checked = !!privacy.dntEnabled;
+    if (httpsUpgradeToggle)
+      httpsUpgradeToggle.checked = !!privacy.httpsUpgradeEnabled;
+    if (referrerPolicyToggle)
+      referrerPolicyToggle.checked = !!privacy.referrerPolicyStrict;
+  });
 
   let liveMonitorInterval = null;
   let liveMonitorEnabled = false;
 
   function updatePerformanceSliderLabels() {
-    if (memoryThresholdSlider && memoryThresholdValue) {
-      memoryThresholdValue.textContent = `${memoryThresholdSlider.value} MB`;
-    }
     if (maxInactiveTabsSlider && maxInactiveTabsValue) {
       maxInactiveTabsValue.textContent = `${maxInactiveTabsSlider.value}`;
     }
@@ -951,9 +997,6 @@ if (window.electronAPI?.getBuildDate && buildDateSpan) {
       const config = await window.electronAPI.getPerformanceConfig();
       if (!config) return;
 
-      if (memoryThresholdSlider && config.memoryThresholdMB) {
-        memoryThresholdSlider.value = config.memoryThresholdMB;
-      }
       if (maxInactiveTabsSlider && config.maxInactiveTabs) {
         maxInactiveTabsSlider.value = config.maxInactiveTabs;
       }
@@ -977,7 +1020,6 @@ if (window.electronAPI?.getBuildDate && buildDateSpan) {
       return;
     try {
       const payload = {
-        memoryThresholdMB: Number(memoryThresholdSlider?.value || 1024),
         maxInactiveTabs: Number(maxInactiveTabsSlider?.value || 10),
         hibernationDelayMs: Number(hibernationDelaySlider?.value || 10) * 60000,
       };
@@ -1585,8 +1627,9 @@ if (window.electronAPI?.getBuildDate && buildDateSpan) {
       userAgentInputFull.value = userAgent || "";
     });
 
-    userAgentInputFull.addEventListener("change", (e) => {
-      storage.setItem("userAgent", e.target.value);
+    userAgentInputFull.addEventListener("change", async (e) => {
+      await storage.setItem("userAgent", e.target.value);
+      await window.electronAPI?.applyWebPreferences?.({ userAgent: e.target.value });
     });
   }
 
@@ -1597,6 +1640,9 @@ if (window.electronAPI?.getBuildDate && buildDateSpan) {
 
     javascriptEnabledToggle.addEventListener("change", async (e) => {
       await storage.setItem("javascriptEnabled", e.target.checked.toString());
+      await window.electronAPI?.applyWebPreferences?.({
+        javascriptEnabled: e.target.checked,
+      });
       console.log("JavaScript setting changed:", e.target.checked);
     });
   }
@@ -1608,6 +1654,9 @@ if (window.electronAPI?.getBuildDate && buildDateSpan) {
 
     imagesEnabledToggle.addEventListener("change", async (e) => {
       await storage.setItem("imagesEnabled", e.target.checked.toString());
+      await window.electronAPI?.applyWebPreferences?.({
+        imagesEnabled: e.target.checked,
+      });
       console.log("Images setting changed:", e.target.checked);
     });
   }
@@ -1619,6 +1668,9 @@ if (window.electronAPI?.getBuildDate && buildDateSpan) {
 
     popupBlockerToggle.addEventListener("change", async (e) => {
       await storage.setItem("popupBlockerEnabled", e.target.checked.toString());
+      await window.electronAPI?.applyWebPreferences?.({
+        popupBlockerEnabled: e.target.checked,
+      });
       console.log("Popup blocker setting changed:", e.target.checked);
     });
   }

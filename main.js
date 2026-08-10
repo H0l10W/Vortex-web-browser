@@ -4,6 +4,8 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const crypto = require('crypto');
+const { spawn } = require('child_process');
+const https = require('https');
 const { pathToFileURL, fileURLToPath } = require('url');
 
 const DEFAULT_WINDOW_WIDTH = 1200;
@@ -15,7 +17,13 @@ let lastUpdateCheck = 0;
 let downloadedUpdateInfo = null;
 let updateInstallStarted = false;
 let updateDownloadActive = false;
+let portableUpdateFile = null;
 const UPDATE_CHECK_COOLDOWN = 30000; // 30 seconds cooldown between checks
+
+const portableExecutablePath = process.env.PORTABLE_EXECUTABLE_FILE
+  ? path.resolve(process.env.PORTABLE_EXECUTABLE_FILE)
+  : null;
+const isPortableBuild = process.platform === 'win32' && !!portableExecutablePath;
 
 // Memory management configuration
 const MEMORY_CONFIG = {
@@ -24,6 +32,14 @@ const MEMORY_CONFIG = {
   gcIntervalMs: 300000, // Garbage collection interval (5 minutes)
   hibernationDelayMs: 600000, // Hibernate tabs after 10 minutes of inactivity
 };
+
+const RESOURCE_LIMITS = {
+  enabled: false,
+  cpuPercent: 100,
+  ramMB: 1024,
+  networkMbps: 0,
+};
+const resourceControlledWebContents = new Set();
 
 // Memory tracking
 let memoryMonitoring = {
@@ -253,7 +269,22 @@ function attachNetworkTelemetry(sessionInstance) {
       networkTelemetry.activeRequests.set(details.id, now);
       networkTelemetry.requestSamples.push({ ts: now });
     }
-    callback({ requestHeaders: details.requestHeaders });
+    const requestHeaders = { ...details.requestHeaders };
+    if (dntEnabled) {
+      requestHeaders.DNT = '1';
+      requestHeaders['Sec-GPC'] = '1';
+    }
+    if (referrerPolicyStrict) {
+      const referrerKey = Object.keys(requestHeaders).find(key => key.toLowerCase() === 'referer');
+      if (referrerKey && requestHeaders[referrerKey]) {
+        try {
+          requestHeaders[referrerKey] = new URL(requestHeaders[referrerKey]).origin + '/';
+        } catch (_error) {
+          delete requestHeaders[referrerKey];
+        }
+      }
+    }
+    callback({ requestHeaders });
   });
 
   sessionInstance.webRequest.onCompleted((details) => {
@@ -382,6 +413,14 @@ function getSecureOrigin(rawUrl) {
   }
 }
 
+if (storageData && storageData.resourceLimits && typeof storageData.resourceLimits === 'object') {
+  RESOURCE_LIMITS.enabled = storageData.resourceLimits.enabled === true;
+  RESOURCE_LIMITS.cpuPercent = Math.max(25, Math.min(100, Number(storageData.resourceLimits.cpuPercent) || 100));
+  RESOURCE_LIMITS.ramMB = Math.max(512, Math.min(4096, Number(storageData.resourceLimits.ramMB) || 1024));
+  RESOURCE_LIMITS.networkMbps = Math.max(0, Math.min(25, Number(storageData.resourceLimits.networkMbps) || 0));
+  if (RESOURCE_LIMITS.enabled) MEMORY_CONFIG.memoryThresholdMB = RESOURCE_LIMITS.ramMB;
+}
+
 function setupSecurePermissions(sessionInstance) {
   if (!sessionInstance || securedPermissionSessions.has(sessionInstance)) return;
   securedPermissionSessions.add(sessionInstance);
@@ -491,11 +530,28 @@ app.on('web-contents-created', (_event, contents) => {
   });
 
   contents.on('did-attach-webview', (_attachEvent, guestContents) => {
+    imageBlockingWebContents.set(guestContents.id, storageData.imagesEnabled === 'false');
+    scriptBlockingWebContents.set(guestContents.id, storageData.javascriptEnabled === 'false');
+    const savedUserAgent = String(storageData.userAgent || '').trim();
+    if (savedUserAgent) guestContents.setUserAgent(savedUserAgent);
+    if (storageData.javascriptEnabled === 'false') {
+      try {
+        if (!guestContents.debugger.isAttached()) guestContents.debugger.attach('1.3');
+        guestContents.debugger.sendCommand('Emulation.setScriptExecutionDisabled', { value: true }).catch(() => {});
+      } catch (_error) {}
+    }
+    guestContents.once('destroyed', () => {
+      imageBlockingWebContents.delete(guestContents.id);
+      scriptBlockingWebContents.delete(guestContents.id);
+    });
     guestContents.on('will-navigate', (navigationEvent, targetUrl) => {
       if (!isAllowedWebviewUrl(targetUrl)) navigationEvent.preventDefault();
     });
     guestContents.setWindowOpenHandler(({ url }) => {
-      if (isHttpUrl(url) && !contents.isDestroyed()) contents.send('guest-open-url', url);
+      const popupBlockingEnabled = storageData.popupBlockerEnabled !== 'false';
+      if (!popupBlockingEnabled && isHttpUrl(url) && !contents.isDestroyed()) {
+        contents.send('guest-open-url', url);
+      }
       return { action: 'deny' };
     });
   });
@@ -599,8 +655,28 @@ let adblocker = null;
 const blockers = new Map();
 let adBlockEnabled = false;
 let adBlockMode = 'balanced';
+let trackerBlockEnabled = storageData.trackerBlockEnabled === true || storageData.trackerBlockEnabled === 'true';
+let dntEnabled = storageData.dntEnabled === true || storageData.dntEnabled === 'true';
+let httpsUpgradeEnabled = storageData.httpsUpgradeEnabled === true || storageData.httpsUpgradeEnabled === 'true';
+let referrerPolicyStrict = storageData.referrerPolicyStrict === true || storageData.referrerPolicyStrict === 'true';
+const KNOWN_TRACKER_DOMAINS = new Set([
+  'google-analytics.com', 'googletagmanager.com', 'doubleclick.net',
+  'facebook.net', 'connect.facebook.net', 'hotjar.com', 'segment.io',
+  'segment.com', 'mixpanel.com', 'amplitude.com', 'scorecardresearch.com',
+  'quantserve.com', 'newrelic.com', 'clarity.ms'
+]);
+
+function isKnownTrackerRequest(details) {
+  try {
+    const hostname = new URL(details.url).hostname.toLowerCase();
+    return Array.from(KNOWN_TRACKER_DOMAINS).some(domain => hostname === domain || hostname.endsWith(`.${domain}`));
+  } catch (_error) {
+    return false;
+  }
+}
 const adBlockInstrumentedSessions = new WeakSet();
 const imageBlockingWebContents = new Map();
+const scriptBlockingWebContents = new Map();
 
 const AD_BLOCK_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const AD_BLOCK_FILTER_URLS = {
@@ -773,6 +849,30 @@ function setupAdBlockerForSession(session) {
   adBlockInstrumentedSessions.add(session);
   
   session.webRequest.onBeforeRequest((details, callback) => {
+    if (imageBlockingWebContents.get(details.webContentsId) === true && details.resourceType === 'image') {
+      callback({ cancel: true });
+      return;
+    }
+    if (scriptBlockingWebContents.get(details.webContentsId) === true && details.resourceType === 'script') {
+      callback({ cancel: true });
+      return;
+    }
+    if (httpsUpgradeEnabled && details.url.startsWith('http://')) {
+      try {
+        const target = new URL(details.url);
+        if (!['localhost', '127.0.0.1', '::1'].includes(target.hostname)) {
+          target.protocol = 'https:';
+          callback({ redirectURL: target.href });
+          return;
+        }
+      } catch (_error) {}
+    }
+
+    if (trackerBlockEnabled && isKnownTrackerRequest(details)) {
+      callback({ cancel: true });
+      return;
+    }
+
     // Check if ad-blocking is enabled
     if (!adBlockEnabled) {
       callback({ cancel: false });
@@ -797,9 +897,9 @@ const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 autoUpdater.forceDevUpdateConfig = true;
 
 // Auto-download for production for reliability, but keep disabled in development
-autoUpdater.autoDownload = !isDev;
+autoUpdater.autoDownload = !isDev && !isPortableBuild;
 // Keep the normal quit path as a fallback if an update has already downloaded.
-autoUpdater.autoInstallOnAppQuit = !isDev;
+autoUpdater.autoInstallOnAppQuit = !isDev && !isPortableBuild;
 autoUpdater.allowDowngrade = false; // Prevent downgrade attacks
 
 // Configure auto-updater for GitHub releases
@@ -821,6 +921,69 @@ if (!isDev) { // Using forced production mode
 }
 
 // Auto-updater event handlers
+function sendUpdateEvent(channel, payload) {
+  const target = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
+  if (target && !target.isDestroyed()) target.webContents.send(channel, payload);
+}
+
+function downloadPortableUpdate(info) {
+  const version = String(info && info.version || '').trim();
+  if (!/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(version)) {
+    return Promise.reject(new Error('Invalid portable update version.'));
+  }
+
+  const assetName = `VortexBrowser-Portable-${version}.exe`;
+  const assetUrl = `https://github.com/H0l10W/Vortex-web-browser/releases/download/v${version}/${assetName}`;
+  const destination = path.join(app.getPath('temp'), `${assetName}.download`);
+
+  return new Promise((resolve, reject) => {
+    const request = (url, redirectsLeft = 5) => {
+      https.get(url, { headers: { 'User-Agent': `VortexBrowser/${app.getVersion()}` } }, response => {
+        if (response.statusCode >= 300 && response.statusCode < 400 && response.headers.location && redirectsLeft > 0) {
+          response.resume();
+          request(new URL(response.headers.location, url).toString(), redirectsLeft - 1);
+          return;
+        }
+        if (response.statusCode !== 200) {
+          response.resume();
+          reject(new Error(`Portable update download failed (${response.statusCode}).`));
+          return;
+        }
+
+        const total = Number(response.headers['content-length']) || 0;
+        let received = 0;
+        let lastPercent = -10;
+        const output = fs.createWriteStream(destination);
+        response.on('data', chunk => {
+          received += chunk.length;
+          const percent = total ? Math.round((received / total) * 100) : 0;
+          if (percent === 100 || percent >= lastPercent + 10) {
+            lastPercent = percent;
+            sendUpdateEvent('update-download-progress', { percent });
+          }
+        });
+        response.pipe(output);
+        output.on('finish', () => {
+          output.close(() => {
+            try {
+              const fd = fs.openSync(destination, 'r');
+              const signature = Buffer.alloc(2);
+              fs.readSync(fd, signature, 0, 2, 0);
+              fs.closeSync(fd);
+              if (signature.toString('ascii') !== 'MZ') throw new Error('Downloaded portable update is not a Windows executable.');
+              resolve(destination);
+            } catch (error) {
+              reject(error);
+            }
+          });
+        });
+        output.on('error', reject);
+      }).on('error', reject);
+    };
+    request(assetUrl);
+  });
+}
+
 autoUpdater.on('checking-for-update', () => {
   const target = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
   if (target && !target.isDestroyed()) target.webContents.send('update-checking');
@@ -835,6 +998,20 @@ autoUpdater.on('update-available', (info) => {
   _downloadRetries = 0;
   const target = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
   if (target && !target.isDestroyed()) target.webContents.send('update-available', info);
+
+  if (isPortableBuild) {
+    downloadPortableUpdate(info).then(file => {
+      portableUpdateFile = file;
+      downloadedUpdateInfo = info;
+      updateInProgress = false;
+      updateDownloadActive = false;
+      sendUpdateEvent('update-downloaded', info);
+    }).catch(error => {
+      updateInProgress = false;
+      updateDownloadActive = false;
+      sendUpdateEvent('update-error', error.message);
+    });
+  }
 });
 
 autoUpdater.on('update-not-available', (info) => {
@@ -1032,6 +1209,51 @@ function updateTabActivity(tabId) {
   wakeUpTab(tabId); // Wake up if hibernated
 }
 
+async function applyResourceLimitsToWebContents(contents) {
+  if (!contents || contents.isDestroyed() || contents.getType() !== 'webview') return;
+  const shouldThrottle = RESOURCE_LIMITS.enabled &&
+    (RESOURCE_LIMITS.cpuPercent < 100 || RESOURCE_LIMITS.networkMbps > 0);
+
+  try {
+    if (!contents.debugger.isAttached()) {
+      if (!shouldThrottle && !resourceControlledWebContents.has(contents.id)) return;
+      contents.debugger.attach('1.3');
+      resourceControlledWebContents.add(contents.id);
+      contents.once('destroyed', () => resourceControlledWebContents.delete(contents.id));
+    }
+
+    const cpuRate = RESOURCE_LIMITS.enabled ? Math.max(1, 100 / RESOURCE_LIMITS.cpuPercent) : 1;
+    await contents.debugger.sendCommand('Emulation.setCPUThrottlingRate', { rate: cpuRate });
+    await contents.debugger.sendCommand('Network.enable');
+    const bytesPerSecond = RESOURCE_LIMITS.enabled && RESOURCE_LIMITS.networkMbps > 0
+      ? Math.round((RESOURCE_LIMITS.networkMbps * 1000 * 1000) / 8)
+      : -1;
+    await contents.debugger.sendCommand('Network.emulateNetworkConditions', {
+      offline: false,
+      latency: 0,
+      downloadThroughput: bytesPerSecond,
+      uploadThroughput: bytesPerSecond,
+    });
+
+    if (!shouldThrottle && resourceControlledWebContents.has(contents.id)) {
+      contents.debugger.detach();
+      resourceControlledWebContents.delete(contents.id);
+    }
+  } catch (error) {
+    console.warn(`Could not apply resource limits to webview ${contents.id}:`, error.message);
+  }
+}
+
+async function applyResourceLimitsToAllWebviews() {
+  const guests = webContents.getAllWebContents().filter(contents => contents.getType() === 'webview');
+  await Promise.allSettled(guests.map(applyResourceLimitsToWebContents));
+}
+
+app.on('web-contents-created', (_event, contents) => {
+  if (contents.getType() !== 'webview') return;
+  contents.on('dom-ready', () => applyResourceLimitsToWebContents(contents));
+});
+
 // Define the header height (height of tabs + controls)
 let headerHeight = 92; // Title bar (48px) + Controls (44px)
 const headerHeightWithoutBookmarks = 92; // Title bar (48px) + Controls (44px)
@@ -1130,6 +1352,7 @@ function createWindow(initialUrl, isFresh = false) {
   // --- Ad Blocker Implementation ---
   const session = win.webContents.session;
   setupSecurePermissions(session);
+  attachNetworkTelemetry(session);
   setupAdBlockerForSession(session);
 
   // --- Enhanced Download Handling with Security ---
@@ -1153,6 +1376,24 @@ function createWindow(initialUrl, isFresh = false) {
       console.warn('Download from non-HTTP(S) protocol blocked:', url);
       event.preventDefault();
       return;
+    }
+
+    const configuredDownloadPath = String(storageData.downloadLocation || '').trim();
+    if (configuredDownloadPath && storageData.askDownloadLocation !== 'true') {
+      item.setSavePath(path.join(configuredDownloadPath, filename));
+    } else if (storageData.askDownloadLocation === 'true') {
+      item.pause();
+      dialog.showSaveDialog(win, {
+        title: 'Save Download',
+        defaultPath: path.join(configuredDownloadPath || app.getPath('downloads'), filename),
+      }).then(result => {
+        if (result.canceled || !result.filePath) {
+          item.cancel();
+          return;
+        }
+        item.setSavePath(result.filePath);
+        item.resume();
+      }).catch(() => item.cancel());
     }
     
     win.webContents.send('download-started', {
@@ -2568,10 +2809,71 @@ ipcMain.handle('storage-get', (event, key) => {
   return Object.prototype.hasOwnProperty.call(storageData, key) ? storageData[key] : null;
 });
 
+function broadcastPrivacySettings() {
+  const privacySettings = {
+    trackerBlockEnabled,
+    dntEnabled,
+    httpsUpgradeEnabled,
+    referrerPolicyStrict,
+  };
+  BrowserWindow.getAllWindows().forEach(win => {
+    if (!win.isDestroyed()) win.webContents.send('privacy-settings-changed', privacySettings);
+  });
+}
+
+ipcMain.handle('get-privacy-settings', () => ({
+  trackerBlockEnabled,
+  dntEnabled,
+  httpsUpgradeEnabled,
+  referrerPolicyStrict,
+}));
+
+ipcMain.on('toggle-tracker-blocking', (_event, enabled) => {
+  trackerBlockEnabled = !!enabled;
+  storageData.trackerBlockEnabled = trackerBlockEnabled;
+  saveStorageData(storageData);
+  broadcastPrivacySettings();
+});
+
+ipcMain.on('toggle-dnt', (_event, enabled) => {
+  dntEnabled = !!enabled;
+  storageData.dntEnabled = dntEnabled;
+  saveStorageData(storageData);
+  broadcastPrivacySettings();
+});
+
+ipcMain.on('toggle-https-upgrade', (_event, enabled) => {
+  httpsUpgradeEnabled = !!enabled;
+  storageData.httpsUpgradeEnabled = httpsUpgradeEnabled;
+  saveStorageData(storageData);
+  broadcastPrivacySettings();
+});
+
+ipcMain.on('toggle-referrer-policy', (_event, enabled) => {
+  referrerPolicyStrict = !!enabled;
+  storageData.referrerPolicyStrict = referrerPolicyStrict;
+  saveStorageData(storageData);
+  broadcastPrivacySettings();
+});
+
+ipcMain.on('set-resource-control-visibility', (_event, visible) => {
+  const normalized = visible !== false;
+  storageData.showResourceControl = normalized ? 'true' : 'false';
+  saveStorageData(storageData);
+  BrowserWindow.getAllWindows().forEach(win => {
+    if (!win.isDestroyed()) {
+      win.webContents.send('resource-control-visibility-changed', normalized);
+    }
+  });
+});
+
 ipcMain.handle('storage-set', (event, key, value) => {
   if (!isTrustedStorageSender(event) || !isValidStorageKey(key)) return false;
   storageData[key] = value;
   const ok = saveStorageData(storageData);
+  BrowserWindow.getAllWindows().forEach(win => {
+    if (!win.isDestroyed()) win.webContents.send('storage-item-changed', { key, value });
+  });
   try { console.debug(`storage-set ${key}: ${ok}`); } catch (e) { /* ignore */ }
   return ok;
 });
@@ -2767,6 +3069,47 @@ ipcMain.handle('choose-download-folder', async (event) => {
 });
 
 // Apply browser settings to views
+ipcMain.handle('apply-web-preferences', async (_event, settings = {}) => {
+  const guests = webContents.getAllWebContents().filter(contents => contents.getType() === 'webview');
+  const reloadGuests = settings.javascriptEnabled !== undefined || settings.imagesEnabled !== undefined;
+
+  if (settings.javascriptEnabled !== undefined) {
+    storageData.javascriptEnabled = settings.javascriptEnabled ? 'true' : 'false';
+  }
+  if (settings.imagesEnabled !== undefined) {
+    storageData.imagesEnabled = settings.imagesEnabled ? 'true' : 'false';
+  }
+  if (settings.popupBlockerEnabled !== undefined) {
+    storageData.popupBlockerEnabled = settings.popupBlockerEnabled ? 'true' : 'false';
+  }
+  if (settings.userAgent !== undefined) storageData.userAgent = String(settings.userAgent || '');
+  saveStorageData(storageData);
+
+  await Promise.allSettled(guests.map(async contents => {
+    if (settings.imagesEnabled !== undefined) {
+      imageBlockingWebContents.set(contents.id, !settings.imagesEnabled);
+    }
+    if (settings.javascriptEnabled !== undefined) {
+      scriptBlockingWebContents.set(contents.id, !settings.javascriptEnabled);
+      try {
+        if (!contents.debugger.isAttached()) contents.debugger.attach('1.3');
+        await contents.debugger.sendCommand('Emulation.setScriptExecutionDisabled', {
+          value: !settings.javascriptEnabled,
+        });
+      } catch (error) {
+        console.warn(`Could not change script execution for webview ${contents.id}:`, error.message);
+      }
+    }
+    if (settings.userAgent !== undefined) {
+      const userAgent = String(settings.userAgent || '').trim();
+      contents.setUserAgent(userAgent || contents.session.getUserAgent());
+    }
+    if (reloadGuests && !contents.isDestroyed()) contents.reload();
+  }));
+
+  return { success: true };
+});
+
 ipcMain.handle('apply-browser-settings', async (event, viewId, settings) => {
   const win = BrowserWindow.fromWebContents(event.sender);
   const windowState = windows.get(win.id);
@@ -2926,17 +3269,12 @@ ipcMain.handle('set-zoom-level', async (event, zoomPercent) => {
   
   try {
     console.log('Setting zoom level:', zoomPercent + '%');
-    const windowState = windows.get(win.id);
-    
-    if (windowState) {
-      // Convert percentage to zoom factor (100% = 1.0, 150% = 1.5, 75% = 0.75)
-      const zoomFactor = zoomPercent / 100;
-      
-      // Apply to all views in this window
-      windowState.views.forEach((view, viewId) => {
-        view.webContents.setZoomFactor(zoomFactor);
-      });
-    }
+    const numericZoom = Number(zoomPercent) || 100;
+    // Full Settings sends percentages; Quick Settings sends a zoom factor.
+    const zoomFactor = numericZoom <= 5 ? numericZoom : numericZoom / 100;
+    webContents.getAllWebContents()
+      .filter(contents => contents.getType() === 'webview' && !contents.isDestroyed())
+      .forEach(contents => contents.setZoomFactor(zoomFactor));
     
     return true;
   } catch (error) {
@@ -2981,6 +3319,7 @@ app.whenReady().then(() => {
   // Partitions without a "persist:" prefix are memory-only and discarded on exit.
   const incognitoSession = session.fromPartition('incognito');
   setupSecurePermissions(incognitoSession);
+  attachNetworkTelemetry(incognitoSession);
   setupAdBlockerForSession(incognitoSession);
 
   console.log('=== AUTO-UPDATER DEBUG INFO ===');
@@ -3154,6 +3493,56 @@ app.whenReady().then(() => {
       setTimeout(() => app.quit(), 500);
       return { success: true, reason: 'Development mode' };
     }
+
+    if (isPortableBuild) {
+      if (!portableUpdateFile || !fs.existsSync(portableUpdateFile)) {
+        return { success: false, error: 'The portable update has not finished downloading.' };
+      }
+
+      try {
+        fs.accessSync(path.dirname(portableExecutablePath), fs.constants.W_OK);
+      } catch (_error) {
+        return {
+          success: false,
+          error: 'Vortex cannot replace the portable file in its current folder. Move it to a writable folder and try again.',
+        };
+      }
+
+      updateInstallStarted = true;
+      const helperPath = path.join(app.getPath('temp'), `vortex-portable-update-${process.pid}.cmd`);
+      const batchEscape = value => String(value).replace(/%/g, '%%');
+      const target = batchEscape(portableExecutablePath);
+      const source = batchEscape(portableUpdateFile);
+      const script = [
+        '@echo off',
+        'setlocal DisableDelayedExpansion',
+        ':waitForExit',
+        `tasklist /FI "PID eq ${process.pid}" 2>NUL | find "${process.pid}" >NUL`,
+        'if not errorlevel 1 (',
+        '  timeout /t 1 /nobreak >NUL',
+        '  goto waitForExit',
+        ')',
+        `move /Y "${source}" "${target}" >NUL`,
+        'if errorlevel 1 exit /b 1',
+        `start "" "${target}"`,
+        'del "%~f0"',
+      ].join('\r\n');
+
+      try {
+        fs.writeFileSync(helperPath, script, 'utf8');
+        const helper = spawn('cmd.exe', ['/d', '/c', helperPath], {
+          detached: true,
+          windowsHide: true,
+          stdio: 'ignore',
+        });
+        helper.unref();
+        setImmediate(() => app.quit());
+        return { success: true, portable: true };
+      } catch (error) {
+        updateInstallStarted = false;
+        return { success: false, error: error.message };
+      }
+    }
     
     if (!downloadedUpdateInfo) {
       return { success: false, error: 'The update has not finished downloading.' };
@@ -3250,6 +3639,28 @@ app.whenReady().then(() => {
     };
   });
 
+  ipcMain.handle('get-resource-limits', () => ({ ...RESOURCE_LIMITS }));
+
+  ipcMain.handle('set-resource-limits', async (_event, limits = {}) => {
+    RESOURCE_LIMITS.enabled = limits.enabled === true;
+    RESOURCE_LIMITS.cpuPercent = Math.max(25, Math.min(100, Number(limits.cpuPercent) || 100));
+    RESOURCE_LIMITS.ramMB = Math.max(512, Math.min(4096, Number(limits.ramMB) || 1024));
+    RESOURCE_LIMITS.networkMbps = Math.max(0, Math.min(25, Number(limits.networkMbps) || 0));
+
+    if (RESOURCE_LIMITS.enabled) {
+      MEMORY_CONFIG.memoryThresholdMB = RESOURCE_LIMITS.ramMB;
+      checkMemoryPressure();
+    } else {
+      const configuredMemoryThreshold = Number(storageData.memoryConfig?.memoryThresholdMB) || 1024;
+      MEMORY_CONFIG.memoryThresholdMB = Math.max(256, Math.min(16384, configuredMemoryThreshold));
+    }
+
+    storageData.resourceLimits = { ...RESOURCE_LIMITS };
+    saveStorageData(storageData);
+    await applyResourceLimitsToAllWebviews();
+    return { success: true, limits: { ...RESOURCE_LIMITS } };
+  });
+
   ipcMain.handle('set-performance-config', (event, config = {}) => {
     if (config.memoryThresholdMB !== undefined) {
       MEMORY_CONFIG.memoryThresholdMB = Math.max(256, Math.min(16384, Number(config.memoryThresholdMB) || MEMORY_CONFIG.memoryThresholdMB));
@@ -3303,6 +3714,19 @@ app.on('window-all-closed', () => {
     });
     app.quit();
   }
+});
+
+ipcMain.handle('get-is-default-browser', () => {
+  if (process.platform === 'win32') {
+    return app.isDefaultProtocolClient('http') && app.isDefaultProtocolClient('https');
+  }
+  return app.isDefaultProtocolClient('http');
+});
+
+ipcMain.handle('set-as-default-browser', () => {
+  const httpSet = app.setAsDefaultProtocolClient('http');
+  const httpsSet = app.setAsDefaultProtocolClient('https');
+  return httpSet && httpsSet;
 });
 
 app.on('before-quit', () => {

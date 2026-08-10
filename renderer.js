@@ -66,6 +66,84 @@ window.addEventListener("DOMContentLoaded", () => {
     document.body.classList.add("incognito-mode");
     document.title = "Vortex — Incognito";
   }
+  const resourceControl = document.getElementById("resource-control");
+  const resourcePanel = document.getElementById("resource-control-panel");
+  const resourceToggle = document.getElementById("resource-control-toggle");
+  const resourceClose = document.getElementById("resource-control-close");
+  const resourceEnabled = document.getElementById("resource-limits-enabled");
+  const cpuLimit = document.getElementById("resource-cpu-limit");
+  const ramLimit = document.getElementById("resource-ram-limit");
+  const networkLimit = document.getElementById("resource-network-limit");
+  const cpuValue = document.getElementById("resource-cpu-value");
+  const ramValue = document.getElementById("resource-ram-value");
+  const networkValue = document.getElementById("resource-network-value");
+  const resourceStatus = document.getElementById("resource-limit-status");
+
+  if (resourcePanel && resourceToggle && window.electronAPI?.getResourceLimits) {
+    const setPanelOpen = (open) => {
+      resourcePanel.hidden = !open;
+      resourceToggle.setAttribute("aria-expanded", open ? "true" : "false");
+    };
+    const updateResourceLabels = () => {
+      cpuValue.value = `${cpuLimit.value}%`;
+      ramValue.value = `${ramLimit.value} MB`;
+      networkValue.value = Number(networkLimit.value) === 0
+        ? "Unlimited"
+        : `${networkLimit.value} Mbps`;
+      const enabled = resourceEnabled.checked;
+      cpuLimit.disabled = !enabled;
+      ramLimit.disabled = !enabled;
+      networkLimit.disabled = !enabled;
+      [cpuLimit, ramLimit, networkLimit].forEach((control) => {
+        const min = Number(control.min);
+        const max = Number(control.max);
+        const value = Number(control.value);
+        const fill = ((value - min) / (max - min)) * 100;
+        control.style.setProperty("--limit-fill", `${fill}%`);
+      });
+      resourceStatus.textContent = enabled
+        ? `CPU ${cpuLimit.value}% · RAM ${ramLimit.value} MB · ${networkValue.value}`
+        : "Limiters are off";
+    };
+    let resourceSaveTimer = null;
+    const saveResourceLimits = () => {
+      updateResourceLabels();
+      clearTimeout(resourceSaveTimer);
+      resourceSaveTimer = setTimeout(() => {
+        window.electronAPI.setResourceLimits({
+          enabled: resourceEnabled.checked,
+          cpuPercent: Number(cpuLimit.value),
+          ramMB: Number(ramLimit.value),
+          networkMbps: Number(networkLimit.value),
+        }).catch((error) => {
+          resourceStatus.textContent = `Could not apply limits: ${error.message}`;
+        });
+      }, 180);
+    };
+
+    resourceToggle.addEventListener("click", () => setPanelOpen(true));
+    resourceClose?.addEventListener("click", () => setPanelOpen(false));
+    [resourceEnabled, cpuLimit, ramLimit, networkLimit].forEach((control) => {
+      control.addEventListener("input", saveResourceLimits);
+      control.addEventListener("change", saveResourceLimits);
+    });
+    window.electronAPI.getResourceLimits().then((limits) => {
+      resourceEnabled.checked = limits.enabled === true;
+      cpuLimit.value = String(limits.cpuPercent || 100);
+      ramLimit.value = String(limits.ramMB || 1024);
+      networkLimit.value = String(limits.networkMbps || 0);
+      updateResourceLabels();
+    }).catch(() => updateResourceLabels());
+
+    storage.getItem("showResourceControl").then((visible) => {
+      resourceControl.hidden = visible === "false";
+    });
+    window.electronAPI.onResourceControlVisibilityChanged?.((visible) => {
+      resourceControl.hidden = visible === false;
+      if (!visible) setPanelOpen(false);
+    });
+  }
+
   // --- Settings Panel History Logic ---
   const settingsHistoryList = document.getElementById("settings-history-list");
   const clearHistoryBtn = document.getElementById("clear-history-btn");
@@ -425,6 +503,9 @@ window.addEventListener("DOMContentLoaded", () => {
     } catch (err) {
       /* ignore */
     }
+    const configuredHomepage =
+      (await storage.getItem("homepage")) || "https://www.google.com";
+    const startPage = (await storage.getItem("startPage")) || "newtab";
     let tabs = JSON.parse((await storage.getItem(storageKey("tabs"))) || "[]");
     const params = new URLSearchParams(window.location.search || "");
     const isFresh = params.get("fresh") === "1";
@@ -432,6 +513,17 @@ window.addEventListener("DOMContentLoaded", () => {
       console.log("initializeState: fresh window — skipping saved tabs");
       tabs = [
         { id: Date.now(), url: "newtab", history: ["newtab"], historyIndex: 0 },
+      ];
+    } else if (startPage !== "lastsession") {
+      const startupUrl = startPage === "homepage" ? configuredHomepage : "newtab";
+      console.log("initializeState: applying configured start page", startPage);
+      tabs = [
+        {
+          id: Date.now(),
+          url: startupUrl,
+          history: [startupUrl],
+          historyIndex: 0,
+        },
       ];
     }
 
@@ -478,8 +570,7 @@ window.addEventListener("DOMContentLoaded", () => {
     }
 
     let bookmarks = JSON.parse((await storage.getItem("bookmarks")) || "[]");
-    let homepage =
-      (await storage.getItem("homepage")) || "https://www.google.com";
+    let homepage = configuredHomepage;
     let quickLinks = JSON.parse((await storage.getItem("quickLinks")) || "[]");
 
     try {
@@ -503,6 +594,38 @@ window.addEventListener("DOMContentLoaded", () => {
   let homepage = "https://www.google.com";
   let quickLinks = [];
   let hibernatedTabIds = new Set();
+  let newTabBehaviorSetting = "newtab";
+  let searchSuggestionsEnabled = true;
+  let currentSearchEngine = "google";
+
+  storage.getItem("newTabBehavior").then((value) => {
+    newTabBehaviorSetting = ["newtab", "homepage", "blank"].includes(value)
+      ? value
+      : "newtab";
+  });
+  storage.getItem("searchSuggestions").then((value) => {
+    searchSuggestionsEnabled = value !== "false";
+  });
+  storage.getItem("searchEngine").then((value) => {
+    currentSearchEngine = ["google", "bing", "duckduckgo"].includes(value)
+      ? value
+      : "google";
+  });
+  storage.getItem("fontSize").then((value) => {
+    if (value) document.documentElement.style.setProperty("--base-font-size", `${value}px`);
+  });
+  window.electronAPI?.onStorageItemChanged?.(({ key, value }) => {
+    if (key === "newTabBehavior") newTabBehaviorSetting = value;
+    if (key === "searchSuggestions") {
+      searchSuggestionsEnabled = value !== "false";
+      if (!searchSuggestionsEnabled) hideOmniboxSuggestions();
+    }
+    if (key === "searchEngine") currentSearchEngine = value;
+    if (key === "fontSize")
+      document.documentElement.style.setProperty("--base-font-size", `${value}px`);
+    if (key === "visualEffectsEnabled")
+      document.body.classList.toggle("effects-disabled", value === "false");
+  });
 
   // Tab groups state
   const GROUP_COLORS = [
@@ -1161,6 +1284,15 @@ window.addEventListener("DOMContentLoaded", () => {
     } catch (e) {}
   }
 
+  function getTabDisplayTitle(tab) {
+    if (tab?.isIncognito) return "(Incognito)";
+    const url = String(tab?.url || "").toLowerCase();
+    if (url.includes("history.html")) return "History";
+    if (url.includes("settings.html")) return "Settings";
+    if (url === "newtab") return "New Tab";
+    return tab?.title || tab?.url || "New Tab";
+  }
+
   function normalizeRestoredInternalUrl(url) {
     if (!url || typeof url !== "string" || url === "newtab") return url;
     try {
@@ -1632,6 +1764,10 @@ window.addEventListener("DOMContentLoaded", () => {
   }
 
   function refreshOmniboxSuggestions() {
+    if (!searchSuggestionsEnabled) {
+      hideOmniboxSuggestions();
+      return;
+    }
     omniboxSuggestions = buildOmniboxSuggestions(urlInput.value);
     omniboxSelectedIndex = omniboxSuggestions.length ? 0 : -1;
     renderOmniboxSuggestions();
@@ -1952,6 +2088,12 @@ window.addEventListener("DOMContentLoaded", () => {
     // Identify special internal pages (settings/history) so we can hide unnecessary chrome
     const isSettingsPage = tab.url && tab.url.includes("settings.html");
     const isHistoryPage = tab.url && tab.url.includes("history.html");
+    if (resourceControl) {
+      resourceControl.classList.toggle(
+        "hidden-for-internal-page",
+        !!(isSettingsPage || isHistoryPage),
+      );
+    }
 
     // Hide/show URL bar based on whether it's a settings page or history page
     if (controlsDiv) {
@@ -2119,9 +2261,7 @@ window.addEventListener("DOMContentLoaded", () => {
         favicon.style.height = "16px";
         tabEl.appendChild(favicon);
         const titleSpan = document.createElement("span");
-        let displayTitle = tab.isIncognito
-          ? "(Incognito)"
-          : tab.title || tab.url || "New Tab";
+        let displayTitle = getTabDisplayTitle(tab);
         if (displayTitle.length > 32)
           displayTitle = displayTitle.substring(0, 32) + "...";
         titleSpan.textContent = displayTitle;
@@ -2136,9 +2276,7 @@ window.addEventListener("DOMContentLoaded", () => {
         }
       } else {
         const titleSpan = document.createElement("span");
-        let displayTitle = tab.isIncognito
-          ? "(Incognito)"
-          : tab.title || tab.url || "New Tab";
+        let displayTitle = getTabDisplayTitle(tab);
         if (displayTitle.length > 32)
           displayTitle = displayTitle.substring(0, 32) + "...";
         titleSpan.textContent = displayTitle;
@@ -2591,6 +2729,10 @@ window.addEventListener("DOMContentLoaded", () => {
   }
 
   function newTab(url = "newtab", fromNavigate = false, options = {}) {
+    if (url === "newtab" && !fromNavigate && !options.incognito) {
+      if (newTabBehaviorSetting === "homepage") url = homepage;
+      if (newTabBehaviorSetting === "blank") url = "about:blank";
+    }
     if (fromNavigate) {
       // This is a navigation within the current tab, not a new tab creation
       const tab = tabs.find((t) => t.id === currentTabId);
@@ -3597,7 +3739,7 @@ window.addEventListener("DOMContentLoaded", () => {
       url = "https://" + url;
     } else {
       // Treat as search query - improved encoding and URL construction
-      const searchEngine = localStorage.getItem("searchEngine") || "google";
+      const searchEngine = currentSearchEngine;
       const searchUrls = {
         google: "https://www.google.com/search?q=",
         bing: "https://www.bing.com/search?q=",
@@ -3758,6 +3900,21 @@ window.addEventListener("DOMContentLoaded", () => {
   const checkUpdatesBtn = document.getElementById("check-updates");
   const adblockToggle = document.getElementById("adblock-toggle");
   const adblockStrictToggle = document.getElementById("adblock-strict-toggle");
+  const quickTrackerBlockingToggle = document.getElementById(
+    "quick-tracker-blocking-toggle",
+  );
+
+  if (quickTrackerBlockingToggle && window.electronAPI?.getPrivacySettings) {
+    window.electronAPI.getPrivacySettings().then((privacy) => {
+      quickTrackerBlockingToggle.checked = !!privacy.trackerBlockEnabled;
+    }).catch(() => {});
+    quickTrackerBlockingToggle.addEventListener("change", (event) => {
+      window.electronAPI.toggleTrackerBlocking?.(event.target.checked);
+    });
+    window.electronAPI.onPrivacySettingsChanged?.((privacy) => {
+      quickTrackerBlockingToggle.checked = !!privacy.trackerBlockEnabled;
+    });
+  }
 
   async function openFullHistoryPage() {
     try {
@@ -5476,7 +5633,7 @@ window.addEventListener("DOMContentLoaded", () => {
       url.indexOf(" ") !== -1
     ) {
       // It looks like a search query
-      const searchEngine = localStorage.getItem("searchEngine") || "google";
+      const searchEngine = currentSearchEngine;
       performSearch(url, searchEngine);
       return;
     }

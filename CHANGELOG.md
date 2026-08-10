@@ -1,5 +1,37 @@
 # Vortex Browser - Changelog
 
+## [0.4.4] - 2026-08-10
+
+### Added
+- Added a collapsible GX-style resource limiter in the bottom-left of the browser with CPU, RAM-pressure, and network controls.
+- Added persistent limiter settings, live application to current and newly opened web tabs, and an option under Performance settings to hide the launcher completely.
+- Added a synchronized Tracker Blocking toggle to the Quick Settings sidebar.
+- Added functional privacy backends for tracker blocking, Do Not Track and Global Privacy Control headers, HTTPS upgrades, and strict origin-only referrers.
+
+### Changed
+- Redesigned and polished the resource limiter with compact control cards, a master switch, custom filled sliders, value badges, responsive styling, and a less intrusive launcher.
+- Automatically hides the resource limiter on internal Settings and History pages.
+- Reworked General settings into balanced independent columns and combined Search, Startup, Navigation, and Default Browser options into one structured card.
+- Consolidated history, cookies, and full data clearing into one Browsing Data card.
+- Placed Tracker Blocking and Advanced Privacy together and tightened Privacy card spacing, actions, toggles, and saved-login presentation.
+- Standardized spacing across Widget, Performance, About, Appearance, and sidebar sections.
+- Compacted Settings buttons, the homepage Save action, weather location field, and news-region selector.
+- Allowed Weather and News widget cards to remain side by side at typical Settings widths while retaining a responsive stacked layout.
+- Removed the duplicate memory-pressure control from Performance settings because it is now available in the resource limiter.
+
+### Fixed
+- Fixed portable updates launching the installed-app setup program; portable releases now download, validate, replace, and relaunch their own executable.
+- Fixed the browser always restoring the previous session regardless of the selected Homepage, New Tab, or Restore Last Session startup option.
+- Fixed History and Settings tabs displaying local file paths instead of stable page titles.
+- Fixed Default Browser controls lacking main-process handlers.
+- Fixed JavaScript, image loading, popup blocking, and custom user-agent controls saving values without applying them to web tabs.
+- Fixed Tracker Blocking, DNT/GPC, HTTPS upgrade, and strict-referrer controls saving values without functional request handling.
+- Fixed the selected download folder and Ask Where to Save option not controlling download destinations.
+- Fixed New Tab Behavior, Search Suggestions, search-engine changes, font sizing, and visual-effect changes not consistently applying live.
+- Fixed page zoom using incompatible units between Quick Settings and Full Settings and not reaching actual web tabs.
+- Added cross-window synchronization for storage-backed settings and privacy controls.
+- Prevented the update installer path from accepting repeated install clicks and retained the quieter single-window update notification flow introduced in 0.4.3.
+
 ## [0.4.3] - 2026-08-10
 
 ### Changed
