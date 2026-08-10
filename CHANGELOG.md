@@ -1,5 +1,17 @@
 # Vortex Browser - Changelog
 
+## [0.4.3] - 2026-08-10
+
+### Changed
+- Kept automatic update status inside the app instead of generating Windows system notifications.
+- Limited update status and install prompts to one app window and removed repeated download-progress notifications.
+- Retained concise in-app messages for checking, up-to-date, update-found, and ready-to-install states.
+
+### Fixed
+- Prevented overlapping update downloads caused by starting an automatic download twice.
+- Made the green update action one-shot and switched to a silent install that relaunches the updated app.
+- Added controlled download retries and install-on-quit fallback behavior.
+
 ## [0.4.2] - 2026-08-09
 
 ### Fixed

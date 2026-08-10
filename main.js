@@ -12,6 +12,9 @@ const DEFAULT_WINDOW_HEIGHT = 800;
 // Global update state tracking
 let updateInProgress = false;
 let lastUpdateCheck = 0;
+let downloadedUpdateInfo = null;
+let updateInstallStarted = false;
+let updateDownloadActive = false;
 const UPDATE_CHECK_COOLDOWN = 30000; // 30 seconds cooldown between checks
 
 // Memory management configuration
@@ -795,7 +798,8 @@ autoUpdater.forceDevUpdateConfig = true;
 
 // Auto-download for production for reliability, but keep disabled in development
 autoUpdater.autoDownload = !isDev;
-autoUpdater.autoInstallOnAppQuit = false; // We'll handle installation manually
+// Keep the normal quit path as a fallback if an update has already downloaded.
+autoUpdater.autoInstallOnAppQuit = !isDev;
 autoUpdater.allowDowngrade = false; // Prevent downgrade attacks
 
 // Configure auto-updater for GitHub releases
@@ -818,70 +822,60 @@ if (!isDev) { // Using forced production mode
 
 // Auto-updater event handlers
 autoUpdater.on('checking-for-update', () => {
-  // Notify all windows about update check
-  BrowserWindow.getAllWindows().forEach(win => {
-    win.webContents.send('update-checking');
-  });
+  const target = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
+  if (target && !target.isDestroyed()) target.webContents.send('update-checking');
 });
 
 autoUpdater.on('update-available', (info) => {
-  // Notify all windows about available update (shows "Update found" notification)
-  BrowserWindow.getAllWindows().forEach(win => {
-    win.webContents.send('update-available', info);
-  });
-  // Start download
-  try {
-    updateInProgress = true;
-    _lastUpdaterPercent = 0;
-    _downloadRetries = 0;
-    autoUpdater.downloadUpdate();
-  } catch (err) {
-    console.error('Failed to start auto-update download:', err);
-    // Notify all windows about the error
-    BrowserWindow.getAllWindows().forEach(win => {
-      try { win.webContents.send('update-error', err.message || String(err)); } catch(e){}
-    });
-  }
+  // autoDownload already starts the download. Calling downloadUpdate() here as
+  // well can create overlapping update jobs and repeated events.
+  updateInProgress = true;
+  updateDownloadActive = true;
+  _lastUpdaterPercent = 0;
+  _downloadRetries = 0;
+  const target = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
+  if (target && !target.isDestroyed()) target.webContents.send('update-available', info);
 });
 
 autoUpdater.on('update-not-available', (info) => {
   updateInProgress = false;
-  // Notify all windows
-  BrowserWindow.getAllWindows().forEach(win => {
-    try {
-      if (!win.isDestroyed()) {
-        win.webContents.send('update-not-available', info);
-      }
-    } catch (err) {
-      console.log('Error sending update notification:', err.message);
-    }
-  });
+  updateDownloadActive = false;
+  const target = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
+  try {
+    if (target && !target.isDestroyed()) target.webContents.send('update-not-available', info);
+  } catch (err) {
+    console.log('Error sending update notification:', err.message);
+  }
 });
 
 autoUpdater.on('error', (err) => {
   console.error('Update error:', err);
+  const wasDownloading = updateDownloadActive;
   updateInProgress = false;
-  // Only show error notification for non-404 errors to avoid spamming users
-  if (!err.message.includes('404')) {
-    // Notify all windows about error
-    BrowserWindow.getAllWindows().forEach(win => {
-      win.webContents.send('update-error', err.message);
-    });
-  }
   // If this was a download error, attempt a small number of retries
   if (typeof _downloadRetries === 'undefined') _downloadRetries = 0;
-  if (_downloadRetries < 3) {
+  if (wasDownloading && _downloadRetries < 2) {
     _downloadRetries++;
     console.log('Retrying update download in 5s (attempt', _downloadRetries, ')');
     setTimeout(() => {
       try {
+        updateInProgress = true;
+        updateDownloadActive = true;
         autoUpdater.downloadUpdate();
       } catch (e) {
+        updateInProgress = false;
+        updateDownloadActive = false;
         console.error('Retry downloadUpdate failed:', e);
       }
     }, 5000);
   } else {
     _downloadRetries = 0;
+    updateDownloadActive = false;
+    // Report only the final actionable failure, and only once.
+    if (!err.message.includes('404')) {
+      const target = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
+      if (target && !target.isDestroyed()) target.webContents.send('update-error', err.message);
+    }
   }
 });
 
@@ -893,9 +887,10 @@ autoUpdater.on('download-progress', (progressObj) => {
   if (percent >= _lastUpdaterPercent + 10 || percent === 100) {
     _lastUpdaterPercent = percent;
     console.log('Download progress:', percent + '%');
-    BrowserWindow.getAllWindows().forEach(win => {
-      try { win.webContents.send('update-download-progress', { percent }); } catch (e) { /* ignore */ }
-    });
+    const target = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
+    try {
+      if (target && !target.isDestroyed()) target.webContents.send('update-download-progress', { percent });
+    } catch (e) { /* ignore */ }
   }
 });
 
@@ -903,19 +898,14 @@ autoUpdater.on('update-downloaded', (info) => {
   console.log('Update downloaded:', info.version);
   _lastUpdaterPercent = 100;
   updateInProgress = false;
+  updateDownloadActive = false;
   _downloadRetries = 0;
+  downloadedUpdateInfo = info;
   
   try {
-    // Notify all windows that update is ready to install
-    BrowserWindow.getAllWindows().forEach(win => {
-      try {
-        if (!win.isDestroyed()) {
-          win.webContents.send('update-downloaded', info);
-        }
-      } catch (err) {
-        console.log('Error sending update notification to window:', err.message);
-      }
-    });
+    // Show one actionable install prompt, in one window only.
+    const target = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
+    if (target && !target.isDestroyed()) target.webContents.send('update-downloaded', info);
   } catch (err) {
     console.log('Error during update-downloaded notification:', err.message);
   }
@@ -3033,7 +3023,9 @@ app.whenReady().then(() => {
         console.log('Checking for updates...');
         updateInProgress = true;
         lastUpdateCheck = now;
-        autoUpdater.checkForUpdatesAndNotify().catch(err => {
+        // Use the regular check so update status stays inside the app. The
+        // `checkForUpdatesAndNotify` variant may create a Windows notification.
+        autoUpdater.checkForUpdates().catch(err => {
           console.log('Update check failed (this is normal if no releases exist yet):', err.message);
           updateInProgress = false;
         });
@@ -3153,25 +3145,35 @@ app.whenReady().then(() => {
     console.log('App is packaged:', app.isPackaged);
     console.log('Current version:', app.getVersion());
     
+    if (updateInstallStarted) {
+      return { success: true, alreadyStarted: true };
+    }
+
     if (!app.isPackaged) {
       console.log('Development mode - just quitting app');
       setTimeout(() => app.quit(), 500);
       return { success: true, reason: 'Development mode' };
     }
     
+    if (!downloadedUpdateInfo) {
+      return { success: false, error: 'The update has not finished downloading.' };
+    }
+
     console.log('Packaged app mode - using quitAndInstall');
+    updateInstallStarted = true;
     
     try {
       // Respond immediately
       setImmediate(() => {
         console.log('Calling autoUpdater.quitAndInstall()...');
         try {
-          autoUpdater.quitAndInstall(false, true); // Don't force close immediately, but restart after quit
+          // Silent install avoids leaving an installer window waiting behind the
+          // browser. Force-run starts the new version after installation.
+          autoUpdater.quitAndInstall(true, true);
           console.log('quitAndInstall called successfully');
         } catch (err) {
           console.error('quitAndInstall failed:', err);
-          console.log('Force quitting as fallback...');
-          app.exit(0);
+          updateInstallStarted = false;
         }
       });
       

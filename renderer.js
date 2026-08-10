@@ -730,14 +730,12 @@ window.addEventListener("DOMContentLoaded", () => {
 
     // Listen for update events
     window.electronAPI.onUpdateChecking(() => {
-      const now = Date.now();
-      if (!updateState.checking && now - updateState.lastNotification > 2000) {
+      if (!updateState.checking) {
         showUpdateNotification("Checking for updates...", "info", 3000);
         updateState.checking = true;
         updateState.downloading = false;
         updateState.available = false;
         updateState.downloaded = false;
-        updateState.lastNotification = now;
       }
     });
 
@@ -754,6 +752,7 @@ window.addEventListener("DOMContentLoaded", () => {
         showUpdateNotification(
           `Update v${info.version} found. Downloading...`,
           "info",
+          4000,
         );
         updateState.available = true;
         updateState.checking = false;
@@ -799,7 +798,6 @@ window.addEventListener("DOMContentLoaded", () => {
         // Only update progress when it increases by at least 10% or reaches 100%
         if (percent === 100 || percent >= updateState.lastPercent + 10) {
           updateState.lastPercent = percent;
-          showUpdateNotification(`Downloading update: ${percent}%`, "info");
           updateState.lastNotification = Date.now();
         }
       }
@@ -820,13 +818,21 @@ window.addEventListener("DOMContentLoaded", () => {
             "success",
             0,
             () => {
+              if (updateState.installing) return;
+              updateState.installing = true;
               console.log("Install button clicked");
               window.electronAPI
                 .installUpdate()
-                .then(() => {
+                .then((result) => {
+                  if (result && result.success === false) {
+                    updateState.installing = false;
+                    showUpdateNotification(result.error || "Unable to install update.", "error");
+                    return;
+                  }
                   console.log("Install update called successfully");
                 })
                 .catch((err) => {
+                  updateState.installing = false;
                   console.error("Install update failed:", err);
                 });
             },
@@ -3958,7 +3964,6 @@ window.addEventListener("DOMContentLoaded", () => {
     checkUpdatesBtn.addEventListener("click", async function (e) {
       e.stopPropagation();
       try {
-        showUpdateNotification("Checking for updates...", "info");
         await window.electronAPI.checkForUpdates();
       } catch (error) {
         console.error("Manual update check failed:", error);
