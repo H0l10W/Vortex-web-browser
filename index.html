@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' https://wttr.in https://nominatim.openstreetmap.org https://api.rss2json.com https://feeds.reuters.com https://newsapi.org https://api.open-meteo.com; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data: https:; object-src 'none'; base-uri 'self'; form-action 'self' https:; frame-ancestors 'none'; upgrade-insecure-requests;">
   <title>Vortex</title>
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="assets/styles/browser.css">
   <link rel="modulepreload" href="src/renderer/utils.js">
   <link rel="modulepreload" href="src/renderer/history-manager.js">
   <link rel="modulepreload" href="src/renderer/window-controls.js">
@@ -61,10 +61,10 @@
   <div id="bookmark-bar"></div>
   <div id="controls">
     <div class="button-group-left">
-      <button id="back" class="icon-btn"><img src="icons/back.png" alt="Back"></button>
-      <button id="forward" class="icon-btn"><img src="icons/forward.png" alt="Forward"></button>
-      <button id="reload" class="icon-btn"><img src="icons/reload.png" alt="Reload"></button>
-      <button id="set-home" class="icon-btn"><img src="icons/home.png" alt="Set Home"></button>
+      <button id="back" class="icon-btn" type="button" aria-label="Go back" title="Go back (Alt+Left)"><img src="icons/back.png" alt=""></button>
+      <button id="forward" class="icon-btn" type="button" aria-label="Go forward" title="Go forward (Alt+Right)"><img src="icons/forward.png" alt=""></button>
+      <button id="reload" class="icon-btn" type="button" aria-label="Reload page" title="Reload page (Ctrl+R)"><img src="icons/reload.png" alt=""></button>
+      <button id="set-home" class="icon-btn" type="button" aria-label="Open homepage" title="Open homepage"><img src="icons/home.png" alt=""></button>
     </div>
     <div id="url-bar-shell">
       <button id="connection-info-btn" type="button" aria-expanded="false" aria-label="Connection information" data-tooltip="Connection information">
@@ -112,10 +112,10 @@
       </div>
     </div>
     <div class="button-group-right">
-      <button id="bookmark-add" class="icon-btn"><img src="icons/bookmark.png" alt="Bookmark"></button>
-      <button id="incognito-btn" class="icon-btn"><img src="icons/incognito.png" alt="Open incognito tab"></button>
-      <button id="history-btn" class="icon-btn"><img src="icons/history.png" alt="History"></button>
-      <button id="settings" class="icon-btn"><img src="icons/settings.png" alt="Settings"></button>
+      <button id="bookmark-add" class="icon-btn" type="button" aria-label="Bookmark this page" title="Bookmark this page (Ctrl+D)"><img src="icons/bookmark.png" alt=""></button>
+      <button id="incognito-btn" class="icon-btn" type="button" aria-label="Open incognito tab" title="Open incognito tab"><img src="icons/incognito.png" alt=""></button>
+      <button id="history-btn" class="icon-btn" type="button" aria-label="Open history" title="History (Ctrl+H)"><img src="icons/history.png" alt=""></button>
+      <button id="settings" class="icon-btn" type="button" aria-label="Open settings" title="Settings"><img src="icons/settings.png" alt=""></button>
     </div>
   </div>
   <div id="main-content">
@@ -150,15 +150,43 @@
   </div>
 
   <!-- Add Quick Link Modal -->
-  <div id="add-quick-link-modal" class="modal">
+  <div id="add-quick-link-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="quick-link-dialog-title">
     <div class="modal-content">
-      <span class="close-button">&times;</span>
-      <h2>Add Quick Link</h2>
+      <h2 id="quick-link-dialog-title">Add quick link</h2>
+      <button type="button" class="close-button" aria-label="Close add quick link dialog">&times;</button>
       <input id="new-quick-link-url" type="text" placeholder="Enter URL" required>
       <input id="new-quick-link-label" type="text" placeholder="Enter a short name">
       <button id="save-quick-link-btn">Save</button>
     </div>
   </div>
+
+  <dialog id="bookmark-manager" class="bookmark-manager" aria-labelledby="bookmark-manager-title">
+    <form method="dialog" class="bookmark-manager-shell">
+      <header class="bookmark-manager-header">
+        <div>
+          <span class="eyebrow">Library</span>
+          <h2 id="bookmark-manager-title">Bookmarks</h2>
+        </div>
+        <button value="close" class="close-panel" aria-label="Close bookmark manager">&times;</button>
+      </header>
+      <div class="bookmark-manager-tools">
+        <input id="bookmark-search" type="search" placeholder="Search bookmarks" aria-label="Search bookmarks">
+        <select id="bookmark-folder-filter" aria-label="Filter by folder"></select>
+        <button id="bookmark-new-folder" type="button">New folder</button>
+        <button id="bookmark-import" type="button">Import</button>
+        <button id="bookmark-export" type="button">Export</button>
+        <input id="bookmark-import-file" type="file" accept="application/json,.json" hidden>
+      </div>
+      <div id="bookmark-folder-editor" class="bookmark-folder-editor" hidden>
+        <label for="bookmark-folder-name">Folder name</label>
+        <input id="bookmark-folder-name" type="text" maxlength="60" autocomplete="off" placeholder="For example, Work">
+        <button id="bookmark-folder-save" type="button">Create folder</button>
+        <button id="bookmark-folder-cancel" type="button">Cancel</button>
+        <span id="bookmark-folder-status" role="status" aria-live="polite"></span>
+      </div>
+      <div id="bookmark-manager-list" class="bookmark-manager-list" aria-live="polite"></div>
+    </form>
+  </dialog>
 
   <!-- Settings Panel (Right Side) -->
   <div id="settings-panel" class="side-panel">
@@ -235,6 +263,7 @@
 
       <div class="settings-section">
         <h3>Quick Tools</h3>
+        <button id="manage-bookmark-folders-btn" class="settings-button" type="button">Manage Bookmarks</button>
         <button id="show-downloads-btn" class="settings-button">Downloads</button>
         <button id="clear-data-btn" class="settings-button danger-btn">Clear Data</button>
       </div>
@@ -275,6 +304,6 @@
   <!-- Overlay for when settings panel is open -->
   <div id="overlay"></div>
 
-  <script type="module" src="renderer.js"></script>
+  <script type="module" src="src/renderer/app.js"></script>
 </body>
 </html>

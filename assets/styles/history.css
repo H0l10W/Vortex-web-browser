@@ -61,3 +61,24 @@ body[class*="theme-dark"] .history-container { background: #303034 !important; b
 body[class*="theme-dark"] .history-header { background: #111113 !important; }
 body[class*="theme-dark"] .history-filters { background: #1b1b1e !important; }
 body[class*="theme-dark"] .history-item { background: #303034 !important; }
+
+:where(button, input, select, [tabindex]):focus-visible {
+    outline: 2px solid var(--accent-color-dark, #4285f4);
+    outline-offset: 2px;
+}
+
+button:disabled,
+input:disabled,
+select:disabled {
+    cursor: not-allowed;
+    opacity: .55;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        scroll-behavior: auto !important;
+        animation-duration: .01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: .01ms !important;
+    }
+}

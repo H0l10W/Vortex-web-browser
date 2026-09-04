@@ -2,9 +2,9 @@
 
 ## Current release
 
-**Version 0.3.8**
+**Version 0.5.0**
 
-Version 0.3.8 includes tab groups, session restore, tab hibernation, history filtering, privacy controls, developer tools, Windows file associations, protocol handling, and substantial interface refinements.
+Version 0.5.0 adds isolated browser profiles, a complete bookmark manager, a current Electron runtime, quieter production diagnostics, and improved human-verification compatibility.
 
 ## Current priorities
 
@@ -19,7 +19,7 @@ Version 0.3.8 includes tab groups, session restore, tab hibernation, history fil
 ### Browser essentials
 
 - [ ] Improve URL-bar shortcuts and recently visited suggestions
-- [ ] Add bookmark folders, search, and import/export
+- [x] Add bookmark folders, search, and import/export
 - [ ] Improve download queue management, resumption, and history
 - [ ] Add recently closed tab recovery, tab pinning, and tab muting
 - [ ] Add picture-in-picture and improved media controls
@@ -33,7 +33,8 @@ Version 0.3.8 includes tab groups, session restore, tab hibernation, history fil
 
 ### Sync and workspaces
 
-- [ ] Add workspace management and multiple session profiles
+- [x] Add multiple isolated browser profiles
+- [ ] Add workspace management within profiles
 - [ ] Design secure sync for bookmarks, settings, history, and open tabs
 - [ ] Add session export/import
 
@@ -56,6 +57,6 @@ Version 0.3.8 includes tab groups, session restore, tab hibernation, history fil
 
 This roadmap is intentionally outcome-focused. Completed release details belong in the changelog.
 
-**Last updated:** 8 August 2026
+**Last updated:** 4 September 2026
 
 **Next review:** September 2026

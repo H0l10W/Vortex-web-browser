@@ -1,14 +1,15 @@
-const { contextBridge, ipcRenderer, shell } = require("electron");
+const { contextBridge, ipcRenderer } = require("electron");
 
 // Expose a secure API to the renderer process
 contextBridge.exposeInMainWorld("electronAPI", {
+  debugLoggingEnabled: process.env.VORTEX_DEBUG === "1" || !!process.defaultApp,
   // --- Renderer to Main ---
   updateSuggestionsOverlay: (payload) =>
     ipcRenderer.send("suggestions-overlay:update", payload),
   hideSuggestionsOverlay: () => ipcRenderer.send("suggestions-overlay:hide"),
 
   // --- External URL handling ---
-  openExternal: (url) => shell.openExternal(url),
+  openExternal: (url) => ipcRenderer.invoke("open-external", url),
 
   // --- New APIs ---
   broadcastThemeChange: (theme) =>
@@ -25,6 +26,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
   toggleDevTools: () => ipcRenderer.send("toggle-devtools"),
   registerWebviewDevToolsShortcut: (webContentsId) =>
     ipcRenderer.send("register-webview-devtools-shortcut", webContentsId),
+  navigationCommand: (webContentsId, action) =>
+    ipcRenderer.invoke("navigation-command", { webContentsId, action }),
   broadcastWidgetSettings: (widget, enabled) =>
     ipcRenderer.send("broadcast-widget-settings", { widget, enabled }),
   setBookmarkBarVisibility: (visible) =>
@@ -100,6 +103,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
   getAllStorageKeys: () => ipcRenderer.invoke("storage-get-all-keys"),
   onStorageItemChanged: (callback) =>
     ipcRenderer.on("storage-item-changed", (_event, change) => callback(change)),
+  onTabRendererGone: (callback) =>
+    ipcRenderer.on("tab-renderer-gone", (_event, details) => callback(details)),
   listCredentials: () => ipcRenderer.invoke("credentials-list"),
   getCredentialSecret: (id) => ipcRenderer.invoke("credentials-get-secret", id),
   saveCredential: (credential) => ipcRenderer.invoke("credentials-save", credential),
@@ -121,6 +126,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.send("broadcast-theme-change", theme),
   getAppVersion: () => ipcRenderer.invoke("get-app-version"),
   getBuildDate: () => ipcRenderer.invoke("get-build-date"),
+  listProfiles: () => ipcRenderer.invoke("profiles-list"),
+  createProfile: (name) => ipcRenderer.invoke("profiles-create", name),
+  switchProfile: (id) => ipcRenderer.invoke("profiles-switch", id),
 
   // --- Auto-Updater APIs ---
   checkForUpdates: () => ipcRenderer.invoke("check-for-updates"),

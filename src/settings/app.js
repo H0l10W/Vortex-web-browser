@@ -1,8 +1,49 @@
-import { createSettingsStorage } from "./src/settings/storage.js";
-import { initializeCredentialManager } from "./src/settings/credential-manager.js";
+import { createSettingsStorage } from "./storage.js";
+import { initializeCredentialManager } from "./credential-manager.js";
+
+if (!window.electronAPI?.debugLoggingEnabled) console.log = () => {};
 
 window.addEventListener("DOMContentLoaded", () => {
   const storage = createSettingsStorage();
+  const profileSelect = document.getElementById("profile-select");
+  const switchProfileButton = document.getElementById("switch-profile");
+  const createProfileButton = document.getElementById("create-profile");
+  const newProfileName = document.getElementById("new-profile-name");
+
+  async function refreshProfiles(selectId) {
+    if (!profileSelect || !window.electronAPI?.listProfiles) return;
+    const result = await window.electronAPI.listProfiles();
+    profileSelect.replaceChildren();
+    result.profiles.forEach((profile) => profileSelect.add(new Option(profile.name, profile.id)));
+    profileSelect.value = selectId || result.activeProfileId;
+    switchProfileButton.disabled = profileSelect.value === result.activeProfileId;
+  }
+  profileSelect?.addEventListener("change", async () => {
+    const result = await window.electronAPI.listProfiles();
+    switchProfileButton.disabled = profileSelect.value === result.activeProfileId;
+  });
+  newProfileName?.addEventListener("input", () => {
+    createProfileButton.disabled = !newProfileName.value.trim();
+  });
+  newProfileName?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && newProfileName.value.trim()) {
+      event.preventDefault();
+      createProfileButton.click();
+    }
+  });
+  switchProfileButton?.addEventListener("click", () => window.electronAPI.switchProfile(profileSelect.value));
+  createProfileButton?.addEventListener("click", async () => {
+    const result = await window.electronAPI.createProfile(newProfileName.value);
+    if (!result.ok) {
+      window.electronAPI.notify(result.error || "Could not create profile", "error");
+      return;
+    }
+    newProfileName.value = "";
+    createProfileButton.disabled = true;
+    await refreshProfiles(result.profile.id);
+    window.electronAPI.notify("Profile created. Select Switch and restart to use it.", "success");
+  });
+  refreshProfiles().catch((error) => console.error("Failed to load profiles", error));
 
   const settingsTabButtons = document.querySelectorAll(".settings-tab-button");
   const settingsTabContents = document.querySelectorAll(

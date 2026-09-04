@@ -33,7 +33,7 @@
                 );
             })();
         </script>
-        <link rel="stylesheet" href="settings.css" />
+        <link rel="stylesheet" href="assets/styles/settings.css" />
         <link rel="modulepreload" href="src/settings/storage.js" />
     </head>
     <body>
@@ -121,6 +121,32 @@
                             </p>
                         </div>
 
+                        <div class="settings-card profile-card">
+                            <div class="profile-card-intro">
+                                <div class="profile-icon" aria-hidden="true">P</div>
+                                <div>
+                                    <h4>Browser profiles</h4>
+                                    <p>Separate cookies, bookmarks, logins, and sessions.</p>
+                                </div>
+                            </div>
+                            <div class="profile-controls">
+                                <div class="profile-control-group">
+                                    <label for="profile-select" class="setting-label">Active profile</label>
+                                    <div class="profile-picker-row">
+                                        <select id="profile-select" class="setting-select" aria-label="Browser profile"></select>
+                                        <button id="switch-profile" type="button" class="btn-secondary">Switch</button>
+                                    </div>
+                                </div>
+                                <div class="profile-control-group">
+                                    <label for="new-profile-name" class="setting-label">Add a profile</label>
+                                    <div class="profile-picker-row">
+                                        <input id="new-profile-name" class="setting-input" maxlength="40" placeholder="Profile name">
+                                        <button id="create-profile" type="button" class="btn-primary" disabled>Create</button>
+                                    </div>
+                                </div>
+                            </div>
+                            <p class="profile-restart-note">Switching profiles restarts Vortex. Existing data stays in Default.</p>
+                        </div>
                         <div class="settings-grid">
                             <div class="settings-card">
                                 <div class="card-header">
@@ -439,8 +465,10 @@
                                                 margin-top: 4px;
                                             "
                                         >
-                                            Override the browser's user agent
-                                            string
+                                            Advanced compatibility option. Leave
+                                            empty for the genuine Electron user
+                                            agent; overrides can trigger extra
+                                            sign-in or bot checks.
                                         </p>
                                     </div>
 
@@ -1299,13 +1327,15 @@
                         </div>
 
                         <!-- Cookie Viewer Modal -->
-                        <div id="cookie-modal" class="modal">
+                        <div id="cookie-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="cookie-modal-title">
                             <div class="modal-content">
                                 <div class="modal-header">
-                                    <h3>Cookies & Site Data</h3>
+                                    <h3 id="cookie-modal-title">Cookies &amp; Site Data</h3>
                                     <button
                                         id="close-cookie-modal"
                                         class="close-btn"
+                                        type="button"
+                                        aria-label="Close cookie viewer"
                                     >
                                         &times;
                                     </button>
@@ -1602,6 +1632,6 @@
                 </main>
             </div>
         </div>
-        <script type="module" src="settings.js"></script>
+        <script type="module" src="src/settings/app.js"></script>
     </body>
 </html>

@@ -7,8 +7,8 @@
             http-equiv="Content-Security-Policy"
             content="default-src 'self'; connect-src 'self' https://wttr.in https://nominatim.openstreetmap.org https://api.open-meteo.com https://api.rss2json.com https://feeds.reuters.com https://newsapi.org https://openweathermap.org https://api.openweathermap.org; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data: https:; object-src 'none'; base-uri 'self'; form-action 'self' https:; frame-ancestors 'none'; upgrade-insecure-requests;"
         />
-        <link rel="stylesheet" href="style.css" />
-        <link rel="stylesheet" href="history-ui.css" />
+        <link rel="stylesheet" href="assets/styles/browser.css" />
+        <link rel="stylesheet" href="assets/styles/history.css" />
         <style>
             body {
                 margin: 0;
@@ -301,6 +301,6 @@
                 <div id="history-list" class="history-list"></div>
             </div>
         </div>
-        <script src="history.js"></script>
+        <script src="src/history/app.js"></script>
     </body>
 </html>

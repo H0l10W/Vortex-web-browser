@@ -3,10 +3,12 @@ import {
   perfStart,
   perfEnd,
   createStorage,
-} from "./src/renderer/utils.js";
-import { createHistoryManager } from "./src/renderer/history-manager.js";
-import { initializeWindowControls } from "./src/renderer/window-controls.js";
-import { getWidgetSetting } from "./src/renderer/widgets/widget-settings.js";
+} from "./utils.js";
+import { createHistoryManager } from "./history-manager.js";
+import { initializeWindowControls } from "./window-controls.js";
+import { getWidgetSetting } from "./widgets/widget-settings.js";
+
+if (!window.electronAPI?.debugLoggingEnabled) console.log = () => {};
 
 let WeatherWidget;
 let NewsWidget;
@@ -14,8 +16,8 @@ let widgetModulesPromise;
 function loadWidgetModules() {
   if (!widgetModulesPromise) {
     widgetModulesPromise = Promise.all([
-      import("./src/renderer/widgets/weather-widget.js"),
-      import("./src/renderer/widgets/news-widget.js"),
+      import("./widgets/weather-widget.js"),
+      import("./widgets/news-widget.js"),
     ]).then(([weatherModule, newsModule]) => {
       WeatherWidget = weatherModule.WeatherWidget;
       NewsWidget = newsModule.NewsWidget;
@@ -428,7 +430,7 @@ window.addEventListener("DOMContentLoaded", () => {
         const icon = document.getElementById("force-web-dark-icon");
         if (icon) icon.classList.toggle("active", forceWebDarkEnabled);
       } catch (e) {}
-      // Also ask the main process to apply CSS to all BrowserViews for reliable coverage
+      // Also ask the main process to apply CSS to tracked guest contents.
       try {
         if (
           window.electronAPI &&
@@ -1319,6 +1321,21 @@ window.addEventListener("DOMContentLoaded", () => {
     return tabWebviews.get(currentTabId) || null;
   }
 
+  window.electronAPI.onTabRendererGone?.(({ webContentsId, reason }) => {
+    const entry = Array.from(tabWebviews.entries()).find(([, webview]) =>
+      webview._devToolsShortcutWebContentsId === webContentsId,
+    );
+    if (!entry) return;
+    const [tabId] = entry;
+    const tab = tabs.find(candidate => candidate.id === tabId);
+    if (!tab) return;
+    tab.crashed = true;
+    tab.title = reason === "oom" ? "Tab ran out of memory" : "Tab crashed";
+    updateTabPresentation(tab);
+    persistTabs();
+    showUpdateNotification(`${tab.title}. Select Reload to recover it.`, "error", 7000);
+  });
+
   function toggleWebviewDevTools(webview) {
     try {
       if (webview && typeof webview.isDevToolsOpened === "function") {
@@ -1454,6 +1471,10 @@ window.addEventListener("DOMContentLoaded", () => {
       applyAdBlockCosmetics(webview);
       const tab = tabs.find((item) => item.id === tabId);
       if (tab?.muted) webview.setAudioMuted?.(true);
+      if (tab?.scrollPosition > 0) {
+        webview.executeJavaScript(`window.scrollTo(0, ${Math.round(tab.scrollPosition)})`, true).catch(() => {});
+        delete tab.scrollPosition;
+      }
     });
 
     webview.addEventListener("media-started-playing", () => {
@@ -1640,6 +1661,7 @@ window.addEventListener("DOMContentLoaded", () => {
 
     let webview = tabWebviews.get(tab.id);
     if (!webview) {
+      tab.hibernated = false;
       if (
         tabWebviews.size === 0 &&
         contentWebview &&
@@ -1671,7 +1693,7 @@ window.addEventListener("DOMContentLoaded", () => {
     }
 
     const shouldUseInternalPreload = isInternalAppPageUrl(tab.url);
-    const internalPreloadUrl = new URL("preload.js", window.location.href).href;
+    const internalPreloadUrl = new URL("src/preload/browser.js", window.location.href).href;
     if (shouldUseInternalPreload) {
       if (webview.getAttribute("preload") !== internalPreloadUrl) {
         webview.setAttribute("preload", internalPreloadUrl);
@@ -2304,6 +2326,7 @@ window.addEventListener("DOMContentLoaded", () => {
   function updateView({ renderTabStrip = true, renderStaticChrome = true } = {}) {
     const tab = tabs.find((t) => t.id === currentTabId);
     if (!tab) return;
+    tab.lastActiveAt = Date.now();
 
     // Identify special internal pages (settings/history) so we can hide unnecessary chrome
     const isSettingsPage = tab.url && tab.url.includes("settings.html");
@@ -3084,6 +3107,31 @@ window.addEventListener("DOMContentLoaded", () => {
     }
   }
 
+  const TAB_DISCARD_AFTER_MS = 10 * 60 * 1000;
+  tabs.forEach(tab => { tab.lastActiveAt ||= Date.now(); });
+  const tabDiscardTimer = setInterval(() => {
+    const cutoff = Date.now() - TAB_DISCARD_AFTER_MS;
+    tabs.forEach(tab => {
+      if (
+        tab.id === currentTabId || tab.pinned || tab.audible || tab.hasMedia ||
+        tab.isIncognito || tab.hibernated || !tabWebviews.has(tab.id) ||
+        Number(tab.lastActiveAt) > cutoff
+      ) return;
+      const webview = tabWebviews.get(tab.id);
+      webview.executeJavaScript('window.scrollY', true)
+        .then(position => { tab.scrollPosition = Number(position) || 0; })
+        .catch(() => {})
+        .finally(() => {
+          removeTabWebview(tab.id);
+          tab.hibernated = true;
+          hibernatedTabIds.add(Number(tab.id));
+          persistTabs();
+          renderTabs();
+        });
+    });
+  }, 60000);
+  window.addEventListener("beforeunload", () => clearInterval(tabDiscardTimer), { once: true });
+
   function saveRecentlyClosedTab(tab) {
     if (!tab || tab.isIncognito || isIncognitoWindow) return;
     const entries = readRecentlyClosedTabs();
@@ -3304,6 +3352,17 @@ window.addEventListener("DOMContentLoaded", () => {
           url: tab.url,
           title: tab.title,
         });
+    });
+
+    addItem("Copy page link", "\u29c9", async () => {
+      const pageUrl = String(tab.url || "").trim();
+      if (!pageUrl) return;
+      try {
+        await navigator.clipboard.writeText(pageUrl);
+        showUpdateNotification("Page link copied", "success", 1800);
+      } catch (_error) {
+        showUpdateNotification("Could not copy the page link", "error", 2500);
+      }
     });
 
     addItem(tab.muted ? "Unmute tab" : "Mute tab", tab.muted ? "🔇" : "🔊", () => {
@@ -4211,12 +4270,12 @@ window.addEventListener("DOMContentLoaded", () => {
   }
 
   // --- Back/Forward Button Logic ---
-  backBtn.onclick = () => {
+  backBtn.onclick = async () => {
     const tab = tabs.find((t) => t.id === currentTabId);
     const activeWebview = getActiveWebview();
-    if (activeWebview?.canGoBack?.()) {
+    const webContentsId = activeWebview?.getWebContentsId?.();
+    if (webContentsId && (await window.electronAPI.navigationCommand(webContentsId, "back")).navigated) {
       tab._pendingHistoryDirection = -1;
-      activeWebview.goBack();
       return;
     }
     if (tab.historyIndex > 0) {
@@ -4230,12 +4289,12 @@ window.addEventListener("DOMContentLoaded", () => {
     }
   };
 
-  forwardBtn.onclick = () => {
+  forwardBtn.onclick = async () => {
     const tab = tabs.find((t) => t.id === currentTabId);
     const activeWebview = getActiveWebview();
-    if (activeWebview?.canGoForward?.()) {
+    const webContentsId = activeWebview?.getWebContentsId?.();
+    if (webContentsId && (await window.electronAPI.navigationCommand(webContentsId, "forward")).navigated) {
       tab._pendingHistoryDirection = 1;
-      activeWebview.goForward();
       return;
     }
     if (tab.historyIndex < tab.history.length - 1) {
@@ -5152,13 +5211,13 @@ window.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  // Remove a tab record without destroying its BrowserView (used for transfers)
+  // Remove a tab record after a logical cross-window transfer.
   window.electronAPI.on("remove-tab-record", (_event, id) => {
     try {
       const tabIndex = tabs.findIndex((t) => t.id === id);
       if (tabIndex === -1) return;
 
-      // Remove the tab entry but do not call viewDestroy - the BrowserView has been
+      // Remove the tab entry without destroying the destination's recreated webview.
       // transferred to another window by the main process and should remain intact.
       console.log(
         "remove-tab-record: id=",
@@ -5212,7 +5271,7 @@ window.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  // Handler for when a BrowserView has been attached to this window (via main process transfer)
+  // Handle a logical tab transfer into this window.
   window.electronAPI.on("attach-tab-handled", (_event, payload) => {
     try {
       const { tab, viewCreated, dropTargetTabId } = payload || {};
@@ -5286,7 +5345,7 @@ window.addEventListener("DOMContentLoaded", () => {
         }
       }
       updateView();
-      // If a BrowserView was attached by main, ack back that renderer is ready
+      // Acknowledge that the transferred tab is ready.
       if (viewCreated) {
         try {
           if (window.electronAPI && window.electronAPI.attachTabAck)
@@ -5421,8 +5480,15 @@ window.addEventListener("DOMContentLoaded", () => {
     const tab = tabs.find((t) => t.id === currentTabId);
     if (tab && tab.url !== "newtab") {
       try {
-        const activeWebview = getActiveWebview();
-        if (activeWebview) activeWebview.reload();
+        if (tab.crashed) {
+          tab.crashed = false;
+          removeTabWebview(tab.id);
+          ensureTabWebview(tab, { forceLoadUrl: true });
+          updateView({ renderTabStrip: false, renderStaticChrome: false });
+        } else {
+          const activeWebview = getActiveWebview();
+          if (activeWebview) activeWebview.reload();
+        }
       } catch (e) {}
     }
   };
@@ -5669,19 +5735,175 @@ window.addEventListener("DOMContentLoaded", () => {
     };
   }
 
-  // Bookmark folders (basic modal)
+  // Bookmark library: folders, search, editing, and portable JSON backups.
   const manageBookmarkFoldersBtn = document.getElementById(
     "manage-bookmark-folders-btn",
   );
+  const bookmarkManager = document.getElementById("bookmark-manager");
+  const bookmarkManagerList = document.getElementById("bookmark-manager-list");
+  const bookmarkSearch = document.getElementById("bookmark-search");
+  const bookmarkFolderFilter = document.getElementById("bookmark-folder-filter");
+  const bookmarkImportFile = document.getElementById("bookmark-import-file");
+  const bookmarkFolderEditor = document.getElementById("bookmark-folder-editor");
+  const bookmarkFolderName = document.getElementById("bookmark-folder-name");
+  const bookmarkFolderStatus = document.getElementById("bookmark-folder-status");
+  let bookmarkFolders = JSON.parse(localStorage.getItem("bookmarkFolders") || "[]");
+  if (!Array.isArray(bookmarkFolders)) bookmarkFolders = [];
+  storage.getItem("bookmarkFolders").then((savedFolders) => {
+    try {
+      const parsed = JSON.parse(savedFolders || "[]");
+      if (Array.isArray(parsed)) {
+        bookmarkFolders = parsed;
+        localStorage.setItem("bookmarkFolders", JSON.stringify(parsed));
+        if (bookmarkManager?.open) renderBookmarkManager();
+      }
+    } catch (error) {
+      console.warn("Unable to restore bookmark folders:", error);
+    }
+  });
+
+  function persistBookmarkLibrary() {
+    localStorage.setItem("bookmarks", JSON.stringify(bookmarks));
+    localStorage.setItem("bookmarkFolders", JSON.stringify(bookmarkFolders));
+    debouncedSetItem("bookmarks", JSON.stringify(bookmarks));
+    debouncedSetItem("bookmarkFolders", JSON.stringify(bookmarkFolders));
+    renderBookmarkBar();
+  }
+
+  function renderBookmarkManager() {
+    if (!bookmarkManagerList || !bookmarkFolderFilter) return;
+    const selected = bookmarkFolderFilter.value;
+    bookmarkFolderFilter.replaceChildren();
+    bookmarkFolderFilter.add(new Option("All folders", ""));
+    bookmarkFolders.forEach((folder) => bookmarkFolderFilter.add(new Option(folder, folder)));
+    bookmarkFolderFilter.value = bookmarkFolders.includes(selected) ? selected : "";
+    const query = String(bookmarkSearch?.value || "").trim().toLowerCase();
+    const folder = bookmarkFolderFilter.value;
+    const matches = bookmarks
+      .map((bookmark, index) => ({ bookmark: typeof bookmark === "string" ? { url: bookmark, label: bookmark } : bookmark, index }))
+      .filter(({ bookmark }) => (!folder || bookmark.folder === folder)
+        && (!query || `${bookmark.label || ""} ${bookmark.url || ""}`.toLowerCase().includes(query)));
+    bookmarkManagerList.replaceChildren();
+    if (!matches.length) {
+      const empty = document.createElement("p");
+      empty.className = "bookmark-manager-empty";
+      empty.textContent = query || folder ? "No bookmarks match this view." : "No bookmarks saved yet.";
+      bookmarkManagerList.appendChild(empty);
+      return;
+    }
+    matches.forEach(({ bookmark, index }) => {
+      const row = document.createElement("article");
+      row.className = "bookmark-manager-row";
+      const fields = document.createElement("div");
+      fields.className = "bookmark-manager-fields";
+      const label = document.createElement("input");
+      label.value = bookmark.label || bookmark.url || "";
+      label.setAttribute("aria-label", "Bookmark name");
+      const url = document.createElement("input");
+      url.value = bookmark.url || "";
+      url.setAttribute("aria-label", "Bookmark URL");
+      const folderSelect = document.createElement("select");
+      folderSelect.setAttribute("aria-label", "Bookmark folder");
+      folderSelect.add(new Option("No folder", ""));
+      bookmarkFolders.forEach((name) => folderSelect.add(new Option(name, name)));
+      folderSelect.value = bookmark.folder || "";
+      const save = () => {
+        bookmarks[index] = { url: url.value.trim(), label: label.value.trim() || url.value.trim(), folder: folderSelect.value };
+        persistBookmarkLibrary();
+      };
+      label.addEventListener("change", save);
+      url.addEventListener("change", save);
+      folderSelect.addEventListener("change", save);
+      fields.append(label, url, folderSelect);
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "bookmark-manager-delete";
+      remove.textContent = "Delete";
+      remove.addEventListener("click", () => {
+        bookmarks.splice(index, 1);
+        persistBookmarkLibrary();
+        renderBookmarkManager();
+      });
+      row.append(fields, remove);
+      bookmarkManagerList.appendChild(row);
+    });
+  }
+
   if (manageBookmarkFoldersBtn) {
     manageBookmarkFoldersBtn.onclick = () => {
-      showUpdateNotification(
-        "Bookmark folders management coming soon!",
-        "info",
-        3000,
-      );
+      renderBookmarkManager();
+      bookmarkManager?.showModal();
+      setTimeout(() => bookmarkSearch?.focus(), 0);
     };
   }
+  bookmarkSearch?.addEventListener("input", renderBookmarkManager);
+  bookmarkFolderFilter?.addEventListener("change", renderBookmarkManager);
+  const closeBookmarkFolderEditor = () => {
+    if (!bookmarkFolderEditor) return;
+    bookmarkFolderEditor.hidden = true;
+    if (bookmarkFolderName) bookmarkFolderName.value = "";
+    if (bookmarkFolderStatus) bookmarkFolderStatus.textContent = "";
+  };
+  const createBookmarkFolder = () => {
+    const name = String(bookmarkFolderName?.value || "").trim();
+    if (!name) {
+      if (bookmarkFolderStatus) bookmarkFolderStatus.textContent = "Enter a folder name.";
+      bookmarkFolderName?.focus();
+      return;
+    }
+    if (bookmarkFolders.some((folder) => folder.toLowerCase() === name.toLowerCase())) {
+      if (bookmarkFolderStatus) bookmarkFolderStatus.textContent = "That folder already exists.";
+      bookmarkFolderName?.select();
+      return;
+    }
+    bookmarkFolders.push(name);
+    bookmarkFolders.sort((a, b) => a.localeCompare(b));
+    persistBookmarkLibrary();
+    renderBookmarkManager();
+    closeBookmarkFolderEditor();
+    showUpdateNotification(`Folder “${name}” created`, "success", 1800);
+  };
+  document.getElementById("bookmark-new-folder")?.addEventListener("click", () => {
+    if (!bookmarkFolderEditor) return;
+    bookmarkFolderEditor.hidden = false;
+    if (bookmarkFolderStatus) bookmarkFolderStatus.textContent = "";
+    setTimeout(() => bookmarkFolderName?.focus(), 0);
+  });
+  document.getElementById("bookmark-folder-save")?.addEventListener("click", createBookmarkFolder);
+  document.getElementById("bookmark-folder-cancel")?.addEventListener("click", closeBookmarkFolderEditor);
+  bookmarkFolderName?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      createBookmarkFolder();
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      closeBookmarkFolderEditor();
+    }
+  });
+  document.getElementById("bookmark-export")?.addEventListener("click", () => {
+    const blob = new Blob([JSON.stringify({ version: 1, folders: bookmarkFolders, bookmarks }, null, 2)], { type: "application/json" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `vortex-bookmarks-${new Date().toISOString().slice(0, 10)}.json`;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+  });
+  document.getElementById("bookmark-import")?.addEventListener("click", () => bookmarkImportFile?.click());
+  bookmarkImportFile?.addEventListener("change", async () => {
+    try {
+      const parsed = JSON.parse(await bookmarkImportFile.files[0].text());
+      if (!Array.isArray(parsed.bookmarks)) throw new Error("This is not a Vortex bookmark backup.");
+      bookmarks = parsed.bookmarks.filter((item) => typeof item === "string" || (item && typeof item.url === "string"));
+      bookmarkFolders = Array.isArray(parsed.folders) ? parsed.folders.filter((name) => typeof name === "string" && name.trim()) : [];
+      persistBookmarkLibrary();
+      renderBookmarkManager();
+      showUpdateNotification("Bookmarks imported", "success", 2500);
+    } catch (error) {
+      showUpdateNotification(error.message || "Could not import bookmarks", "error", 3500);
+    } finally {
+      bookmarkImportFile.value = "";
+    }
+  });
 
   // --- Download Manager ---
   let downloads = JSON.parse(localStorage.getItem("downloads") || "[]");
@@ -6003,6 +6225,9 @@ window.addEventListener("DOMContentLoaded", () => {
           localStorage.setItem("bookmarks", JSON.stringify(bookmarks));
           renderBookmarkBar();
         }
+      } else if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === "o") {
+        e.preventDefault();
+        manageBookmarkFoldersBtn?.click();
       } else if (e.ctrlKey && e.shiftKey && e.key === "Delete") {
         e.preventDefault();
         localStorage.clear();

@@ -2,13 +2,13 @@ const fs = require('fs');
 const path = require('path');
 const readline = require('readline');
 
-const root = path.resolve(__dirname);
+const root = path.resolve(__dirname, '..');
 const outputLines = [];
 const files = {
   package: path.join(root, 'package.json'),
   main: path.join(root, 'main.js'),
-  renderer: path.join(root, 'renderer.js'),
-  preload: path.join(root, 'preload.js'),
+  renderer: path.join(root, 'src', 'renderer', 'app.js'),
+  preload: path.join(root, 'src', 'preload', 'browser.js'),
   index: path.join(root, 'index.html'),
   settings: path.join(root, 'settings.html')
 };
@@ -127,13 +127,13 @@ function main() {
 
   const preloadSource = read(files.preload);
   if (!preloadSource) {
-    printResult(false, 'preload.js found', 'Missing preload.js');
+    printResult(false, 'Browser preload found', 'Missing src/preload/browser.js');
     process.exit(1);
   }
 
   const rendererSource = read(files.renderer);
   if (!rendererSource) {
-    printResult(false, 'renderer.js found', 'Missing renderer.js');
+    printResult(false, 'Renderer entry point found', 'Missing src/renderer/app.js');
     process.exit(1);
   }
 
@@ -249,6 +249,61 @@ function main() {
   assert(
     'Incognito navigation is excluded from browsing history',
     /!tab\.isIncognito\s*&&\s*!isIncognitoWindow\s*&&\s*!isSkippableHistoryUrl/.test(rendererSource),
+  );
+  assert(
+    'Browser profiles isolate Electron user-data directories',
+    /app\.setPath\(['"]userData['"]/.test(mainSource)
+      && /activeProfileId/.test(mainSource),
+  );
+  assert(
+    'Profile IPC validates trusted local senders',
+    /profiles-create[\s\S]{0,220}isTrustedStorageSender\(event\)/.test(mainSource)
+      && /profiles-switch[\s\S]{0,220}isTrustedStorageSender\(event\)/.test(mainSource),
+  );
+  assert(
+    'Human verification resources bypass content blocking',
+    /isHumanVerificationUrl\(details\.url\)/.test(mainSource),
+  );
+  assert(
+    'Guest navigation commands validate webview ownership',
+    /guest\.hostWebContents\s*!==\s*event\.sender/.test(mainSource)
+      && /guest\.navigationHistory/.test(mainSource),
+  );
+  assert(
+    'Ad-block list refresh runs outside the main process',
+    /utilityProcess\.fork/.test(mainSource)
+      && /src['"],\s*['"]utility['"],\s*['"]adblock-loader\.js/.test(mainSource),
+  );
+  assert(
+    'Browser renderer crashes are surfaced for tab recovery',
+    /render-process-gone/.test(mainSource)
+      && /onTabRendererGone/.test(rendererSource),
+  );
+  assert(
+    'Primary-window state persistence is enabled',
+    /windowStatePersistence:\s*true/.test(mainSource)
+      && /name:\s*`vortex-\$\{activeProfileId\}`/.test(mainSource),
+  );
+  assert(
+    'Deprecated BrowserView APIs are absent',
+    !/\b(?:getBrowserView|setBrowserView)\s*\(/.test(mainSource),
+  );
+  assert(
+    'External links are validated in the main process',
+    /ipcMain\.handle\(['"]open-external['"]/.test(mainSource)
+      && /target\.protocol\s*!==\s*['"]https:['"]/.test(mainSource)
+      && !/\bshell\.openExternal\(/.test(preloadSource),
+  );
+  assert(
+    'Bookmark manager has a visible UI entry point',
+    /id=["']manage-bookmark-folders-btn["']/.test(htmlSource)
+      && /manageBookmarkFoldersBtn\.onclick/.test(rendererSource),
+  );
+  assert(
+    'Bookmark folders use an in-app editor instead of a native prompt',
+    /id=["']bookmark-folder-editor["']/.test(htmlSource)
+      && /const createBookmarkFolder\s*=/.test(rendererSource)
+      && !/prompt\(["']Folder name/.test(rendererSource),
   );
 
   const cspPresent = findCSPMeta(htmlSource);

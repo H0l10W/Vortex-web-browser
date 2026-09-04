@@ -1,4 +1,4 @@
-const { app, BrowserWindow, BrowserView, ipcMain, dialog, webContents, safeStorage, session } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, webContents, safeStorage, session, shell, utilityProcess } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const fs = require('fs');
 const path = require('path');
@@ -7,6 +7,45 @@ const crypto = require('crypto');
 const { spawn } = require('child_process');
 const https = require('https');
 const { pathToFileURL, fileURLToPath } = require('url');
+
+if (app.isPackaged && process.env.VORTEX_DEBUG !== '1') console.log = () => {};
+
+const DEFAULT_PROFILE_ID = 'default';
+const baseUserDataPath = app.getPath('userData');
+const profileRegistryPath = path.join(baseUserDataPath, 'vortex-profiles.json');
+const defaultProfileRegistry = {
+  activeProfileId: DEFAULT_PROFILE_ID,
+  profiles: [{ id: DEFAULT_PROFILE_ID, name: 'Default' }],
+};
+
+function readProfileRegistryFile() {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(profileRegistryPath, 'utf8'));
+    if (Array.isArray(parsed)) return { ...defaultProfileRegistry, profiles: parsed };
+    if (parsed && Array.isArray(parsed.profiles)) return parsed;
+  } catch (_error) {}
+  return defaultProfileRegistry;
+}
+
+const startupProfileRegistry = readProfileRegistryFile();
+const activeProfileId = startupProfileRegistry.profiles.some(profile => profile.id === startupProfileRegistry.activeProfileId)
+  ? startupProfileRegistry.activeProfileId
+  : DEFAULT_PROFILE_ID;
+if (activeProfileId !== DEFAULT_PROFILE_ID) {
+  app.setPath('userData', path.join(baseUserDataPath, 'profiles', activeProfileId));
+}
+
+function readProfileRegistry() {
+  const registry = readProfileRegistryFile();
+  return registry.profiles.some(profile => profile.id === DEFAULT_PROFILE_ID)
+    ? registry.profiles
+    : defaultProfileRegistry.profiles;
+}
+
+function writeProfileRegistry(profiles, selectedProfileId = activeProfileId) {
+  fs.mkdirSync(path.dirname(profileRegistryPath), { recursive: true });
+  fs.writeFileSync(profileRegistryPath, JSON.stringify({ activeProfileId: selectedProfileId, profiles }, null, 2));
+}
 
 const DEFAULT_WINDOW_WIDTH = 1200;
 const DEFAULT_WINDOW_HEIGHT = 800;
@@ -431,7 +470,7 @@ async function getSystemMetricsSnapshot() {
 // Increase max listeners to prevent memory leak warnings
 require('events').EventEmitter.defaultMaxListeners = 30;
 
-// Add this to track BrowserViews for each window
+// Track browser windows and renderer-owned tab metadata.
 const windows = new Map();
 const suggestionsOverlays = new Map();
 const securedPermissionSessions = new WeakSet();
@@ -561,7 +600,7 @@ app.on('web-contents-created', (_event, contents) => {
     webPreferences.enableRemoteModule = false;
 
     const preloadPath = resolvePreloadPath(webPreferences.preload);
-    const expectedPreload = path.resolve(__dirname, 'preload.js');
+    const expectedPreload = path.resolve(__dirname, 'src', 'preload', 'browser.js');
     const isInternalPage = isAllowedWebviewUrl(params.src) && String(params.src || '').startsWith('file:');
     if (!isInternalPage || preloadPath !== expectedPreload) delete webPreferences.preload;
 
@@ -623,7 +662,7 @@ function ensureSuggestionsOverlay(parentWin) {
     alwaysOnTop: true,
     hasShadow: false,
     webPreferences: {
-      preload: path.join(__dirname, 'suggestions-overlay-preload.js'),
+      preload: path.join(__dirname, 'src', 'suggestions', 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
       webSecurity: true,
@@ -887,6 +926,32 @@ async function fetchFilterLists(urls) {
   return filters.length ? filters.join('\n') : null;
 }
 
+function fetchFilterListsInUtilityProcess(urlsByMode) {
+  return new Promise((resolve, reject) => {
+    const worker = utilityProcess.fork(path.join(__dirname, 'src', 'utility', 'adblock-loader.js'), [], {
+      serviceName: 'Vortex Ad-block List Loader',
+      stdio: 'ignore',
+    });
+    const timeout = setTimeout(() => {
+      worker.kill();
+      reject(new Error('Ad-block list loader timed out'));
+    }, 12000);
+    worker.once('message', message => {
+      clearTimeout(timeout);
+      worker.kill();
+      if (message?.ok) resolve(message.filters || {});
+      else reject(new Error(message?.error || 'Ad-block list loader failed'));
+    });
+    worker.once('exit', code => {
+      if (code !== 0) {
+        clearTimeout(timeout);
+        reject(new Error(`Ad-block list loader exited with code ${code}`));
+      }
+    });
+    worker.once('spawn', () => worker.postMessage({ urlsByMode }));
+  });
+}
+
 async function initAdBlocker() {
   try {
     const { FiltersEngine } = require('@cliqz/adblocker');
@@ -898,9 +963,29 @@ async function initAdBlocker() {
     let balancedFilters = await readFreshFilterCache(balancedCachePath);
     let strictExtraFilters = await readFreshFilterCache(strictCachePath);
 
+    if (!balancedFilters || !strictExtraFilters) {
+      const requestedLists = {
+        balanced: balancedFilters ? [] : AD_BLOCK_FILTER_URLS.balanced,
+        strict: strictExtraFilters ? [] : AD_BLOCK_FILTER_URLS.strict,
+      };
+      const refreshed = await fetchFilterListsInUtilityProcess(requestedLists).catch(async error => {
+        console.warn('Utility filter refresh failed; using main-process fallback:', error.message);
+        return {
+          balanced: requestedLists.balanced.length ? await fetchFilterLists(requestedLists.balanced) : null,
+          strict: requestedLists.strict.length ? await fetchFilterLists(requestedLists.strict) : null,
+        };
+      });
+      if (!balancedFilters && refreshed.balanced) {
+        balancedFilters = refreshed.balanced;
+        await fs.promises.writeFile(balancedCachePath, balancedFilters).catch(() => {});
+      }
+      if (!strictExtraFilters && refreshed.strict) {
+        strictExtraFilters = refreshed.strict;
+        await fs.promises.writeFile(strictCachePath, strictExtraFilters).catch(() => {});
+      }
+    }
+
     if (!balancedFilters) {
-      console.log('Refreshing balanced ad-block filters...');
-      balancedFilters = await fetchFilterLists(AD_BLOCK_FILTER_URLS.balanced);
       if (balancedFilters) {
         await fs.promises.writeFile(balancedCachePath, balancedFilters).catch(() => {});
       } else {
@@ -908,8 +993,6 @@ async function initAdBlocker() {
       }
     }
     if (!strictExtraFilters) {
-      console.log('Refreshing strict ad-block filters...');
-      strictExtraFilters = await fetchFilterLists(AD_BLOCK_FILTER_URLS.strict);
       if (strictExtraFilters) {
         await fs.promises.writeFile(strictCachePath, strictExtraFilters).catch(() => {});
       } else {
@@ -957,6 +1040,16 @@ function shouldBlockAdRequest(details) {
   }
 }
 
+function isHumanVerificationUrl(rawUrl) {
+  try {
+    const target = new URL(rawUrl);
+    return ['www.google.com', 'www.recaptcha.net'].includes(target.hostname)
+      && target.pathname.startsWith('/recaptcha/');
+  } catch (_error) {
+    return false;
+  }
+}
+
 // Setup ad-blocking for a session
 function setupAdBlockerForSession(session) {
   if (!session || adBlockInstrumentedSessions.has(session)) return;
@@ -972,7 +1065,9 @@ function setupAdBlockerForSession(session) {
       callback({ cancel: true });
       return;
     }
-    const excepted = isPrivacyException(details.initiator || details.referrer || details.url);
+    const isHumanVerificationRequest = isHumanVerificationUrl(details.url);
+    const excepted = isHumanVerificationRequest
+      || isPrivacyException(details.initiator || details.referrer || details.url);
     if (!excepted && stripTrackingParamsEnabled && details.resourceType === 'mainFrame') {
       const cleaned = stripTrackingParameters(details.url);
       if (cleaned) {
@@ -1011,7 +1106,7 @@ function setupAdBlockerForSession(session) {
       return;
     }
     
-    if (shouldBlockAdRequest(details)) {
+    if (!isHumanVerificationRequest && shouldBlockAdRequest(details)) {
       console.debug('Blocked ad request:', details.url);
       recordPrivacyStat('adsBlocked');
       callback({ cancel: true });
@@ -1022,7 +1117,7 @@ function setupAdBlockerForSession(session) {
   });
 
   session.webRequest.onHeadersReceived((details, callback) => {
-    if (!thirdPartyCookiesBlocked || isPrivacyException(details.initiator || details.referrer || details.url) || !isThirdPartyRequest(details)) {
+    if (!thirdPartyCookiesBlocked || isHumanVerificationUrl(details.url) || isPrivacyException(details.initiator || details.referrer || details.url) || !isThirdPartyRequest(details)) {
       callback({ responseHeaders: details.responseHeaders });
       return;
     }
@@ -1041,8 +1136,8 @@ function setupAdBlockerForSession(session) {
 // Use proper detection for production
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 
-// FORCE dev config for testing
-autoUpdater.forceDevUpdateConfig = true;
+// Development builds never contact the production update feed unless explicitly opted in.
+autoUpdater.forceDevUpdateConfig = isDev && process.env.VORTEX_DEV_UPDATES === '1';
 
 // Auto-download for production for reliability, but keep disabled in development
 autoUpdater.autoDownload = !isDev && !isPortableBuild;
@@ -1051,10 +1146,7 @@ autoUpdater.autoInstallOnAppQuit = !isDev && !isPortableBuild;
 autoUpdater.allowDowngrade = false; // Prevent downgrade attacks
 
 // Configure auto-updater for GitHub releases
-if (!isDev) { // Using forced production mode
-  // FORCE auto-updater to work in development
-  autoUpdater.forceDevUpdateConfig = true;
-  
+if (!isDev) {
   autoUpdater.setFeedURL({
     provider: 'github',
     owner: 'H0l10W',
@@ -1409,6 +1501,15 @@ async function applyResourceLimitsToAllWebviews() {
 app.on('web-contents-created', (_event, contents) => {
   if (contents.getType() !== 'webview') return;
   contents.on('dom-ready', () => applyResourceLimitsToWebContents(contents));
+  contents.on('render-process-gone', (_goneEvent, details) => {
+    const host = contents.hostWebContents;
+    if (!host || host.isDestroyed()) return;
+    host.send('tab-renderer-gone', {
+      webContentsId: contents.id,
+      reason: details.reason,
+      exitCode: details.exitCode,
+    });
+  });
 });
 
 // Define the header height (height of tabs + controls)
@@ -1430,7 +1531,12 @@ function getHeaderHeightForUrl(url) {
 }
 
 function createWindow(initialUrl, isFresh = false) {
+  const isPrimaryWindow = windows.size === 0;
   const win = new BrowserWindow({
+    ...(isPrimaryWindow ? {
+      name: `vortex-${activeProfileId}`,
+      windowStatePersistence: true,
+    } : {}),
     width: DEFAULT_WINDOW_WIDTH,
     height: DEFAULT_WINDOW_HEIGHT,
     minHeight: 180,
@@ -1438,7 +1544,7 @@ function createWindow(initialUrl, isFresh = false) {
     titleBarStyle: 'hidden', // Hide title bar
     icon: path.join(__dirname, 'icons', 'icon.png'), // Add icon for running app
     webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
+      preload: path.join(__dirname, 'src', 'preload', 'browser.js'),
       contextIsolation: true,
       nodeIntegration: false,
       webviewTag: true,
@@ -1680,7 +1786,7 @@ function createWindow(initialUrl, isFresh = false) {
   return win;
 }
 
-// --- IPC Handlers for BrowserView ---
+// --- Cross-window logical tab transfer handlers ---
 // Remove existing listeners to prevent duplicates
 ipcMain.removeAllListeners('suggestions-overlay:update');
 ipcMain.removeAllListeners('suggestions-overlay:hide');
@@ -1778,6 +1884,14 @@ ipcMain.on('renderer-ui-ready', (event) => {
     if (!win) return;
     rendererUIReady.set(win.id, true);
     console.log(`Renderer UI ready for window ${win.id}`);
+    if (process.env.VORTEX_BENCHMARK === '1') {
+      console.log(`VORTEX_BENCHMARK_READY ${JSON.stringify({
+        timestamp: Date.now(),
+        rssMB: Math.round(process.memoryUsage().rss / 1024 / 1024),
+        heapUsedMB: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
+      })}`);
+      setTimeout(() => app.quit(), 50);
+    }
     win.once('closed', () => rendererUIReady.delete(win.id));
   } catch (e) { console.error('renderer-ui-ready handling failed', e); }
 });
@@ -1850,7 +1964,7 @@ ipcMain.on('tab-dropped-here', (event, tabMeta) => {
     const sourceWinFromMeta = BrowserWindow.getAllWindows().find(w => w.id === sourceWinIdFromMeta);
     const tabIdFromMeta = Number(tabMeta?.id);
 
-    // Handle webview-based transfers directly from metadata when no BrowserView transfer exists.
+    // Handle renderer-owned webview transfers directly from metadata.
     const logicalTransferFromMeta = () => {
       const movedTab = {
         id: Number.isFinite(tabIdFromMeta) ? tabIdFromMeta : Date.now(),
@@ -1930,7 +2044,7 @@ ipcMain.on('tab-dropped-here', (event, tabMeta) => {
       return;
     }
 
-    // Webview-based tabs may not have a BrowserView reference; transfer logically via renderer state.
+    // Renderer-owned webviews transfer logically through renderer state.
     if (!viewRef) {
       destWin.webContents.send('attach-tab-handled', {
         tab: {
@@ -1976,9 +2090,7 @@ ipcMain.on('tab-dropped-here', (event, tabMeta) => {
     // Detach from current owner if different from destination
     if (viewSourceWin && viewSourceWin.id !== destWin.id && !viewSourceWin.isDestroyed()) {
       try {
-        if (viewSourceWin.getBrowserView() === viewRef) {
-          viewSourceWin.setBrowserView(null);
-        }
+        // Renderer-owned webviews are recreated by the destination renderer.
       } catch (e) {
         console.error('[DND] Error detaching view from source:', e);
       }
@@ -2002,10 +2114,9 @@ ipcMain.on('tab-dropped-here', (event, tabMeta) => {
     
     console.log('[DND] View attached to destination state');
 
-    // Finalize attachment - set the BrowserView
+    // Finalize attachment for the legacy transfer fallback.
     const finalizeAttachment = () => {
       try {
-        destWin.setBrowserView(viewRef);
         const bounds = destWin.getContentBounds();
         const effectiveHeaderHeight = getHeaderHeightForUrl(viewRef.webContents.getURL());
         viewRef.setBounds({
@@ -2122,9 +2233,7 @@ ipcMain.on('detach-tab', (event, tab) => {
         
         // Detach from source
         try {
-          if (!srcWin.isDestroyed() && srcWin.getBrowserView() === view) {
-            srcWin.setBrowserView(null);
-          }
+          // Renderer-owned webviews require no native view detach operation.
         } catch (e) {
           console.error('[DND] Error detaching view:', e);
         }
@@ -2146,7 +2255,6 @@ ipcMain.on('detach-tab', (event, tab) => {
         
         const finalizeDetach = () => {
           try {
-            newWin.setBrowserView(view);
             const bounds = newWin.getContentBounds();
             const effectiveHeaderHeight = getHeaderHeightForUrl(view.webContents.getURL());
             view.setBounds({
@@ -2199,7 +2307,7 @@ ipcMain.on('detach-tab', (event, tab) => {
         }
       });
     } else {
-      // Internal tabs (settings/history/newtab) may not have a BrowserView; detach by opening URL in a fresh window.
+      // Detach internal tabs by opening their URL in a fresh window.
       console.warn('[DND] detach-tab: view not found in source; falling back to URL detach');
       const fallbackUrl = tab && typeof tab.url === 'string' ? tab.url : null;
       const detachedWin = fallbackUrl ? createWindow(fallbackUrl, true) : createWindow(undefined, true);
@@ -2440,7 +2548,7 @@ ipcMain.handle('check-drop-target', async (event, { screenX, screenY, tabMeta })
       return { handled: false };
     }
 
-    // Webview-based tabs do not have BrowserView references; transfer logical tab state only.
+    // Renderer-owned webviews transfer logical tab state only.
     if (!viewRef) {
       targetWin.webContents.send('attach-tab-handled', {
         tab: {
@@ -2486,9 +2594,7 @@ ipcMain.handle('check-drop-target', async (event, { screenX, screenY, tabMeta })
     // Detach from current owner
     if (ownerWin && ownerWin.id !== targetWin.id && !ownerWin.isDestroyed()) {
       try {
-        if (ownerWin.getBrowserView() === viewRef) {
-          ownerWin.setBrowserView(null);
-        }
+        // Renderer-owned webviews are recreated by the target renderer.
       } catch (e) {
         console.error('[DND] Error detaching:', e);
       }
@@ -2511,7 +2617,6 @@ ipcMain.handle('check-drop-target', async (event, { screenX, screenY, tabMeta })
     
     const finalizeAttachment = () => {
       try {
-        targetWin.setBrowserView(viewRef);
         const bounds = targetWin.getContentBounds();
         const effectiveHeaderHeight = getHeaderHeightForUrl(viewRef.webContents.getURL());
         viewRef.setBounds({
@@ -2621,9 +2726,7 @@ ipcMain.on('attach-tab-ack', (event, tabId) => {
       // Remove view entries from source state so main no longer tracks this view
       if (src && src.views && src.views.has(tid)) {
         const viewRef = entry.viewRef;
-        if (src.win && src.win.getBrowserView && src.win.getBrowserView() === viewRef) {
-          try { src.win.setBrowserView(null); } catch (e) {}
-        }
+        // Renderer-owned webviews require no native view detach operation.
         src.views.delete(tid);
       }
       if (src && src.viewMeta && src.viewMeta.has(tid)) src.viewMeta.delete(tid);
@@ -2866,24 +2969,10 @@ ipcMain.on('set-bookmark-bar-visibility', (event, visible) => {
   bookmarkBarVisible = visible;
   headerHeight = visible ? 129 : headerHeightWithoutBookmarks;
   
-  // Update current BrowserView bounds for the window
+  // Renderer-owned webviews follow the document layout automatically.
   const win = BrowserWindow.fromWebContents(event.sender);
   if (win) {
-    const currentView = win.getBrowserView();
-    if (currentView) {
-      const bounds = win.getContentBounds();
-      
-      // Use helper function to get correct header height
-      const currentUrl = currentView.webContents.getURL();
-      const effectiveHeaderHeight = getHeaderHeightForUrl(currentUrl); // Settings always use full height
-      
-      currentView.setBounds({ 
-        x: 0, 
-        y: effectiveHeaderHeight, 
-        width: bounds.width, 
-        height: bounds.height - effectiveHeaderHeight 
-      });
-    }
+    win.webContents.send('chrome-layout-changed');
   }
 });
 
@@ -2891,7 +2980,7 @@ ipcMain.on('toggle-devtools', (event) => {
   const win = BrowserWindow.fromWebContents(event.sender);
   if (!win) return;
   const state = windows.get(win.id);
-  // Prefer toggling devtools of the active BrowserView (webpage) if present
+  // Prefer toggling devtools of an explicitly registered guest when available.
   if (state && state.activeViewId && state.views.has(state.activeViewId)) {
     const view = state.views.get(state.activeViewId);
     if (view && view.webContents && !view.webContents.isDestroyed()) {
@@ -2911,10 +3000,76 @@ ipcMain.on('register-webview-devtools-shortcut', (_event, webContentsId) => {
   registerDevToolsShortcutForWebContents(targetWebContents);
 });
 
+function getOwnedGuest(event, rawId) {
+  const guest = webContents.fromId(Number(rawId));
+  if (!guest || guest.isDestroyed() || guest.hostWebContents !== event.sender) return null;
+  return guest;
+}
+
+ipcMain.handle('open-external', async (event, rawUrl) => {
+  if (!isTrustedStorageSender(event)) return { ok: false, error: 'Untrusted request.' };
+  try {
+    const target = new URL(String(rawUrl || ''));
+    if (target.protocol !== 'https:') return { ok: false, error: 'Only secure web links are allowed.' };
+    await shell.openExternal(target.href);
+    return { ok: true };
+  } catch (_error) {
+    return { ok: false, error: 'Invalid external link.' };
+  }
+});
+
+ipcMain.handle('navigation-command', (event, payload = {}) => {
+  const guest = getOwnedGuest(event, payload.webContentsId);
+  if (!guest) return { ok: false, canGoBack: false, canGoForward: false };
+  const history = guest.navigationHistory;
+  let navigated = false;
+  if (payload.action === 'back' && history.canGoBack()) {
+    history.goBack();
+    navigated = true;
+  } else if (payload.action === 'forward' && history.canGoForward()) {
+    history.goForward();
+    navigated = true;
+  } else if (payload.action === 'clear') {
+    history.clear();
+    navigated = true;
+  }
+  return { ok: true, navigated, canGoBack: history.canGoBack(), canGoForward: history.canGoForward() };
+});
+
+
 ipcMain.handle('get-app-version', () => {
   const version = app.getVersion();
   console.log('App version requested:', version);
   return version;
+});
+
+ipcMain.handle('profiles-list', (event) => {
+  if (!isTrustedStorageSender(event)) return { activeProfileId, profiles: [] };
+  return { activeProfileId, profiles: readProfileRegistry() };
+});
+
+ipcMain.handle('profiles-create', (event, rawName) => {
+  if (!isTrustedStorageSender(event)) return { ok: false, error: 'Untrusted request.' };
+  const name = String(rawName || '').trim().slice(0, 40);
+  if (!name) return { ok: false, error: 'Enter a profile name.' };
+  const profiles = readProfileRegistry();
+  const baseId = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 36) || 'profile';
+  let id = baseId;
+  let suffix = 2;
+  while (profiles.some(profile => profile.id === id)) id = `${baseId}-${suffix++}`;
+  profiles.push({ id, name });
+  writeProfileRegistry(profiles);
+  return { ok: true, profile: { id, name } };
+});
+
+ipcMain.handle('profiles-switch', (event, profileId) => {
+  if (!isTrustedStorageSender(event)) return false;
+  const target = readProfileRegistry().find(profile => profile.id === profileId);
+  if (!target || target.id === activeProfileId) return false;
+  writeProfileRegistry(readProfileRegistry(), target.id);
+  app.relaunch();
+  app.quit();
+  return true;
 });
 
 ipcMain.handle('get-build-date', () => {
@@ -3210,7 +3365,7 @@ ipcMain.handle('credentials-generate-password', (event) => {
   return { success: true, password };
 });
 
-// Apply or remove web dark mode CSS to a specific BrowserView
+// Apply or remove web dark mode CSS to a tracked guest.
 ipcMain.handle('apply-web-dark-mode', async (event, viewId, enabled) => {
   const win = BrowserWindow.fromWebContents(event.sender);
   if (!win) return false;
@@ -3245,7 +3400,7 @@ ipcMain.handle('apply-web-dark-mode', async (event, viewId, enabled) => {
   }
 });
 
-// Apply or remove web dark mode to all BrowserViews for a given window (sender)
+// Apply or remove web dark mode to all tracked guests for a window.
 ipcMain.handle('apply-web-dark-mode-all', async (event, enabled) => {
   const win = BrowserWindow.fromWebContents(event.sender);
   if (!win) return false;
@@ -4039,7 +4194,7 @@ app.on('before-quit', (event) => {
   if (pendingStorageWrite) flushStorageData();
   
   try {
-    // Clean up all BrowserViews first
+    // Clean up any tracked guest contents first.
     for (const [winId, state] of windows) {
       try {
         for (const [viewId, view] of state.views) {

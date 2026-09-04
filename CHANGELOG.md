@@ -1,5 +1,44 @@
 # Vortex Browser - Changelog
 
+## [0.5.0] - 2026-09-04
+
+### Added
+- Added isolated browser profiles with separate cookies, cache, history, bookmarks, settings, saved credentials, and restored sessions.
+- Added a searchable bookmark manager, accessible from Quick settings or `Ctrl+Shift+O`, with folders, inline editing, filtering, deletion, and JSON import/export.
+- Expanded the automated security audit to 44 checks covering profile isolation, trusted profile IPC, human-verification compatibility, navigation ownership, utility-process loading, crash recovery, window persistence, deprecated BrowserView APIs, validated external links, bookmark-manager discoverability, and the inline folder editor.
+- Added automatic recovery UI when a tab renderer crashes, plus conservative background-tab discarding after ten inactive minutes.
+- Added a repeatable three-run startup benchmark with `npm run benchmark`, including renderer-ready timing and main-process RSS memory measurements.
+- Added `npm run release:verify` to reject missing, mixed-version, or mismatched release artifacts and generate SHA-256 hashes.
+- Added a tab-menu action that copies the page link through the renderer clipboard API.
+
+### Changed
+- Updated Electron from 31 to 44.1.1, electron-builder from 24 to 26.15.3, and electron-updater from 6.3.9 to 6.8.9.
+- Added a patched `js-yaml` dependency override and resolved all reported npm audit vulnerabilities.
+- Organized application controllers under `src/`, styles under `assets/styles/`, tests under `tests/`, developer scripts under `scripts/`, and planning material under `docs/`.
+- Excluded development-only documentation, tests, scripts, and solution metadata from packaged releases.
+- Suppressed verbose development logs in packaged builds unless `VORTEX_DEBUG=1` is set.
+- Clarified that custom user-agent overrides can cause additional sign-in and bot checks.
+- Allowed narrowly scoped Google and reCAPTCHA verification resources through privacy and advertisement filtering.
+- Enabled Electron 44 primary-window state persistence and moved Back and Forward commands to the supported `navigationHistory` API.
+- Moved network filter-list downloading into an Electron utility process so parsing and refresh work does not stall the browser UI.
+- Removed the deprecated `BrowserView` import and all remaining `getBrowserView()` and `setBrowserView()` calls while retaining the current hardened, renderer-owned webview tab architecture and logical cross-window transfers.
+- Restricted development updater configuration to explicit `VORTEX_DEV_UPDATES=1` opt-in and kept packaged builds on the production feed.
+- Removed duplicate unpacked icon resources from packaged builds and restored normal release compression.
+- Added descriptive labels, shortcut hints, and decorative-image handling to the primary navigation controls.
+- Added consistent visible keyboard focus, disabled-control feedback, and reduced-motion support across the browser, Settings, and History interfaces.
+- Added accessible dialog semantics and labels to the quick-link editor and cookie viewer.
+- Replaced the inaccessible native bookmark-folder prompt with a responsive inline editor supporting keyboard submission, cancellation, empty-name validation, and duplicate-name detection.
+- Removed the misleading unsigned-build `publisherName` setting while retaining optional code signing and the user's intentionally unsigned release workflow.
+
+### Fixed
+- Fixed the bookmark manager's New folder action silently doing nothing by replacing the unsupported native prompt with an inline, validated folder editor.
+
+### Security
+- Profile creation and switching are restricted to trusted local Vortex pages.
+- Existing browser data remains in the Default profile and is not copied into newly created profiles.
+- Guest navigation IPC verifies that the requested web contents belongs to the calling browser window.
+- External links now pass through trusted main-process IPC and are restricted to valid HTTPS destinations.
+
 ## [0.4.7] Hotfix 1 - 2026-08-10
 
 ### Changed

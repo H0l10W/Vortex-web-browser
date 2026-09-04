@@ -1,17 +1,19 @@
 {
   "name": "vortexwebbrowser",
-  "version": "0.4.7",
+  "version": "0.5.0",
   "description": "A fast, lightweight web browser built with Electron",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "lint": "eslint main.js renderer.js preload.js settings.js history.js suggestions-overlay.js suggestions-overlay-preload.js security-test.js src/**/*.js",
+    "lint": "eslint main.js tests/**/*.js src/**/*.js",
     "check": "npm run lint && npm run security:test",
-    "security:test": "node security-test.js",
+    "benchmark": "node scripts/benchmark-startup.js",
+    "security:test": "node tests/security-audit.js",
     "build": "electron-builder --win --publish=never",
     "build:portable": "electron-builder --win portable --publish=never",
     "build:dir": "electron-builder --win --dir",
     "build:zip": "electron-builder --win zip",
+    "release:verify": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-release.ps1",
     "dist": "electron-builder --publish=never",
     "publish": "electron-builder --win --publish=always",
     "draft": "electron-builder --win --publish=onTagOrDraft"
@@ -25,13 +27,16 @@
     "url": "https://github.com/H0l10W/Vortex-web-browser.git"
   },
   "dependencies": {
-    "electron-updater": "^6.3.9",
-    "@cliqz/adblocker": "^1.26.15"
+    "@cliqz/adblocker": "^1.26.15",
+    "electron-updater": "^6.8.9"
   },
   "devDependencies": {
-    "electron": "^31.0.1",
-    "electron-builder": "^24.13.3",
+    "electron": "^44.1.1",
+    "electron-builder": "^26.15.3",
     "eslint": "^9.37.0"
+  },
+  "overrides": {
+    "js-yaml": "^4.3.2"
   },
   "build": {
     "appId": "com.h0l10w.vortexwebbrowser",
@@ -51,13 +56,20 @@
       "!**/.vscode/**/*",
       "!dist/**/*",
       "!node_modules/.cache/**/*",
+      "!docs/**/*",
+      "!tests/**/*",
+      "!scripts/**/*",
+      "!src/README.md",
+      "!*.sln",
+      "!*.esproj",
       "!*.log",
       "!obj/**/*",
       "!cert.p12",
       "!icons/*.crdownload",
       "!security-test-report-*.txt"
     ],
-    "compression": "store",
+    "compression": "normal",
+    "asar": true,
     "removePackageScripts": true,
     "removePackageKeywords": true,
     "nsis": {
@@ -86,25 +98,14 @@
         }
       ],
       "icon": "icons/app-icon.png",
-      "publisherName": "VortexBrowser",
       "verifyUpdateCodeSignature": false,
       "forceCodeSigning": false,
-      "asar": true,
-      "asarUnpack": [
-        "icons/**/*"
-      ],
       "requestedExecutionLevel": "asInvoker"
     },
     "portable": {
       "artifactName": "VortexBrowser-Portable-${version}.${ext}",
       "unpackDirName": "VortexBrowser"
     },
-    "extraResources": [
-      {
-        "from": "icons/",
-        "to": "icons/"
-      }
-    ],
     "fileAssociations": [
       {
         "ext": [
