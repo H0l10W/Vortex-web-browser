@@ -11,6 +11,9 @@ const { pathToFileURL, fileURLToPath } = require('url');
 if (app.isPackaged && process.env.VORTEX_DEBUG !== '1') console.log = () => {};
 
 const DEFAULT_PROFILE_ID = 'default';
+const downloadSessions = new WeakSet();
+const completedDownloads = new Map();
+const reservedDownloadPaths = new Set();
 const baseUserDataPath = app.getPath('userData');
 const profileRegistryPath = path.join(baseUserDataPath, 'vortex-profiles.json');
 const defaultProfileRegistry = {
@@ -911,21 +914,6 @@ async function readFreshFilterCache(cachePath) {
   }
 }
 
-async function fetchFilterLists(urls) {
-  const results = await Promise.allSettled(urls.map(async url => {
-    const response = await fetch(url, { signal: AbortSignal.timeout(8000) });
-    if (!response.ok) throw new Error(`HTTP ${response.status} for ${url}`);
-    return response.text();
-  }));
-
-  const filters = results
-    .filter(result => result.status === 'fulfilled')
-    .map(result => result.value);
-  const failedCount = results.length - filters.length;
-  if (failedCount) console.warn(`Could not refresh ${failedCount} ad-block filter list(s)`);
-  return filters.length ? filters.join('\n') : null;
-}
-
 function fetchFilterListsInUtilityProcess(urlsByMode) {
   return new Promise((resolve, reject) => {
     const worker = utilityProcess.fork(path.join(__dirname, 'src', 'utility', 'adblock-loader.js'), [], {
@@ -968,12 +956,11 @@ async function initAdBlocker() {
         balanced: balancedFilters ? [] : AD_BLOCK_FILTER_URLS.balanced,
         strict: strictExtraFilters ? [] : AD_BLOCK_FILTER_URLS.strict,
       };
-      const refreshed = await fetchFilterListsInUtilityProcess(requestedLists).catch(async error => {
-        console.warn('Utility filter refresh failed; using main-process fallback:', error.message);
-        return {
-          balanced: requestedLists.balanced.length ? await fetchFilterLists(requestedLists.balanced) : null,
-          strict: requestedLists.strict.length ? await fetchFilterLists(requestedLists.strict) : null,
-        };
+      const refreshed = await fetchFilterListsInUtilityProcess(requestedLists).catch(error => {
+        // Keep network parsing outside the main process. A Node/Undici failure in
+        // this fallback used to surface as an uncaught startup error dialog.
+        console.warn('Utility filter refresh failed; using cached and built-in rules:', error.message);
+        return { balanced: null, strict: null };
       });
       if (!balancedFilters && refreshed.balanced) {
         balancedFilters = refreshed.balanced;
@@ -1619,7 +1606,15 @@ function createWindow(initialUrl, isFresh = false) {
   setupAdBlockerForSession(session);
 
   // --- Enhanced Download Handling with Security ---
-  session.on('will-download', (event, item, webContents) => {
+  if (!downloadSessions.has(session)) {
+  downloadSessions.add(session);
+  session.on('will-download', (event, item, sourceContents) => {
+    const owner = sourceContents && BrowserWindow.fromWebContents(sourceContents.hostWebContents || sourceContents);
+    if (!owner || owner.isDestroyed()) { event.preventDefault(); return; }
+    const downloadId = crypto.randomUUID();
+    const sendDownload = (channel, data) => {
+      if (!owner.isDestroyed()) owner.webContents.send(channel, { ...data, id: downloadId });
+    };
     const filename = item.getFilename();
     const url = item.getURL();
     
@@ -1643,10 +1638,17 @@ function createWindow(initialUrl, isFresh = false) {
 
     const configuredDownloadPath = String(storageData.downloadLocation || '').trim();
     if (configuredDownloadPath && storageData.askDownloadLocation !== 'true') {
-      item.setSavePath(path.join(configuredDownloadPath, filename));
+      const parsedName = path.parse(path.basename(filename));
+      let destination = path.join(configuredDownloadPath, path.basename(filename));
+      let suffix = 1;
+      while (fs.existsSync(destination) || reservedDownloadPaths.has(destination.toLowerCase())) {
+        destination = path.join(configuredDownloadPath, `${parsedName.name} (${suffix++})${parsedName.ext}`);
+      }
+      reservedDownloadPaths.add(destination.toLowerCase());
+      item.setSavePath(destination);
     } else if (storageData.askDownloadLocation === 'true') {
       item.pause();
-      dialog.showSaveDialog(win, {
+      dialog.showSaveDialog(owner, {
         title: 'Save Download',
         defaultPath: path.join(configuredDownloadPath || app.getPath('downloads'), filename),
       }).then(result => {
@@ -1659,7 +1661,7 @@ function createWindow(initialUrl, isFresh = false) {
       }).catch(() => item.cancel());
     }
     
-    win.webContents.send('download-started', {
+    sendDownload('download-started', {
       name: filename,
       url: url,
       size: item.getTotalBytes(),
@@ -1667,21 +1669,26 @@ function createWindow(initialUrl, isFresh = false) {
     });
     
     item.on('updated', (event, state) => {
-      win.webContents.send('download-progress', {
+      sendDownload('download-progress', {
         name: item.getFilename(),
-        progress: item.getReceivedBytes() / item.getTotalBytes()
+        size: item.getTotalBytes(),
+        progress: item.getTotalBytes() > 0 ? item.getReceivedBytes() / item.getTotalBytes() : 0
       });
     });
     
     item.once('done', (event, state) => {
-      win.webContents.send('download-completed', {
+      reservedDownloadPaths.delete(item.getSavePath().toLowerCase());
+      if (state === 'completed') completedDownloads.set(downloadId, item.getSavePath());
+      sendDownload('download-completed', {
         name: item.getFilename(),
+        size: item.getTotalBytes(),
         state: state,
         savePath: item.getSavePath()
       });
     });
   });
 
+  }
   // If an initial URL is used, the renderer will pick it up from the query string
 
   win.on('resize', () => {
@@ -1833,6 +1840,10 @@ function registerDevToolsShortcutForWebContents(targetWebContents) {
   });
 
   targetWebContents.on('before-input-event', (event, input) => {
+    if (input?.type === 'keyDown' && input.control && input.shift && input.key.toLowerCase() === 'a') {
+      const owner = BrowserWindow.fromWebContents(targetWebContents.hostWebContents || targetWebContents);
+      if (owner && !owner.isDestroyed()) { event.preventDefault(); owner.webContents.send('open-tab-search'); }
+    }
     if (input && input.type === 'keyDown' && input.key === 'F12') {
       event.preventDefault();
       toggleDevToolsForWebContents(targetWebContents, { mode: 'detach' });
@@ -3046,6 +3057,20 @@ ipcMain.handle('get-app-version', () => {
 ipcMain.handle('profiles-list', (event) => {
   if (!isTrustedStorageSender(event)) return { activeProfileId, profiles: [] };
   return { activeProfileId, profiles: readProfileRegistry() };
+});
+
+ipcMain.handle('download-reveal', (event, id) => {
+  if (!isTrustedStorageSender(event) || typeof id !== 'string') return false;
+  let savedPath = completedDownloads.get(id);
+  if (!savedPath) {
+    try {
+      const saved = JSON.parse(storageData.downloads || '[]');
+      savedPath = saved.find(item => item.id === id && item.state === 'completed')?.savePath;
+    } catch { return false; }
+  }
+  if (typeof savedPath !== 'string' || !path.isAbsolute(savedPath) || !fs.existsSync(savedPath)) return false;
+  shell.showItemInFolder(savedPath);
+  return true;
 });
 
 ipcMain.handle('profiles-create', (event, rawName) => {

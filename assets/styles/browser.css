@@ -4622,26 +4622,9 @@ body[class*="theme-dark"] #tabs .tab.active {
 }
 
 #tabs .tab.grouped::after {
-    content: "" !important;
-    display: block !important;
-    position: absolute !important;
-    top: 2px !important;
-    right: 2px !important;
-    bottom: 2px !important;
-    left: 2px !important;
-    width: auto !important;
-    height: auto !important;
-    z-index: 4 !important;
-    border: 2px solid color-mix(in srgb, var(--group-color, #3b82f6) 86%, transparent) !important;
-    border-radius: 10px 10px 0 0 !important;
-    pointer-events: none !important;
-    background: transparent !important;
-    box-sizing: border-box !important;
-}
-
-#tabs .tab.grouped:not(.active):hover::after,
-#tabs .tab.grouped.active::after {
-    border-color: var(--group-color, #3b82f6) !important;
+    /* The tab border carries the group color in every state. */
+    content: none !important;
+    display: none !important;
 }
 
 body[class*="theme-dark"] {

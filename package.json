@@ -1,12 +1,14 @@
 {
   "name": "vortexwebbrowser",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "A fast, lightweight web browser built with Electron",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
     "lint": "eslint main.js tests/**/*.js src/**/*.js",
     "check": "npm run lint && npm run security:test",
+    "ui:test": "node scripts/run-ui-smoke.cjs",
+    "workspace:test": "node tests/workspaces.test.cjs",
     "benchmark": "node scripts/benchmark-startup.js",
     "security:test": "node tests/security-audit.js",
     "build": "electron-builder --win --publish=never",

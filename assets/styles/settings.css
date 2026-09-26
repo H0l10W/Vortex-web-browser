@@ -1,6 +1,7 @@
 /* --- Base Theme Variables --- */
 :root {
     --accent-color-dark: #6b6b6b; /* Neutral Gray */
+    --accent-hover: #858585;
     --newtab-gradient-dark: radial-gradient(circle, #2d2d2d 0%, #404040 100%);
     --animation-speed: 0.12s;
     --transition-speed: 0.12s;
@@ -82,19 +83,33 @@ body.effects-disabled .global-toast {
 /* --- Theme-Specific Variable Overrides --- */
 body.theme-dark-purple {
     --accent-color-dark: #ab47bc; /* Lighter Purple */
+    --accent-hover: #ce93d8;
     --newtab-gradient-dark: radial-gradient(circle, #6a1b9a 0%, #ab47bc 100%);
 }
 body.theme-dark-nord {
     --accent-color-dark: #88c0d0; /* Polar Night Blue */
+    --accent-hover: #a3d4e0;
     --newtab-gradient-dark: radial-gradient(circle, #4c566a 0%, #3b4252 100%);
 }
 body.theme-dark-forest {
     --accent-color-dark: #a3be8c; /* Moss Green */
+    --accent-hover: #c0d6a3;
     --newtab-gradient-dark: radial-gradient(circle, #5a6d5a 0%, #4a5d4a 100%);
 }
 body.theme-dark-rose {
     --accent-color-dark: #b48ead; /* Rosé Pink */
+    --accent-hover: #d4a3c7;
     --newtab-gradient-dark: radial-gradient(circle, #7a5a77 0%, #664b63 100%);
+}
+body.theme-dark-sakura {
+    --accent-color-dark: #f06292;
+    --accent-hover: #f48fb1;
+    --newtab-gradient-dark: radial-gradient(circle, #6b1a3a 0%, #a0274f 100%);
+}
+body.theme-dark-sunny {
+    --accent-color-dark: #ffca28;
+    --accent-hover: #ffe082;
+    --newtab-gradient-dark: radial-gradient(circle, #5d4000 0%, #8a6000 100%);
 }
 
 /* Basic styles for settings page */

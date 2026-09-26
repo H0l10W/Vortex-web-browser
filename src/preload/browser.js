@@ -127,6 +127,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
   getAppVersion: () => ipcRenderer.invoke("get-app-version"),
   getBuildDate: () => ipcRenderer.invoke("get-build-date"),
   listProfiles: () => ipcRenderer.invoke("profiles-list"),
+  onDownloadStarted: (callback) => ipcRenderer.on('download-started', (_event, data) => callback(data)),
+  onDownloadProgress: (callback) => ipcRenderer.on('download-progress', (_event, data) => callback(data)),
+  onDownloadCompleted: (callback) => ipcRenderer.on('download-completed', (_event, data) => callback(data)),
+  revealDownload: (id) => ipcRenderer.invoke('download-reveal', id),
   createProfile: (name) => ipcRenderer.invoke("profiles-create", name),
   switchProfile: (id) => ipcRenderer.invoke("profiles-switch", id),
 

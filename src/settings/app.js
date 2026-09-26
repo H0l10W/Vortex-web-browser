@@ -116,6 +116,7 @@ if (window.electronAPI?.getBuildDate && buildDateSpan) {
     "reduced-animations-toggle",
   );
   const visualEffectsToggle = document.getElementById("visual-effects-toggle");
+  const verticalTabsToggle = document.getElementById("vertical-tabs-toggle");
   const closeTabsOnExitToggle = document.getElementById(
     "close-tabs-on-exit-toggle",
   );
@@ -1229,7 +1230,6 @@ if (window.electronAPI?.getBuildDate && buildDateSpan) {
   }
 
   [
-    memoryThresholdSlider,
     maxInactiveTabsSlider,
     hibernationDelaySlider,
   ].forEach((slider) => {
@@ -1509,6 +1509,16 @@ if (window.electronAPI?.getBuildDate && buildDateSpan) {
   }
 
   // Close Tabs on Exit Toggle
+  if (verticalTabsToggle) {
+    storage.getItem("verticalTabs").then((enabled) => {
+      verticalTabsToggle.checked = enabled === "true";
+    });
+
+    verticalTabsToggle.addEventListener("change", async (e) => {
+      await storage.setItem("verticalTabs", e.target.checked.toString());
+    });
+  }
+
   if (closeTabsOnExitToggle) {
     storage.getItem("closeTabsOnExit").then((enabled) => {
       closeTabsOnExitToggle.checked = enabled === "true";
@@ -1840,4 +1850,5 @@ if (window.electronAPI?.getBuildDate && buildDateSpan) {
       await refreshDefaultBrowserStatus();
     });
   }
+  document.documentElement.dataset.settingsAppReady = "true";
 });

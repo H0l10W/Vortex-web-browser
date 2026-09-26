@@ -65,11 +65,13 @@ function render(payload) {
     const item = document.createElement('button');
     item.type = 'button';
     item.className = 'item';
+    item.setAttribute('role', 'option');
+    item.setAttribute('aria-selected', String(index === selectedIndex));
     if (index === selectedIndex) item.classList.add('active');
 
     const source = document.createElement('span');
     source.className = 'source';
-    source.textContent = entry?.isSearch ? 'Search' : (entry?.source || 'history');
+    source.textContent = entry?.isSearch ? (entry.label?.startsWith('Go to ') ? 'Website' : 'Search') : ({ tab: 'Switch to tab', bookmark: 'Bookmark', history: 'History', quicklink: 'Quick link' }[entry?.source] || 'Website');
 
     const main = document.createElement('span');
     main.className = 'main';
@@ -93,6 +95,7 @@ function render(payload) {
 
     shell.appendChild(item);
   });
+  shell.querySelector('.active')?.scrollIntoView({ block: 'nearest', behavior: 'instant' });
 }
 
 window.overlayAPI.onData((payload) => {

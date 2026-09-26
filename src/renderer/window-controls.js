@@ -1,3 +1,5 @@
+import { icon } from './ui-elements.js';
+
 async function updateMaximizeButton(electronAPI) {
   const maximizeButton = document.getElementById("maximize-btn");
   if (!maximizeButton || !electronAPI?.isMaximized) return;
@@ -13,6 +15,9 @@ async function updateMaximizeButton(electronAPI) {
       : "icons/window-maximize.png";
     image.alt = isMaximized ? "Restore Down" : "Maximize";
     maximizeButton.title = image.alt;
+    maximizeButton.setAttribute('aria-label', image.alt);
+    const vector = maximizeButton.querySelector('.ui-icon');
+    if (vector) vector.replaceWith(icon(isMaximized ? 'restore' : 'maximize'));
   } catch (error) {
     console.error("Error checking maximize state:", error);
   }

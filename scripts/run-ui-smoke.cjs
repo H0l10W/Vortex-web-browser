@@ -1,0 +1,12 @@
+const { spawn } = require('child_process');
+const path = require('path');
+const fs = require('fs');
+const root = path.resolve(__dirname, '..');
+fs.mkdirSync(path.join(root, 'dist'), { recursive: true });
+const output = fs.mkdtempSync(path.join(root, 'dist', 'ui-smoke-'));
+const env = { ...process.env, VORTEX_UI_TEST_DIR: output };
+delete env.ELECTRON_RUN_AS_NODE;
+const child = spawn(require('electron'), [path.join(root, 'tests', 'ui-smoke.cjs')], { cwd: root, env, windowsHide: true, stdio: 'inherit' });
+const timer = setTimeout(() => { child.kill(); process.exitCode = 1; }, 120000);
+child.on('error', error => { clearTimeout(timer); console.error(error); process.exitCode = 1; });
+child.on('exit', code => { clearTimeout(timer); process.exitCode = code === 0 ? 0 : 1; console.log(`UI test artifacts: ${output}`); });

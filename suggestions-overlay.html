@@ -39,7 +39,7 @@
     .item {
       width: 100%;
       display: grid;
-      grid-template-columns: 66px 1fr;
+      grid-template-columns: 88px minmax(0, 1fr);
       grid-template-rows: auto auto;
       gap: 1px 8px;
       align-items: center;
@@ -82,7 +82,7 @@
   </style>
 </head>
 <body class="theme-dark">
-  <div id="overlay-shell" class="overlay-shell"></div>
+  <div id="overlay-shell" class="overlay-shell" role="listbox" aria-label="Address suggestions"></div>
   <script src="src/suggestions/overlay.js"></script>
 </body>
 </html>

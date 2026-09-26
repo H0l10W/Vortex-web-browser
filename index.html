@@ -5,6 +5,7 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' https://wttr.in https://nominatim.openstreetmap.org https://api.rss2json.com https://feeds.reuters.com https://newsapi.org https://api.open-meteo.com; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data: https:; object-src 'none'; base-uri 'self'; form-action 'self' https:; frame-ancestors 'none'; upgrade-insecure-requests;">
   <title>Vortex</title>
   <link rel="stylesheet" href="assets/styles/browser.css">
+  <link rel="stylesheet" href="assets/styles/browser-ui.css">
   <link rel="modulepreload" href="src/renderer/utils.js">
   <link rel="modulepreload" href="src/renderer/history-manager.js">
   <link rel="modulepreload" href="src/renderer/window-controls.js">
@@ -115,7 +116,6 @@
       <button id="bookmark-add" class="icon-btn" type="button" aria-label="Bookmark this page" title="Bookmark this page (Ctrl+D)"><img src="icons/bookmark.png" alt=""></button>
       <button id="incognito-btn" class="icon-btn" type="button" aria-label="Open incognito tab" title="Open incognito tab"><img src="icons/incognito.png" alt=""></button>
       <button id="history-btn" class="icon-btn" type="button" aria-label="Open history" title="History (Ctrl+H)"><img src="icons/history.png" alt=""></button>
-      <button id="settings" class="icon-btn" type="button" aria-label="Open settings" title="Settings"><img src="icons/settings.png" alt=""></button>
     </div>
   </div>
   <div id="main-content">
@@ -150,15 +150,15 @@
   </div>
 
   <!-- Add Quick Link Modal -->
-  <div id="add-quick-link-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="quick-link-dialog-title">
+  <dialog id="add-quick-link-modal" class="modal" aria-labelledby="quick-link-dialog-title">
     <div class="modal-content">
       <h2 id="quick-link-dialog-title">Add quick link</h2>
       <button type="button" class="close-button" aria-label="Close add quick link dialog">&times;</button>
-      <input id="new-quick-link-url" type="text" placeholder="Enter URL" required>
-      <input id="new-quick-link-label" type="text" placeholder="Enter a short name">
+      <input id="new-quick-link-url" type="text" placeholder="Enter URL" aria-label="Quick link address" required>
+      <input id="new-quick-link-label" type="text" placeholder="Enter a short name" aria-label="Quick link name">
       <button id="save-quick-link-btn">Save</button>
     </div>
-  </div>
+  </dialog>
 
   <dialog id="bookmark-manager" class="bookmark-manager" aria-labelledby="bookmark-manager-title">
     <form method="dialog" class="bookmark-manager-shell">
@@ -188,8 +188,8 @@
     </form>
   </dialog>
 
-  <!-- Settings Panel (Right Side) -->
-  <div id="settings-panel" class="side-panel">
+  <!-- Existing controls are mounted into the browser menu at startup. -->
+  <div id="settings-panel" hidden>
     <div class="settings-header">
       <div class="side-menu-title">
         <span>Vortex Browser</span>

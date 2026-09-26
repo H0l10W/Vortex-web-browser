@@ -1,0 +1,1 @@
+make the ad blocker more robust so it works for youtube and twitch as well as other sites

@@ -18,23 +18,28 @@ Version 0.5.0 adds isolated browser profiles, a complete bookmark manager, a cur
 
 ### Browser essentials
 
-- [ ] Improve URL-bar shortcuts and recently visited suggestions
+- [x] Improve address suggestions and switch to existing tabs
+- [x] Add searchable tabs and optional vertical tabs
+- [x] Add settings search and a visible profile switcher
 - [x] Add bookmark folders, search, and import/export
 - [ ] Improve download queue management, resumption, and history
-- [ ] Add recently closed tab recovery, tab pinning, and tab muting
-- [ ] Add picture-in-picture and improved media controls
+- [x] Add recently closed tab recovery and tab muting
+- [ ] Add tab pinning
+- [x] Add picture-in-picture and improved media controls
+- [x] Add a toolbar downloads panel with progress and file actions
 
 ### Extensions and customization
 
 - [ ] Define a restricted extension framework
 - [ ] Add local extension loading and management
-- [ ] Add customizable keyboard shortcuts and toolbar layout
+- [x] Add customizable toolbar pins and new-tab layout
+- [ ] Add customizable keyboard shortcuts
 - [ ] Add custom theme creation and import/export
 
 ### Sync and workspaces
 
 - [x] Add multiple isolated browser profiles
-- [ ] Add workspace management within profiles
+- [x] Add saved workspace snapshots within profiles
 - [ ] Design secure sync for bookmarks, settings, history, and open tabs
 - [ ] Add session export/import
 
@@ -57,6 +62,6 @@ Version 0.5.0 adds isolated browser profiles, a complete bookmark manager, a cur
 
 This roadmap is intentionally outcome-focused. Completed release details belong in the changelog.
 
-**Last updated:** 4 September 2026
+**Last updated:** 5 September 2026
 
 **Next review:** September 2026

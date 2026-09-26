@@ -1,0 +1,20 @@
+#full-settings-header { display: flex; align-items: center; justify-content: space-between; gap: 24px; flex-wrap: wrap; }
+.ui-icon { width: 20px; height: 20px; flex: 0 0 20px; }
+.settings-search-wrap { display: flex; align-items: center; gap: 9px; padding: 3px 10px; border: 1px solid var(--settings-line, #7775); background: var(--settings-surface, #8881); border-radius: 10px; width: min(360px, 100%); box-sizing: border-box; }
+#settings-search { min-width: 0; flex: 1; background: transparent; border: 0; padding: 9px 0; color: var(--text-color); font: inherit; font-size: 13px; }
+.settings-search-clear { background: transparent; border: 0; color: var(--text-color); cursor: pointer; padding: 6px; min-height: 30px; }
+.settings-tab-content[hidden], .settings-search-results[hidden], .settings-search-clear[hidden] { display: none !important; }
+.settings-search-results { max-width: 1050px; padding: 4px 0 30px; }
+.settings-search-status { color: var(--settings-muted, #aaa); font-size: 13px; }
+.settings-search-list { display: grid; gap: 4px; }
+.settings-search-result { display: grid; gap: 5px; width: 100%; padding: 15px 14px; border: 0; border-bottom: 1px solid var(--settings-line, #7775); border-radius: 8px; text-align: left; background: transparent; color: var(--text-color); cursor: pointer; font: inherit; }
+.settings-search-result:hover { background: var(--settings-surface, #8882); }
+.settings-search-result strong { font-size: 14px; font-weight: 600; }
+.settings-search-result small { color: var(--settings-muted, #aaa); font-size: 12px; }
+.setting-search-highlight { outline: 2px solid var(--accent-color, #80b5ff); outline-offset: 5px; border-radius: 8px; }
+.restart-required-note { display: block; margin-top: 7px; color: var(--settings-muted); }
+.settings-card .setting-description, .settings-card .toggle-description { line-height: 1.5; }
+.settings-card .setting-group { min-width: 0; }
+.settings-search-wrap:focus-within { outline: 2px solid var(--accent-color, #80b5ff); outline-offset: 2px; }
+.settings-search-result:focus-visible, .settings-search-clear:focus-visible { outline: 2px solid var(--accent-color, #80b5ff); outline-offset: 2px; }
+@media (max-width: 760px) { #full-settings-header { gap: 12px; padding-inline: 16px; } .settings-search-wrap { width: 100%; } }

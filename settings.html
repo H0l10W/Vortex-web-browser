@@ -34,6 +34,8 @@
             })();
         </script>
         <link rel="stylesheet" href="assets/styles/settings.css" />
+        <link rel="stylesheet" href="assets/styles/settings-search.css" />
+        <script type="module" src="src/settings/search.js"></script>
         <link rel="modulepreload" href="src/settings/storage.js" />
     </head>
     <body>
@@ -867,6 +869,25 @@
                                 <p>Configure how tabs work and appear</p>
                             </div>
                             <div class="card-content">
+                                <div class="setting-group">
+                                    <div class="toggle-setting">
+                                        <label class="toggle-switch">
+                                            <input
+                                                type="checkbox"
+                                                id="vertical-tabs-toggle"
+                                            />
+                                            <span class="slider"></span>
+                                        </label>
+                                        <div class="toggle-info">
+                                            <span class="toggle-label"
+                                                >Vertical Tabs</span
+                                            >
+                                            <span class="toggle-description"
+                                                >Show open tabs in a collapsible sidebar.</span
+                                            >
+                                        </div>
+                                    </div>
+                                </div>
                                 <div class="setting-group">
                                     <div class="toggle-setting">
                                         <label class="toggle-switch">

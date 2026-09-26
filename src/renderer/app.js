@@ -1,5 +1,6 @@
 import {
   debouncedSetItem,
+  cancelDebouncedSetItem,
   perfStart,
   perfEnd,
   createStorage,
@@ -7,6 +8,8 @@ import {
 import { createHistoryManager } from "./history-manager.js";
 import { initializeWindowControls } from "./window-controls.js";
 import { getWidgetSetting } from "./widgets/widget-settings.js";
+import { initializeBrowserUI } from "./browser-ui.js";
+import { icon } from "./ui-elements.js";
 
 if (!window.electronAPI?.debugLoggingEnabled) console.log = () => {};
 
@@ -1720,6 +1723,12 @@ window.addEventListener("DOMContentLoaded", () => {
   omniboxSuggestionsEl.id = "url-suggestions";
   omniboxSuggestionsEl.className = "url-suggestions-popup";
   omniboxSuggestionsEl.style.display = "none";
+  omniboxSuggestionsEl.setAttribute('role', 'listbox');
+  omniboxSuggestionsEl.setAttribute('aria-label', 'Address suggestions');
+  urlInput.setAttribute('aria-label', 'Search or enter address');
+  urlInput.setAttribute('aria-autocomplete', 'list');
+  urlInput.setAttribute('aria-haspopup', 'listbox');
+  urlInput.setAttribute('aria-expanded', 'false');
   document.body.appendChild(omniboxSuggestionsEl);
 
   function getOmniboxOverlayPayload() {
@@ -1742,6 +1751,8 @@ window.addEventListener("DOMContentLoaded", () => {
   }
 
   function hideOmniboxSuggestions() {
+    urlInput.setAttribute('aria-expanded', 'false');
+    urlInput.removeAttribute('aria-description');
     omniboxSuggestions = [];
     omniboxSelectedIndex = -1;
     omniboxSuggestionsEl.style.display = "none";
@@ -1778,6 +1789,7 @@ window.addEventListener("DOMContentLoaded", () => {
       label = "",
       source = "history",
       timestamp = 0,
+      tabId = null,
     ) => {
       if (!url || url === "newtab") return;
       const normalizedUrl = String(url).trim();
@@ -1795,6 +1807,7 @@ window.addEventListener("DOMContentLoaded", () => {
           label: String(label || ""),
           source,
           timestamp: Number(timestamp) || 0,
+          tabId,
         });
         return;
       }
@@ -1807,6 +1820,7 @@ window.addEventListener("DOMContentLoaded", () => {
         (sourcePriority[source] || 0) > (sourcePriority[existing.source] || 0)
       ) {
         existing.source = source;
+        existing.tabId = tabId;
       }
     };
 
@@ -1848,7 +1862,9 @@ window.addEventListener("DOMContentLoaded", () => {
     try {
       (Array.isArray(tabs) ? tabs : []).forEach((tab) => {
         if (!tab || !tab.url) return;
-        addCandidate(tab.url, tab.title || "", "tab", 0);
+        const active = tabs.find(t => t.id === currentTabId);
+        if (!!tab.isIncognito !== !!active?.isIncognito) return;
+        addCandidate(tab.url, tab.title || "", "tab", 0, tab.id);
       });
     } catch (e) {
       console.debug("Unable to read tab suggestions", e);
@@ -1892,11 +1908,11 @@ window.addEventListener("DOMContentLoaded", () => {
       .filter((candidate) => candidate.score >= 0)
       .sort((a, b) => b.score - a.score || b.timestamp - a.timestamp);
 
-    const topMatches = scored.slice(0, MAX_OMNIBOX_SUGGESTIONS);
+    const topMatches = scored.slice(0, MAX_OMNIBOX_SUGGESTIONS - (query ? 1 : 0));
     if (query && topMatches.length < MAX_OMNIBOX_SUGGESTIONS) {
       topMatches.push({
         url: query,
-        label: `Search for "${query}"`,
+        label: /^(https?:\/\/|localhost[:/]|[^\s]+\.[^\s]+)/i.test(query) ? `Go to ${query}` : `Search for "${query}"`,
         source: "search",
         timestamp: Date.now(),
         score: 0,
@@ -1918,11 +1934,13 @@ window.addEventListener("DOMContentLoaded", () => {
       const item = document.createElement("button");
       item.type = "button";
       item.className = "url-suggestion-item";
+      item.setAttribute('role', 'option');
+      item.setAttribute('aria-selected', String(index === omniboxSelectedIndex));
       if (index === omniboxSelectedIndex) item.classList.add("active");
 
       const source = document.createElement("span");
       source.className = "url-suggestion-source";
-      source.textContent = suggestion.isSearch ? "Search" : suggestion.source;
+      source.textContent = suggestion.isSearch ? (suggestion.label.startsWith('Go to ') ? 'Website' : 'Search') : ({ tab: 'Switch to tab', bookmark: 'Bookmark', history: 'History', quicklink: 'Quick link' }[suggestion.source] || 'Website');
 
       const main = document.createElement("span");
       main.className = "url-suggestion-main";
@@ -1948,15 +1966,16 @@ window.addEventListener("DOMContentLoaded", () => {
         if (omniboxHideTimer) clearTimeout(omniboxHideTimer);
         const selected = omniboxSuggestions[index];
         if (!selected) return;
-        urlInput.value = selected.url;
-        hideOmniboxSuggestions();
-        navigate(selected.url);
+        activateOmniboxSuggestion(selected);
       });
 
       fragment.appendChild(item);
     });
 
     omniboxSuggestionsEl.appendChild(fragment);
+    urlInput.setAttribute('aria-expanded', 'true');
+    const selectedDescription = omniboxSuggestionsEl.children[omniboxSelectedIndex]?.textContent;
+    if (selectedDescription) urlInput.setAttribute('aria-description', `Selected suggestion: ${selectedDescription}. Use arrow keys to choose, Enter to open, or Escape to dismiss.`);
     omniboxSuggestionsEl.style.display = "none";
 
     try {
@@ -1995,10 +2014,19 @@ window.addEventListener("DOMContentLoaded", () => {
     const idx = omniboxSelectedIndex >= 0 ? omniboxSelectedIndex : 0;
     const suggestion = omniboxSuggestions[idx];
     if (!suggestion) return false;
+    if (navigateToSuggestion) activateOmniboxSuggestion(suggestion);
+    else { urlInput.value = suggestion.url; hideOmniboxSuggestions(); }
+    return true;
+  }
+
+  function activateOmniboxSuggestion(suggestion) {
     urlInput.value = suggestion.url;
     hideOmniboxSuggestions();
-    if (navigateToSuggestion) navigate(suggestion.url);
-    return true;
+    const target = tabs.find(tab => tab.id === suggestion.tabId && tab.url === suggestion.url);
+    if (suggestion.source === 'tab' && target) {
+      switchTab(target.id);
+      getActiveWebview()?.focus();
+    } else navigate(suggestion.url);
   }
 
   window.addEventListener("resize", positionOmniboxSuggestions);
@@ -2036,9 +2064,7 @@ window.addEventListener("DOMContentLoaded", () => {
       }
 
       if (payloadSuggestion) {
-        urlInput.value = payloadSuggestion.url;
-        hideOmniboxSuggestions();
-        navigate(payloadSuggestion.url);
+        activateOmniboxSuggestion(payloadSuggestion);
       }
     });
   }
@@ -2417,6 +2443,14 @@ window.addEventListener("DOMContentLoaded", () => {
         renderedGroupHeaders.add(groupId);
         const header = document.createElement("div");
         header.className = "tab-group-label";
+        header.tabIndex = 0; header.setAttribute('role', 'button');
+        header.setAttribute('aria-expanded', String(!group.collapsed));
+        header.addEventListener('keydown', event => {
+          if (event.target === header && (event.key === 'Enter' || event.key === ' ')) {
+            event.preventDefault(); toggleGroupCollapse(groupId);
+            [...tabsDiv.querySelectorAll('.tab-group-label')].find(label => label.dataset.groupId === groupId)?.focus();
+          }
+        });
         header.style.background = group.color;
         header.title = group.collapsed
           ? "Click to expand group"
@@ -2507,6 +2541,23 @@ window.addEventListener("DOMContentLoaded", () => {
       if (group && group.collapsed && tab.id !== currentTabId) return;
 
       const tabEl = document.createElement("div");
+      tabEl.setAttribute('role', 'tab');
+      tabEl.setAttribute('aria-selected', String(tab.id === currentTabId));
+      tabEl.tabIndex = tab.id === currentTabId ? 0 : -1;
+      tabEl.title = getTabDisplayTitle(tab);
+      tabEl.addEventListener('keydown', event => {
+        if (event.target !== tabEl) return;
+        if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); switchTab(tab.id); }
+        if (['ArrowRight', 'ArrowLeft', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) {
+          event.preventDefault();
+          const visible = [...tabsDiv.querySelectorAll('.tab')];
+          const index = visible.indexOf(tabEl);
+          const delta = ['ArrowRight', 'ArrowDown'].includes(event.key) ? 1 : -1;
+          const next = event.key === 'Home' ? 0 : event.key === 'End' ? visible.length - 1 : (index + delta + visible.length) % visible.length;
+          switchTab(Number(visible[next].dataset.tabId));
+          tabsDiv.querySelector('.tab.active')?.focus();
+        }
+      });
       let currentDragTransferId = null;
       let tabClass = "tab" + (tab.id === currentTabId ? " active" : "");
       if (tab.isIncognito) tabClass += " incognito";
@@ -2570,8 +2621,9 @@ window.addEventListener("DOMContentLoaded", () => {
         tabEl.appendChild(audioBtn);
       }
 
-      const closeBtn = document.createElement("div");
+      const closeBtn = document.createElement("button");
       closeBtn.className = "close";
+      closeBtn.type = 'button'; closeBtn.setAttribute('aria-label', `Close ${getTabDisplayTitle(tab)}`);
       closeBtn.textContent = "\u00d7";
       closeBtn.title = "Close tab";
       closeBtn.setAttribute("aria-label", "Close tab");
@@ -2873,6 +2925,12 @@ window.addEventListener("DOMContentLoaded", () => {
 
     frag.appendChild(newTabBtn);
     tabsDiv.appendChild(frag);
+    tabsDiv.setAttribute('role', 'tablist'); tabsDiv.setAttribute('aria-label', 'Open tabs');
+    tabsDiv.querySelector('.tab.active')?.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' });
+    requestAnimationFrame(() => {
+      const target = tabs[tabs.length - 1]?.id === currentTabId ? tabsDiv.querySelector('#new-tab-btn') : tabsDiv.querySelector('.tab.active');
+      target?.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' });
+    });
 
     // Create an invisible drop zone overlay that covers the entire tabs area including empty space
     if (!tabsDiv.querySelector(".tabs-drop-overlay")) {
@@ -3007,12 +3065,22 @@ window.addEventListener("DOMContentLoaded", () => {
   }
 
   function switchTab(id) {
+    const target = tabs.find(tab => tab.id === id);
+    if (!target) return;
+    if (target.groupId && tabGroups[target.groupId]?.collapsed) {
+      tabGroups[target.groupId].collapsed = false;
+      persistGroups();
+      renderTabs();
+    }
     currentTabId = id;
     persistTabs();
     updateView({ renderTabStrip: false });
     tabsDiv.querySelectorAll('.tab[data-tab-id]').forEach((tabEl) => {
       tabEl.classList.toggle('active', Number(tabEl.dataset.tabId) === Number(id));
+      tabEl.setAttribute('aria-selected', String(Number(tabEl.dataset.tabId) === Number(id)));
+      tabEl.tabIndex = Number(tabEl.dataset.tabId) === Number(id) ? 0 : -1;
     });
+    tabsDiv.querySelector('.tab.active')?.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' });
   }
 
   function newTab(url = "newtab", fromNavigate = false, options = {}) {
@@ -3034,7 +3102,7 @@ window.addEventListener("DOMContentLoaded", () => {
       tab.url = url;
     } else {
       // This is creating a new tab
-      const newTabId = Date.now();
+      const newTabId = Math.max(Date.now(), ...tabs.map(tab => Number(tab.id) + 1));
       const newTabObj = {
         id: newTabId,
         url,
@@ -4728,89 +4796,11 @@ window.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  // Quick Settings Sidebar Accordion
-  async function initializeSettingsAccordion() {
-    const sections = document.querySelectorAll(
-      "#settings-panel .settings-section",
-    );
-    if (!sections || sections.length === 0) return;
-
-    let savedState = {};
-    try {
-      const rawState = await storage.getItem("quickSettingsAccordionState");
-      savedState = rawState ? JSON.parse(rawState) : {};
-    } catch (error) {
-      console.debug("No saved quick settings accordion state found", error);
-      savedState = {};
-    }
-
-    const persistState = () => {
-      try {
-        storage.setItem(
-          "quickSettingsAccordionState",
-          JSON.stringify(savedState),
-        );
-      } catch (error) {
-        console.debug(
-          "Failed to persist quick settings accordion state",
-          error,
-        );
-      }
-    };
-
-    sections.forEach((section, index) => {
-      const heading = section.querySelector("h3");
-      if (!heading || heading.dataset.accordionReady === "true") return;
-
-      if (section.classList.contains("non-collapsible")) {
-        section.classList.remove("collapsed");
-        heading.removeAttribute("role");
-        heading.removeAttribute("tabindex");
-        heading.removeAttribute("aria-expanded");
-        return;
-      }
-
-      const sectionKey = section.id || `section-${index}`;
-      const isSavedCollapsed =
-        typeof savedState[sectionKey] === "boolean"
-          ? savedState[sectionKey]
-          : null;
-      const shouldStartOpen =
-        isSavedCollapsed === null ? index < 3 : !isSavedCollapsed;
-      section.classList.toggle("collapsed", !shouldStartOpen);
-
-      heading.setAttribute("role", "button");
-      heading.setAttribute("tabindex", "0");
-      heading.setAttribute("aria-expanded", shouldStartOpen ? "true" : "false");
-
-      const toggleSection = () => {
-        const collapsed = section.classList.toggle("collapsed");
-        heading.setAttribute("aria-expanded", collapsed ? "false" : "true");
-        savedState[sectionKey] = collapsed;
-        persistState();
-      };
-
-      heading.addEventListener("click", (event) => {
-        event.stopPropagation();
-        toggleSection();
-      });
-
-      heading.addEventListener("keydown", (event) => {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          toggleSection();
-        }
-      });
-
-      heading.dataset.accordionReady = "true";
-    });
+  function openSettingsPanel() {
+    document.getElementById('toolbar-menu-btn')?.click();
   }
 
-  initializeSettingsAccordion();
-
-  // Open the settings panel
-  function openSettingsPanel() {
-    initializeSettingsAccordion();
+  function syncQuickSettings() {
     // Set all current setting values before showing
     if (homepageInput) {
       homepageInput.value = homepage || "";
@@ -4857,63 +4847,17 @@ window.addEventListener("DOMContentLoaded", () => {
       userAgentInput.value = localStorage.getItem("userAgent") || "";
     }
 
-    // Apply current theme to settings panel
-    const currentTheme = normalizeTheme(localStorage.getItem("theme"));
-    settingsPanel.classList.remove(...DARK_THEMES);
-    settingsPanel.classList.add(currentTheme);
-
-    // First, make the panel visible but keep it off-screen
-    // This ensures it's in the DOM and rendered
-    settingsPanel.style.visibility = "visible";
-    overlay.classList.add("active");
-
-    // Force a reflow to ensure styles are applied
-    void settingsPanel.offsetWidth;
-
-    // Now add the active class to trigger the animation
-    settingsPanel.classList.add("active");
-
-    // Prevent scrolling of the main content while settings are open
-    document.body.style.overflow = "hidden";
-
-    // For extra safety, move the settings panel and overlay to the end of body
-    // This sometimes helps with z-index stacking contexts
-    document.body.appendChild(overlay);
-    document.body.appendChild(settingsPanel);
-    // Blur the URL input so keyboard input doesn't keep going to the url bar
-    try {
-      urlInput && urlInput.blur();
-    } catch (e) {}
   }
 
-  // Close the settings panel
   function closeSettingsPanel({ restoreUrlFocus = true } = {}) {
-    // Remove the active class first to trigger the animation
-    settingsPanel.classList.remove("active");
-    overlay.classList.remove("active");
-
-    // Wait for animation to complete before hiding
-    setTimeout(() => {
-      // Hide the panel and overlay after animation completes
-      settingsPanel.style.visibility = "hidden";
-      overlay.style.visibility = "hidden";
-
-      // Restore scrolling
-      document.body.style.overflow = "";
-      if (restoreUrlFocus) {
-        try {
-          urlInput && urlInput.focus();
-        } catch (e) {}
-      } else {
-        hideOmniboxSuggestions();
-      }
-    }, 300);
+    const menu = document.getElementById('toolbar-menu');
+    if (!menu?.open) return;
+    menu.close();
+    if (restoreUrlFocus) urlInput?.focus();
   }
 
   function closeSettingsPanelIfOpen(options = {}) {
-    if (settingsPanel && settingsPanel.classList.contains("active")) {
-      closeSettingsPanel(options);
-    }
+    closeSettingsPanel(options);
   }
 
   // Webview can sit above DOM overlays in Electron; close quick settings on direct webview interaction.
@@ -5386,10 +5330,17 @@ window.addEventListener("DOMContentLoaded", () => {
     quickLinks.forEach((q, i) => {
       const ql = document.createElement("div");
       ql.className = "quick-link";
+      ql.tabIndex = 0; ql.setAttribute('role', 'link');
+      ql.setAttribute('aria-label', q.label || q.url);
+      ql.addEventListener('keydown', event => {
+        if (event.target === ql && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); navigate(q.url); }
+      });
       ql.onclick = () => navigate(q.url);
 
-      const closeBtn = document.createElement("div");
+      const closeBtn = document.createElement("button");
       closeBtn.className = "close";
+      closeBtn.type = 'button'; closeBtn.setAttribute('aria-label', `Remove ${q.label || q.url}`);
+      closeBtn.append(icon('close'));
       closeBtn.onclick = (e) => {
         e.stopPropagation();
         quickLinks.splice(i, 1);
@@ -5418,11 +5369,14 @@ window.addEventListener("DOMContentLoaded", () => {
     // Add the "Add new" button at the end
     const addBtn = document.createElement("button");
     addBtn.id = "add-quick-link-btn";
+    addBtn.setAttribute('aria-label', 'Add quick link');
     addBtn.textContent = "+";
 
     if (addQuickLinkModal) {
       addBtn.onclick = () => {
         addQuickLinkModal.style.display = "block";
+        addQuickLinkModal.showModal();
+        newQuickLinkUrlInput.focus();
       };
     }
     quickLinksDiv.appendChild(addBtn);
@@ -5431,13 +5385,20 @@ window.addEventListener("DOMContentLoaded", () => {
 
   // Modal Logic - only if the elements exist
   if (addQuickLinkModal && closeButton && saveQuickLinkBtn) {
+    addQuickLinkModal.addEventListener('cancel', () => { addQuickLinkModal.style.display = 'none'; });
+    addQuickLinkModal.addEventListener('close', () => document.getElementById('add-quick-link-btn')?.focus());
+    addQuickLinkModal.addEventListener('keydown', event => {
+      if (event.key === 'Enter' && event.target.tagName === 'INPUT') { event.preventDefault(); saveQuickLinkBtn.click(); }
+    });
     closeButton.onclick = () => {
       addQuickLinkModal.style.display = "none";
+      addQuickLinkModal.close();
     };
 
     window.addEventListener("click", (event) => {
       if (event.target == addQuickLinkModal) {
         addQuickLinkModal.style.display = "none";
+        addQuickLinkModal.close();
       }
     });
 
@@ -5469,6 +5430,7 @@ window.addEventListener("DOMContentLoaded", () => {
         newQuickLinkUrlInput.value = "";
         newQuickLinkLabelInput.value = "";
         addQuickLinkModal.style.display = "none";
+        addQuickLinkModal.close();
       } else {
         showUpdateNotification("This quick link already exists.", "info", 3000);
       }
@@ -5913,7 +5875,9 @@ window.addEventListener("DOMContentLoaded", () => {
       const parsed = JSON.parse(savedDownloads || "[]");
       if (Array.isArray(parsed) && parsed.length) {
         downloads = parsed;
+        downloads.forEach(item => { if (item.state === 'downloading') item.state = 'interrupted'; });
         localStorage.setItem("downloads", JSON.stringify(downloads));
+        refreshDownloadsModal();
       }
     } catch (error) {
       console.warn("Unable to restore downloads:", error);
@@ -5947,12 +5911,14 @@ window.addEventListener("DOMContentLoaded", () => {
   function refreshDownloadsModal() {
     const list = document.querySelector("#downloads-modal #downloads-list");
     if (list) renderDownloadsList(list, downloads);
+    document.dispatchEvent(new Event('vortex-downloads-changed'));
   }
 
   function closeDownloadsModal() {
     const modal = document.getElementById("downloads-modal");
     if (modal) {
       modal.classList.remove("active");
+      modal.close();
     }
   }
 
@@ -6014,9 +5980,10 @@ window.addEventListener("DOMContentLoaded", () => {
     let modal = document.getElementById("downloads-modal");
     if (modal) return modal;
 
-    modal = document.createElement("div");
+    modal = document.createElement("dialog");
     modal.id = "downloads-modal";
     modal.className = "modal";
+    modal.setAttribute('aria-label', 'Download history');
     modal.innerHTML = `
       <div class="downloads-content" role="dialog" aria-modal="true" aria-label="Downloads">
         <div class="downloads-header">
@@ -6061,6 +6028,7 @@ window.addEventListener("DOMContentLoaded", () => {
   window.electronAPI.onDownloadStarted &&
     window.electronAPI.onDownloadStarted((data) => {
       downloads.push({
+        id: data.id,
         name: data.name,
         url: data.url,
         size: data.size,
@@ -6074,9 +6042,10 @@ window.addEventListener("DOMContentLoaded", () => {
 
   window.electronAPI.onDownloadProgress &&
     window.electronAPI.onDownloadProgress((data) => {
-      const download = downloads.find((d) => d.name === data.name);
+      const download = downloads.find((d) => d.id === data.id);
       if (download) {
         download.progress = data.progress;
+        download.size = data.size || download.size;
         persistDownloads();
         refreshDownloadsModal();
       }
@@ -6084,10 +6053,12 @@ window.addEventListener("DOMContentLoaded", () => {
 
   window.electronAPI.onDownloadCompleted &&
     window.electronAPI.onDownloadCompleted((data) => {
-      const download = downloads.find((d) => d.name === data.name);
+      const download = downloads.find((d) => d.id === data.id);
       if (download) {
         download.state = data.state;
         download.savePath = data.savePath;
+        download.size = data.size || download.size;
+        if (data.state === 'completed') download.progress = 1;
         persistDownloads();
         refreshDownloadsModal();
       }
@@ -6099,6 +6070,8 @@ window.addEventListener("DOMContentLoaded", () => {
     const list = modal.querySelector("#downloads-list");
     renderDownloadsList(list, downloads);
     modal.classList.add("active");
+    if (!modal.open) modal.showModal();
+    modal.addEventListener('cancel', () => modal.classList.remove('active'), { once: true });
   }
 
   const showDownloadsBtn = document.getElementById("show-downloads-btn");
@@ -6157,8 +6130,11 @@ window.addEventListener("DOMContentLoaded", () => {
 
   // Save session on unload
   window.addEventListener("beforeunload", () => {
-    localStorage.setItem("lastSessionTabs", JSON.stringify(tabs));
-    localStorage.setItem("lastCurrentTabId", currentTabId.toString());
+    if (!isIncognitoWindow) {
+      const publicTabs = tabs.filter(tab => !tab.isIncognito);
+      localStorage.setItem("lastSessionTabs", JSON.stringify(publicTabs));
+      localStorage.setItem("lastCurrentTabId", String(publicTabs.some(tab => tab.id === currentTabId) ? currentTabId : publicTabs[0]?.id || ''));
+    }
     // Flush buffered history using the central manager
     try {
       historyManager.flush();
@@ -6280,6 +6256,52 @@ window.addEventListener("DOMContentLoaded", () => {
     // Use original navigate function
     originalNavigate(url);
   };
+
+  initializeBrowserUI({
+    storage, incognito: isIncognitoWindow,
+    prepareQuickSettings: () => { closeQuickHistoryPanelIfOpen({ restoreUrlFocus: false }); syncQuickSettings(); },
+    getState: () => ({ tabs, groups: tabGroups, currentTabId }),
+    switchTab,
+    openSettings: (section = 'general') => { newTab(new URL(`settings.html#${section}`, window.location.href).href); closeSettingsPanel(); },
+    getDownloads: () => downloads,
+    formatSize: formatDownloadSize,
+    showDownloads: showDownloadsModal,
+    getQuickLinks: () => quickLinks,
+    moveQuickLink: async (index, delta) => {
+      const next = index + delta;
+      if (next < 0 || next >= quickLinks.length) return;
+      const [link] = quickLinks.splice(index, 1); quickLinks.splice(next, 0, link);
+      cancelDebouncedSetItem('quickLinks');
+      await storage.setItem('quickLinks', JSON.stringify(quickLinks)); renderQuickLinks();
+    },
+    flushSession: async () => {
+      clearTimeout(_persistTabsTimeout);
+      const saved = tabs.filter(tab => !tab.isIncognito).map(tab => ({ id: tab.id, url: tab.url, title: tab.title, groupId: tab.groupId, history: tab.history, historyIndex: tab.historyIndex }));
+      const results = await Promise.all([storage.setItem(storageKey('tabs'), JSON.stringify(saved)), storage.setItem(storageKey('currentTabId'), saved.some(tab => tab.id === currentTabId) ? currentTabId : saved[0]?.id), storage.setItem(storageKey('tabGroups'), JSON.stringify(tabGroups)), historyManager.flush()]);
+      if (results.slice(0, 3).some(result => !result)) throw new Error('Could not save the current session.');
+    },
+    openWorkspace: (entries) => {
+      if (isIncognitoWindow) return;
+      const groups = new Map();
+      let nextId = Math.max(Date.now(), ...tabs.map(tab => Number(tab.id) + 1));
+      let firstId;
+      for (const entry of entries) {
+        if (!/^https?:\/\//i.test(entry.url || '')) continue;
+        let groupId;
+        if (entry.group) {
+          if (!groups.has(entry.group.key)) {
+            const id = crypto.randomUUID(); groups.set(entry.group.key, id);
+            tabGroups[id] = { id, name: entry.group.name, color: isValidGroupColor(entry.group.color) ? entry.group.color : '#3b82f6', collapsed: false };
+          }
+          groupId = groups.get(entry.group.key);
+        }
+        const id = nextId++; firstId ??= id;
+        tabs.push({ id, url: entry.url, title: entry.title, groupId, history: [entry.url], historyIndex: 0, viewCreated: false, isIncognito: false });
+      }
+      if (firstId !== undefined) currentTabId = firstId;
+      persistGroups(); persistTabs(); updateView();
+    },
+  }).catch(error => console.error('Browser UI initialization failed', error));
 
   // Page title updates come from webview event listeners now.
 });

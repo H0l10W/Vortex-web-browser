@@ -1,5 +1,9 @@
 // Small utility exports used by renderer components
 export const __debounceSetTimers = new Map();
+export function cancelDebouncedSetItem(key) {
+  if (__debounceSetTimers.has(key)) clearTimeout(__debounceSetTimers.get(key));
+  __debounceSetTimers.delete(key);
+}
 export function debouncedSetItem(key, value, delay = 500) {
   if (__debounceSetTimers.has(key)) clearTimeout(__debounceSetTimers.get(key));
   const timer = setTimeout(() => {

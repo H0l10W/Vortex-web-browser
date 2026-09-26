@@ -1,5 +1,36 @@
 # Vortex Browser - Changelog
 
+## [0.6.0] - 2026-09-26
+
+### Added
+- Added customizable toolbar pins and a labeled browser menu, with automatic overflow for narrow windows.
+- Added searchable open tabs, optional vertical tabs, keyboard tab navigation, and readable horizontal tab overflow.
+- Added a collapse/expand button to the vertical tab sidebar, with a compact favicon rail and a saved collapsed-state preference.
+- Added settings search with direct navigation to matching controls and highlighted results.
+- Added a toolbar profile picker showing the active profile and an explicit Switch and restart action.
+- Added profile-local saved workspaces with open, rename, update, delete, and undo actions, preserving tab groups while excluding incognito and internal pages.
+- Added a new-tab customizer with minimal and information-rich layouts, widget placement and order, and keyboard-accessible quick-link reordering.
+- Added a recent-downloads toolbar panel with active progress, file status and size, Show in folder, and access to full download history.
+- Added isolated Electron interaction tests and workspace data validation tests, covering menu controls, sidebar collapse/expand, native window dragging, tab geometry, downloads, saved preferences, and narrow/scaled layouts.
+
+### Changed
+- Integrated quick settings into the three-dot browser menu with compact switches and consistent vector icons, removing the separate settings toolbar button.
+- Placed page zoom, bookmarks-bar visibility, dark web content, ad blocking, and tracker blocking directly in the browser menu, alongside labeled shortcuts for bookmarks, history, downloads, full settings, toolbar customization, browsing-data settings, and update checks.
+- Tidied the vertical sidebar with a dedicated Tabs header, consistent tab spacing, aligned controls, and automatic content resizing when collapsed.
+- Unified browser navigation and Settings navigation icons with local SVG controls.
+- Clarified address-bar result sources and made open-tab suggestions switch to their existing tabs.
+- Added native dialog focus handling, Escape dismissal, accessible quick-link controls, and reduced-motion support for new UI surfaces.
+
+### Fixed
+- Applied every selectable color theme consistently across browser and Settings controls, including complete Sunny and Sakura accents, gradients, and hover states.
+- Restored a native window-dragging area, complete rounded tab borders, and the New tab button immediately after the last tab.
+- Kept grouped-tab outlines visible and active tabs within view in both horizontal and vertical layouts.
+- Made the open-tab search shortcut work while a webpage has keyboard focus.
+- Connected download events through the preload bridge and assigned stable IDs so simultaneous files with matching names receive the correct progress and completion updates.
+- Prevented concurrent downloads from overwriting each other when using a custom download folder.
+- Prevented delayed quick-link saves from overwriting a newly chosen order.
+- Excluded incognito tabs from the legacy last-session backup.
+
 ## [0.5.0] - 2026-09-04
 
 ### Added

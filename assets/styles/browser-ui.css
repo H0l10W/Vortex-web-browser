@@ -1,0 +1,124 @@
+/* Browser usability surfaces. Existing theme tokens remain the source of color. */
+.ui-icon { width: 20px; height: 20px; flex: 0 0 20px; pointer-events: none; }
+#controls .icon-btn > .ui-icon { width: 19px; height: 19px; }
+#window-controls .window-control-btn > img { display: none; }
+#window-controls .ui-icon { width: 15px; height: 15px; }
+#controls .toolbar-unpinned, #controls .toolbar-overflow, .tab-tools .toolbar-unpinned { display: none !important; }
+#controls .button-group-left, #controls .button-group-right { gap: 4px !important; }
+#controls .button-group-right:has(> .toolbar-unpinned):not(:has(> :not(.toolbar-unpinned))) { display: none; }
+#controls { gap: 6px !important; padding-inline: 12px !important; }
+#url-bar-shell { min-width: 100px !important; }
+.browser-tool { position: relative; flex-shrink: 0; }
+.tab-tools { display: flex; align-items: center; gap: 3px; padding: 0 7px; flex-shrink: 0; -webkit-app-region: no-drag; }
+.tab-tools .icon-btn { width: 32px; height: 32px; padding: 6px; color: var(--ui-text, #ddd); background: transparent; border: 0; border-radius: 8px; cursor: pointer; display: grid; place-items: center; }
+.tab-tools .icon-btn:hover { background: color-mix(in srgb, var(--accent-color-dark) 24%, transparent); }
+#controls #profile-toolbar-btn { flex: 0 0 auto !important; aspect-ratio: auto !important; width: auto !important; min-width: 34px; max-width: 140px; gap: 7px; padding: 0 9px !important; border-radius: 18px !important; }
+#controls #profile-toolbar-btn .profile-toolbar-name { display: inline; max-width: 85px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; flex: 0 1 auto; }
+#downloads-toolbar-btn.has-downloads::after { content: ''; position: absolute; bottom: 0; left: 4px; right: 4px; height: 3px; border-radius: 3px; background: linear-gradient(to right, #55c797 var(--download-progress), #555 var(--download-progress)); }
+#title-bar #tabs { flex: 0 1 auto !important; width: max-content; min-width: 0 !important; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; align-items: center !important; padding: 4px !important; box-sizing: border-box; -webkit-app-region: no-drag; }
+.titlebar-drag-space { flex: 1 0 40px; align-self: stretch; -webkit-app-region: drag; }
+#title-bar #tabs .tab { flex: 0 0 190px !important; min-width: 160px !important; border-radius: 10px !important; height: 38px !important; border-bottom: 1px solid var(--chrome-tab-border) !important; }
+#title-bar #tabs .tab.active { height: 38px !important; }
+#title-bar #tabs .tab.grouped { border: 2px solid var(--group-color, #3b82f6) !important; }
+#title-bar #tabs .tab .tab-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+#tabs .tab .close { width: 24px !important; height: 24px !important; min-width: 24px !important; flex-shrink: 0; }
+#tabs .tab-group-label { flex-shrink: 0; }
+#tabs #new-tab-btn { position: static; flex-shrink: 0; }
+#title-bar { padding-left: 10px; }
+body[data-tab-layout="vertical"] { --vertical-width: 224px; }
+body[data-tab-layout="vertical"] #title-bar { padding-left: 12px; justify-content: flex-end; }
+body[data-tab-layout="vertical"] #title-bar::before { content: 'VORTEX'; margin-right: auto; color: var(--ui-muted, #aaa); font-size: 11px; letter-spacing: .16em; }
+body[data-tab-layout="vertical"] #title-bar #tabs { position: fixed; left: 0; top: 94px; bottom: 0; width: var(--vertical-width); height: auto !important; margin: 0 !important; padding: 8px !important; gap: 5px; box-sizing: border-box; flex-direction: column; align-items: stretch !important; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; background: var(--v-toolbar, #222226); border-right: 1px solid var(--ui-border, #45454b); z-index: 100; }
+body[data-tab-layout="vertical"] #title-bar #tabs .tab { flex: 0 0 38px !important; min-width: 0 !important; max-width: none !important; width: 100% !important; box-sizing: border-box; }
+body[data-tab-layout="vertical"] #tabs .tab-group-label { align-self: flex-start; margin: 6px 0 2px !important; }
+body[data-tab-layout="vertical"] #tabs #new-tab-btn { position: static; align-self: flex-start; }
+body[data-tab-layout="vertical"] #controls,
+body[data-tab-layout="vertical"] #bookmark-bar,
+body[data-tab-layout="vertical"] #main-content { margin-left: var(--vertical-width); width: calc(100% - var(--vertical-width)); box-sizing: border-box; }
+body[data-tab-layout="vertical"] #group-mgmt-btn { left: 112px !important; }
+body[data-tab-layout="vertical"] #resource-control { left: var(--vertical-width); }
+.vortex-dialog { --dialog-bg: var(--v-toolbar, #262629); --dialog-text: var(--ui-text, #f1f1f3); color-scheme: dark; width: min(490px, calc(100vw - 32px)); max-height: calc(100dvh - 40px); box-sizing: border-box; padding: 0; border: 1px solid var(--ui-border, #48484f); border-radius: 16px; background: var(--dialog-bg); color: var(--dialog-text); box-shadow: 0 22px 80px #0008; font: 13px/1.5 'Segoe UI', sans-serif; overflow: auto; }
+.vortex-dialog::backdrop { background: #0005; }
+.vortex-dialog-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 18px 22px 12px; position: sticky; top: 0; background: var(--dialog-bg); z-index: 1; border-bottom: 1px solid #8883; }
+.vortex-dialog h2 { margin: 0; font-size: 18px; font-weight: 600; }
+.vortex-dialog h3 { margin: 20px 0 8px; font-size: 14px; }
+.vortex-dialog-body { padding: 16px 22px 22px; }
+.vortex-dialog button, .vortex-dialog input, .vortex-dialog select { font: inherit; color: inherit; box-sizing: border-box; }
+.vortex-dialog button { min-height: 34px; padding: 6px 11px; border: 1px solid #8884; border-radius: 8px; background: #8881; cursor: pointer; }
+.vortex-dialog button:hover { background: color-mix(in srgb, var(--accent-color-dark, #888) 30%, transparent); }
+.vortex-dialog button:disabled { opacity: .4; cursor: default; }
+.vortex-dialog input:not([type="checkbox"]), .vortex-dialog select { min-width: 0; min-height: 38px; border: 1px solid #8886; background: #0002; border-radius: 8px; padding: 8px 10px; }
+.vortex-dialog input[type="search"] { width: 100%; }
+.vortex-dialog select option { background: var(--dialog-bg); }
+.vortex-dialog input[type="checkbox"] { width: 20px; height: 20px; accent-color: #57b98f; }
+.vortex-dialog .quiet-button { background: transparent; border-color: transparent; }
+.dialog-note { color: var(--ui-muted, #b3b3be); font-size: 12px; margin: 0 0 14px; }
+.dialog-note:empty { display: none; }
+.dialog-empty { padding: 20px 0; color: var(--ui-muted, #b3b3be); }
+.preference-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 0; border-bottom: 1px solid #8883; }
+.preference-row > span, .preference-row > strong { min-width: 0; overflow-wrap: anywhere; }
+.vortex-dialog .menu-action { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; border: 0; margin: 3px 0; min-height: 40px; background: transparent; }
+#toolbar-menu { position: fixed; inset: auto 12px auto auto; margin: 0; width: min(340px, calc(100vw - 24px)); border-radius: 14px; }
+#toolbar-menu::backdrop { background: transparent; }
+#toolbar-menu .vortex-dialog-header { padding: 12px 16px; }
+#toolbar-menu h2 { font-size: 15px; }
+#toolbar-menu .vortex-dialog-body { padding: 8px 12px 12px; }
+#toolbar-menu .menu-quick-settings { padding: 0 4px 10px; margin-bottom: 8px; border-bottom: 1px solid #8883; }
+#toolbar-menu h3 { margin: 5px 0 6px; font-size: 11px; font-weight: 600; color: var(--ui-muted, #b3b3be); letter-spacing: .04em; }
+#toolbar-menu .preference-row { box-sizing: border-box; min-height: 34px; padding: 3px 0; border: 0; cursor: pointer; }
+#toolbar-menu select { min-height: 30px; padding: 3px 8px; }
+#toolbar-menu input.menu-switch { appearance: none; position: relative; display: block; width: 32px; height: 18px; flex: 0 0 32px; margin: 0; border: 1px solid #8888; border-radius: 12px; background: #8885; cursor: pointer; }
+#toolbar-menu input.menu-switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%; background: #f5f5f5; }
+#toolbar-menu input.menu-switch:checked { background: #398564; border-color: #398564; }
+#toolbar-menu input.menu-switch:checked::after { left: 16px; }
+#toolbar-menu .menu-action { min-height: 34px; margin: 1px 0; padding: 6px 8px; }
+#toolbar-menu .menu-action:hover { background: color-mix(in srgb, var(--accent-color-dark, #888) 22%, transparent); }
+#toolbar-menu .menu-action .ui-icon { width: 17px; height: 17px; flex-basis: 17px; }
+#toolbar-menu .menu-footer { border-top: 1px solid #8883; margin-top: 8px; padding-top: 8px; }
+.tab-search-results { max-height: min(360px, 45vh); overflow: auto; }
+.vortex-dialog .tab-search-result { display: flex; flex-direction: column; width: 100%; text-align: left; gap: 3px; border: 0; border-left: 3px solid var(--result-group, transparent); margin: 4px 0; padding: 10px 12px; }
+.tab-search-result strong, .tab-search-result small { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tab-search-result small, .workspace-row > small, .compact-download small { color: var(--ui-muted, #b3b3be); }
+.inline-form { display: flex; gap: 8px; margin: 12px 0; }
+.inline-form input { flex: 1; }
+.row-actions { display: flex; gap: 6px; flex-shrink: 0; flex-wrap: wrap; }
+.workspace-row { display: grid; gap: 8px; padding: 16px 0; border-top: 1px solid #8883; }
+.workspace-row input { width: 100%; }
+.compact-download { display: grid; gap: 6px; padding: 14px 0; border-bottom: 1px solid #8883; }
+.compact-download strong { overflow-wrap: anywhere; }
+.compact-download button { justify-self: start; }
+.compact-download progress { width: 100%; height: 5px; accent-color: #55c797; }
+.newtab-customize-button { position: absolute; top: 18px; right: 22px; display: flex; align-items: center; gap: 7px; padding: 8px 12px; min-height: 36px; border-radius: 20px; border: 1px solid #8886; color: var(--ui-text, #eee); background: var(--v-toolbar, #262629); cursor: pointer; z-index: 2; }
+#newtab.active { display: flex; flex-direction: column; align-items: center; justify-content: flex-start; overflow-y: auto; padding: 64px 24px 32px; box-sizing: border-box; }
+#newtab > h2 { order: 1; margin: 12px 0 16px; font-size: 16px; }
+#newtab #quick-links { order: 2; flex-shrink: 0; max-width: 940px; width: 100%; justify-content: center; }
+#newtab #widgets-container { order: 0; width: 100%; max-width: 940px; flex-shrink: 0; justify-content: center; flex-wrap: wrap; margin: 12px 0 24px; }
+#newtab[data-widget-position="below"] #widgets-container { order: 3; margin-top: 30px; }
+#newtab[data-layout="minimal"] #widgets-container { display: none !important; }
+#newtab[data-layout="minimal"] > h2 { margin-top: clamp(20px, 12vh, 120px); }
+#newtab #weather-widget, #newtab #news-widget { width: min(390px, 100%); }
+#quick-links .quick-link { position: relative; }
+#quick-links .quick-link .close { width: 24px; height: 24px; cursor: pointer; background-image: none; background-color: var(--v-toolbar, #262629); color: var(--ui-text, #eee); padding: 2px; border: 0; border-radius: 50%; }
+#quick-links .quick-link:focus-within .close { display: block; }
+dialog#add-quick-link-modal, dialog#downloads-modal { max-width: none; max-height: none; border: 0; padding: 0; margin: 0; color: inherit; }
+#downloads-modal .downloads-header-actions .close-button { position: static; width: 32px; height: 32px; margin: 0; }
+#title-bar #tabs #new-tab-btn { width: 32px !important; min-width: 32px !important; height: 32px !important; min-height: 32px !important; flex: 0 0 32px !important; padding: 0 !important; margin: 0 !important; border-radius: 50% !important; display: grid; place-items: center; font-size: 22px; -webkit-app-region: no-drag; }
+:is(.vortex-dialog, .tab-tools, #newtab) :is(button, input, select, [tabindex]):focus-visible { outline: 2px solid #80b5ff; outline-offset: 3px; }
+@media (max-width: 1000px) { #controls #profile-toolbar-btn .profile-toolbar-name { display: none; } body[data-tab-layout="vertical"] { --vertical-width: 188px; } }
+.vertical-sidebar-header { display: none; }
+body[data-tab-layout="vertical"] .vertical-sidebar-header { position: fixed; top: 50px; left: 0; width: var(--vertical-width); height: 44px; box-sizing: border-box; padding: 6px 10px 6px 16px; display: flex; align-items: center; justify-content: space-between; background: var(--v-toolbar, #222226); color: var(--ui-text, #eee); border-right: 1px solid var(--ui-border, #45454b); z-index: 101; -webkit-app-region: no-drag; }
+.vertical-sidebar-header strong { font: 600 12px 'Segoe UI', sans-serif; }
+#collapse-tabs-btn { display: grid; place-items: center; width: 30px; height: 30px; padding: 5px; border: 0; border-radius: 8px; background: transparent; color: inherit; cursor: pointer; }
+#collapse-tabs-btn:hover { background: #8883; }
+#collapse-tabs-btn:focus-visible { outline: 2px solid #80b5ff; outline-offset: 2px; }
+body[data-tab-layout="vertical"] #title-bar #tabs .tab { margin: 0 !important; padding: 0 9px !important; }
+body[data-tab-layout="vertical"][data-tabs-collapsed="true"] { --vertical-width: 56px; }
+body[data-tab-layout="vertical"][data-tabs-collapsed="true"] .vertical-sidebar-header { padding: 7px 13px; }
+body[data-tab-layout="vertical"][data-tabs-collapsed="true"] .vertical-sidebar-header strong,
+body[data-tab-layout="vertical"][data-tabs-collapsed="true"] #tabs .tab-title,
+body[data-tab-layout="vertical"][data-tabs-collapsed="true"] #tabs .tab .close,
+body[data-tab-layout="vertical"][data-tabs-collapsed="true"] #tabs .tab-group-label { display: none !important; }
+body[data-tab-layout="vertical"][data-tabs-collapsed="true"] #title-bar #tabs .tab { justify-content: center; padding: 0 !important; gap: 0 !important; }
+body[data-tab-layout="vertical"][data-tabs-collapsed="true"] #tabs .tab img { margin: 0 !important; }
+@media (max-width: 760px) { #controls { gap: 3px !important; padding-inline: 6px !important; } #controls .icon-btn { width: 30px !important; min-width: 30px !important; } .vortex-dialog-body { padding-inline: 16px; } .preference-row { gap: 10px; } }
+@media (prefers-reduced-motion: reduce) { .vortex-dialog *, #tabs *, #newtab * { animation: none !important; transition: none !important; scroll-behavior: auto !important; } }
